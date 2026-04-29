@@ -254,7 +254,6 @@ export type DbtModelPropertiesColumnMeta = {
   // type: FrameworkDataType;
   // Meta for framework
   type?: 'dim' | 'fct';
-  case_sensitive?: boolean;
   name?: string;
   agg?: FrameworkColumnAgg;
   interval?: 'day' | 'hour' | 'month' | 'year';

@@ -7,6 +7,9 @@
     "ai_hint": {
       "$ref": "lightdash.ai_hint.schema.json"
     },
+    "case_sensitive": {
+      "$ref": "lightdash.case_sensitive.schema.json"
+    },
     "group_label": {
       "description": "The group label that will be applied to the column in lightdash",
       "type": "string"

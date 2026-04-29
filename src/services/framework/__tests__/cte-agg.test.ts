@@ -833,7 +833,7 @@ describe('CTE scalar-meta forwarding parity with main-model', () => {
     expect(descCol.meta.exclude_from_group_by).toBe(true);
   });
 
-  test('override_suffix_agg and lightdash.case_sensitive are forwarded to the registered CTE column', () => {
+  test('override_suffix_agg and lightdash.dimension.case_sensitive are forwarded to the registered CTE column', () => {
     const cte: FrameworkCTE = {
       name: 'pre_agg',
       from: { model: 'src_meta' },
@@ -843,7 +843,7 @@ describe('CTE scalar-meta forwarding parity with main-model', () => {
           name: 'description_text',
           type: 'dim',
           override_suffix_agg: true,
-          lightdash: { case_sensitive: true },
+          lightdash: { dimension: { case_sensitive: true } },
         },
       ],
     } as any;
@@ -855,7 +855,7 @@ describe('CTE scalar-meta forwarding parity with main-model', () => {
       .get('pre_agg')!
       .find((c) => c.name === 'description_text')!;
     expect(descCol.meta.override_suffix_agg).toBe(true);
-    expect(descCol.meta.case_sensitive).toBe(true);
+    expect(descCol.meta.dimension?.case_sensitive).toBe(true);
   });
 
   test('scalar meta forwarded onto aggs-generated CTE columns', () => {
@@ -869,8 +869,7 @@ describe('CTE scalar-meta forwarding parity with main-model', () => {
           type: 'fct',
           aggs: ['sum', 'hll'],
           lightdash: {
-            dimension: { label: 'Amount', hidden: true },
-            case_sensitive: false,
+            dimension: { label: 'Amount', hidden: true, case_sensitive: false },
           },
         },
       ],
@@ -882,10 +881,16 @@ describe('CTE scalar-meta forwarding parity with main-model', () => {
     const cols = registry.get('pre_agg')!;
     const sumCol = cols.find((c) => c.name === 'amount_sum')!;
     const hllCol = cols.find((c) => c.name === 'amount_hll')!;
-    expect(sumCol.meta.dimension).toEqual({ label: 'Amount', hidden: true });
-    expect(sumCol.meta.case_sensitive).toBe(false);
-    expect(hllCol.meta.dimension).toEqual({ label: 'Amount', hidden: true });
-    expect(hllCol.meta.case_sensitive).toBe(false);
+    expect(sumCol.meta.dimension).toEqual({
+      label: 'Amount',
+      hidden: true,
+      case_sensitive: false,
+    });
+    expect(hllCol.meta.dimension).toEqual({
+      label: 'Amount',
+      hidden: true,
+      case_sensitive: false,
+    });
   });
 });
 

@@ -1439,3 +1439,110 @@ describe('incremental unique_key defaulting', () => {
     ]);
   });
 });
+
+describe('partition column case_sensitive', () => {
+  const project: DbtProject = {
+    name: 'project',
+    macroPaths: ['macros'],
+    manifest: {
+      child_map: {},
+      disabled: {},
+      docs: {},
+      exposures: {},
+      group_map: {},
+      groups: {},
+      macros: {},
+      metadata: { project_name: 'project' },
+      metrics: {},
+      nodes: {
+        ['model.project.parent_daily']: {
+          meta: {
+            portal_partition_columns: ['portal_partition_daily'],
+          },
+          columns: {
+            dim_a: {
+              name: 'dim_a',
+              data_type: 'varchar',
+              meta: { type: 'dim' },
+            },
+            portal_partition_daily: {
+              name: 'portal_partition_daily',
+              data_type: 'date',
+              meta: { type: 'dim' },
+            },
+          },
+        },
+      },
+      parent_map: {},
+      saved_queries: {},
+      selectors: {},
+      semantic_models: {},
+      sources: {},
+    },
+    modelPaths: ['models'],
+    packagePath: '',
+    pathRelative: '',
+    pathSystem: '',
+    properties: { vars: { event_dates: '2024-07-01' } },
+    targetPath: 'target',
+    variables: {},
+  };
+
+  test('partition columns automatically get case_sensitive: true', () => {
+    const modelJson: FrameworkModel = {
+      type: 'int_select_model',
+      group: 'sales',
+      topic: 'orders',
+      name: 'daily_model',
+      materialization: 'incremental',
+      select: ['portal_partition_daily', { name: 'dim_a', type: 'dim' }],
+      from: { model: 'parent_daily' },
+    } as unknown as FrameworkModel;
+
+    const { properties } = frameworkGenerateModelOutput({
+      dj: createTestDJ(),
+      modelJson,
+      project,
+    });
+
+    const partitionCol = properties.columns?.find(
+      (c) => c.name === 'portal_partition_daily',
+    );
+    expect(partitionCol?.meta?.dimension?.case_sensitive).toBe(true);
+
+    // Non-partition columns should not get case_sensitive auto-set
+    const dimCol = properties.columns?.find((c) => c.name === 'dim_a');
+    expect(dimCol?.meta?.dimension?.case_sensitive).toBeUndefined();
+  });
+
+  test('explicit case_sensitive: false on partition column is preserved', () => {
+    const modelJson: FrameworkModel = {
+      type: 'int_select_model',
+      group: 'sales',
+      topic: 'orders',
+      name: 'daily_model_override',
+      materialization: 'incremental',
+      select: [
+        {
+          name: 'portal_partition_daily',
+          type: 'dim',
+          lightdash: { dimension: { case_sensitive: false } },
+        },
+        { name: 'dim_a', type: 'dim' },
+      ],
+      from: { model: 'parent_daily' },
+    } as unknown as FrameworkModel;
+
+    const { properties } = frameworkGenerateModelOutput({
+      dj: createTestDJ(),
+      modelJson,
+      project,
+    });
+
+    const partitionCol = properties.columns?.find(
+      (c) => c.name === 'portal_partition_daily',
+    );
+    // Explicit false overrides the auto-set behavior
+    expect(partitionCol?.meta?.dimension?.case_sensitive).toBe(false);
+  });
+});
