@@ -123,8 +123,18 @@ export interface SyncCallbacks {
     jsonContent?: string,
   ) => void;
 
-  /** Called for non-blocking validation issues (e.g. CTE column reference warnings) */
-  onModelValidationWarning?: (uri: vscode.Uri, message: string) => void;
+  /**
+   * Called for non-blocking validation issues (e.g. CTE column reference
+   * warnings, main-model aggregation soft-fails). Optionally carries
+   * structured per-error details (with `instancePath`) so the consumer can
+   * pin diagnostics to specific JSON locations.
+   */
+  onModelValidationWarning?: (
+    uri: vscode.Uri,
+    message: string,
+    errors?: ValidationErrorDetail[],
+    jsonContent?: string,
+  ) => void;
 
   /** Called when SQL/YML generation fails */
   onGenerationError?: (

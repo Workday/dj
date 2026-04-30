@@ -2385,6 +2385,67 @@ export function isAggregateExpr(expr?: string): boolean {
   });
 }
 
+// Numeric literal: `0`, `-1.5`, `42`.
+const CONSTANT_NUMERIC_REGEX = /^-?\d+(\.\d+)?$/;
+// SQL string literal: `'foo'` or `"foo"` (no embedded quotes).
+const CONSTANT_STRING_REGEX = /^('[^']*'|"[^"]*")$/;
+// `CAST(<literal> AS <type>)` where `<literal>` is null, numeric, or string,
+// and `<type>` is an identifier optionally followed by `(...)` for length/
+// precision (e.g. `varchar(50)`, `decimal(10, 2)`).
+const CONSTANT_CAST_REGEX =
+  /^cast\s*\(\s*(null|-?\d+(\.\d+)?|'[^']*'|"[^"]*")\s+as\s+\w+(\s*\([^)]*\))?\s*\)$/i;
+
+/**
+ * Returns true when `expr` is a SQL constant with no column dependencies:
+ * numeric literal, `null`/`NULL`, quoted string, or `CAST(<literal> AS <type>)`.
+ * Such expressions cannot conflict with `GROUP BY`, so they are safe to skip
+ * in main-model aggregation validation.
+ */
+export function isConstantExpr(expr?: string): boolean {
+  if (!expr) {
+    return false;
+  }
+  const haystack = expr.trim();
+  if (!haystack) {
+    return false;
+  }
+  if (haystack.toLowerCase() === 'null') {
+    return true;
+  }
+  if (CONSTANT_NUMERIC_REGEX.test(haystack)) {
+    return true;
+  }
+  if (CONSTANT_STRING_REGEX.test(haystack)) {
+    return true;
+  }
+  return CONSTANT_CAST_REGEX.test(haystack);
+}
+
+/**
+ * Returns true when `expr` contains Jinja templating (`{{ ... }}` or
+ * `{% ... %}`). The framework cannot inspect macro expansions, so any Jinja
+ * `expr` is treated as opaque-aggregated to avoid false-positive
+ * "un-aggregated" diagnostics.
+ */
+export function isJinjaExpr(expr?: string): boolean {
+  if (!expr) {
+    return false;
+  }
+  return /\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}/.test(expr);
+}
+
+/**
+ * Returns true when `expr` looks like a window function: a bare function call
+ * followed by `OVER (`. Used by validators to switch the diagnostic wording
+ * (window functions are row-wise, so `agg`/`aggs` aren't applicable).
+ */
+export function isWindowFunctionExpr(expr?: string): boolean {
+  if (!expr) {
+    return false;
+  }
+  return /\b\w+\s*\([\s\S]*?\)\s*over\s*\(/i.test(expr);
+}
+
 /**
  * Check if a model has aggregation
  *

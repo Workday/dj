@@ -18,6 +18,7 @@ import type {
 export type DJ = {
   config: {
     aiHintTag?: string;
+    lightdashDefaultPartitionColumnCaseSensitive?: boolean;
     materializationDefaultIncrementalStrategy?: DefaultIncrementalStrategy;
   };
 };

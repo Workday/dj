@@ -38,6 +38,19 @@ You can override the auto-detection by setting these VS Code configuration optio
 - **Description**: Custom path to the dbt profiles directory (relative to workspace root)
 - **Default**: Uses the project directory or workspace root if not specified
 
+#### `dj.lightdash.defaultPartitionColumnCaseSensitive`
+
+- **Type**: `boolean`
+- **Default**: `false`
+- **Description**: When `true`, the extension automatically emits `meta.dimension.case_sensitive: true` on every partition column in generated YAML. This stops Lightdash from wrapping the column in `UPPER()` in queries, preserving Trino predicate pushdown on partitioned tables.
+- **When to enable**: Lightdash projects that query partitioned tables and notice slow scans because partition predicates are wrapped in `UPPER()`.
+- **Per-model override**: `lightdash.case_sensitive` on a specific model or column in `.model.json` continues to take precedence in either mode.
+- **Takes effect**: Run `DJ: Sync to SQL and YML` (`Cmd+Shift+P`) to regenerate YAML with the new value.
+
+```json
+{ "dj.lightdash.defaultPartitionColumnCaseSensitive": true }
+```
+
 ## Examples
 
 ### Example 1: dbt project in subdirectory

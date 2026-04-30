@@ -808,6 +808,104 @@ describe('validateMainModelAggregation (Gap 2)', () => {
     expect(errors).toHaveLength(0);
   });
 
+  // Constants have no column dependency, so they can never violate GROUP BY.
+  // Covers the literal patterns we see in the wild: `0`, padded numerics,
+  // null in any case, quoted strings, and `CAST(<literal> AS <type>)`.
+  test.each([
+    ['numeric zero', '0'],
+    ['numeric with surrounding whitespace', ' 0 '],
+    ['negative numeric', '-1'],
+    ['decimal numeric', '3.14'],
+    ['lowercase null', 'null'],
+    ['uppercase NULL', 'NULL'],
+    ['single-quoted string', "'foo'"],
+    ['double-quoted string', '"bar"'],
+    ['cast of null', 'CAST(NULL AS VARCHAR)'],
+    ['cast of null with parameterised type', 'CAST(NULL AS VARCHAR(50))'],
+    ['cast of numeric literal', 'CAST(0 AS DOUBLE)'],
+    ['cast of string literal', "CAST('5' AS INTEGER)"],
+  ])('no error for constant expr (%s)', (_desc, expr) => {
+    const errors = validateMainModelAggregation({
+      group_by: 'dims',
+      select: [
+        { name: 'region', type: 'dim' },
+        { name: 'metric', type: 'fct', expr },
+      ],
+    });
+    expect(errors).toHaveLength(0);
+  });
+
+  // Jinja/dbt macros are opaque -- the expansion may wrap a real aggregate.
+  // We treat any `{{ ... }}` / `{% ... %}` `expr` as aggregated to avoid
+  // false-positive "un-aggregated" diagnostics.
+  test.each([
+    ['simple macro call', '{{ def_total_revenue() }}'],
+    ['macro with args', '{{ my_macro(col_a, col_b) }}'],
+    ['statement-style block', '{% if foo %}sum(x){% else %}0{% endif %}'],
+  ])('no error for Jinja expr (%s)', (_desc, expr) => {
+    const errors = validateMainModelAggregation({
+      group_by: 'dims',
+      select: [
+        { name: 'region', type: 'dim' },
+        { name: 'metric', type: 'fct', expr },
+      ],
+    });
+    expect(errors).toHaveLength(0);
+  });
+
+  // Window functions are still flagged (they ARE problematic with GROUP BY)
+  // but with a tailored message that points to partition-column alignment
+  // instead of suggesting `agg`/`aggs` (which doesn't apply to a row-wise
+  // window function).
+  test.each([
+    [
+      'max(...) over partition',
+      'max(amount) over (partition by region, portal_partition_daily)',
+    ],
+    [
+      'count distinct over partition',
+      'count(distinct event_id) over (partition by region, portal_partition_hourly)',
+    ],
+    [
+      'count over partition',
+      'count(user_id) over (partition by region, portal_partition_daily)',
+    ],
+  ])('tailored window-function warning for %s', (_desc, expr) => {
+    const errors = validateMainModelAggregation({
+      group_by: 'dims',
+      select: [
+        { name: 'region', type: 'dim' },
+        { name: 'metric', type: 'fct', expr },
+      ],
+    });
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toContain('Window function');
+    expect(errors[0].message).toContain('metric');
+    expect(errors[0].message).not.toContain('agg"/"aggs');
+    expect(errors[0].instancePath).toBe('/select/1');
+  });
+
+  test('window-function warning for CTE scalar ref includes CTE name', () => {
+    const errors = validateMainModelAggregation({
+      group_by: 'dims',
+      from: { cte: 'pre_agg' },
+      select: [
+        { cte: 'pre_agg', type: 'dims_from_cte' },
+        {
+          cte: 'pre_agg',
+          name: 'rolling_sum',
+          type: 'fct',
+          expr: 'sum(amount) over (partition by region)',
+        },
+      ],
+    });
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toContain('Window function');
+    expect(errors[0].message).toContain('rolling_sum');
+    expect(errors[0].message).toContain('pre_agg');
+    expect(errors[0].instancePath).toBe('/select/1');
+  });
+
   test('no error when no group_by is set', () => {
     const errors = validateMainModelAggregation({
       select: [{ name: 'revenue', type: 'fct' }],
