@@ -1875,6 +1875,15 @@ function resolveValidationDiagnostics(
       }
     }
 
-    return new vscode.Diagnostic(range, err.message, severity);
+    // Per-detail severity wins so a single batched callback can carry a
+    // mix of errors and warnings (e.g. validateDjIcebergPartitionOverwrite
+    // emits an Error alongside other post-generation warnings).
+    const resolvedSeverity =
+      err.severity === 'error'
+        ? vscode.DiagnosticSeverity.Error
+        : err.severity === 'warning'
+          ? vscode.DiagnosticSeverity.Warning
+          : severity;
+    return new vscode.Diagnostic(range, err.message, resolvedSeverity);
   });
 }

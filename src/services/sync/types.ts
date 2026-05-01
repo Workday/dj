@@ -406,6 +406,14 @@ export interface ValidationErrorDetail {
   message: string;
   /** AJV JSON pointer path, e.g. "/tables/0/freshness" */
   instancePath: string;
+  /**
+   * Optional per-detail severity override. When omitted, the consumer
+   * (e.g. `resolveValidationDiagnostics`) applies its default severity for
+   * the channel (Error for AJV failures, Warning for post-generation
+   * checks). Set to 'error' on a detail emitted via the warning channel
+   * to render it as a red squiggle without overwriting sibling warnings.
+   */
+  severity?: 'error' | 'warning';
 }
 
 /**

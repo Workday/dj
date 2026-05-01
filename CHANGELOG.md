@@ -1,5 +1,10 @@
 # Change Log
 
+## 1.3.6
+
+- **CTE exclude/include flags now mirror their main-model counterparts and inherit from the model** — a CTE accepts `exclude_date_filter`, `exclude_daily_filter`, `exclude_portal_partition_columns`, `exclude_portal_source_count`, and `include_full_month` with the same semantics as the corresponding main-model flags. Resolution is uniform: CTE override > model value > false. Set `exclude_portal_partition_columns: true` on the model to skip partition auto-injection in every CTE without per-CTE repetition; set it on a single CTE to override only that CTE.
+- **New `dj_iceberg_partition_overwrite` incremental strategy** — drops and rewrites only the partitions present in the new slice on Iceberg tables. Shipped by DJ (no consumer macro required) and selectable from the Model Wizard. Requires Iceberg format on the target table; DJ flags non-Iceberg use directly in the Problems tab and points you to `delete+insert` instead.
+
 ## 1.3.5
 
 - **`unique_key` no longer emitted for `overwrite_existing_partitions`** — this strategy requires a custom dbt macro in your project (typically `get_incremental_overwrite_existing_partitions_sql`); the DJ extension does not ship it and dbt-trino does not provide it natively. If your project does not define the macro, switch to `{ "type": "delete+insert" }` — it auto-derives `unique_key` from partition columns.

@@ -6,6 +6,7 @@ import {
   validateCteLightdashMetrics,
   validateCtes,
   validateDeadOuterLayer,
+  validateDjIcebergPartitionOverwrite,
   validateMainModelAggregation,
 } from '@services/modelValidation';
 
@@ -1095,5 +1096,104 @@ describe('validateDeadOuterLayer (Gap 5)', () => {
     const m = baseDeadOuterLayerModel();
     mutate(m);
     expect(validateDeadOuterLayer(m)).toHaveLength(0);
+  });
+});
+
+// dj_iceberg_partition_overwrite is the DJ-shipped Iceberg-only variant of
+// overwrite_existing_partitions. The validator must surface a Problems-tab
+// error when the strategy is used without Iceberg format -- otherwise the
+// shipped macro silently degrades to a full-table refresh on Delta/Hive.
+describe('validateDjIcebergPartitionOverwrite', () => {
+  test('emits an error when strategy is set without Iceberg format', () => {
+    const modelJson = {
+      type: 'int_select_model',
+      materialization: {
+        type: 'incremental',
+        strategy: { type: 'dj_iceberg_partition_overwrite' },
+      },
+    };
+
+    const errors = validateDjIcebergPartitionOverwrite(modelJson, undefined);
+    expect(errors).toHaveLength(1);
+    expect(errors[0].severity).toBe('error');
+    expect(errors[0].instancePath).toBe('/materialization/strategy/type');
+    expect(errors[0].message).toContain('requires Iceberg format');
+  });
+
+  test('emits an error when project storage_type is delta_lake', () => {
+    const modelJson = {
+      type: 'int_select_model',
+      materialization: {
+        type: 'incremental',
+        strategy: { type: 'dj_iceberg_partition_overwrite' },
+      },
+    };
+
+    const errors = validateDjIcebergPartitionOverwrite(modelJson, 'delta_lake');
+    expect(errors).toHaveLength(1);
+    expect(errors[0].severity).toBe('error');
+  });
+
+  test('passes when project storage_type is iceberg', () => {
+    const modelJson = {
+      type: 'int_select_model',
+      materialization: {
+        type: 'incremental',
+        strategy: { type: 'dj_iceberg_partition_overwrite' },
+      },
+    };
+
+    const errors = validateDjIcebergPartitionOverwrite(modelJson, 'iceberg');
+    expect(errors).toHaveLength(0);
+  });
+
+  test('passes when model-level format overrides to iceberg', () => {
+    const modelJson = {
+      type: 'int_select_model',
+      materialization: {
+        type: 'incremental',
+        format: 'iceberg',
+        strategy: { type: 'dj_iceberg_partition_overwrite' },
+      },
+    };
+
+    const errors = validateDjIcebergPartitionOverwrite(modelJson, undefined);
+    expect(errors).toHaveLength(0);
+  });
+
+  test('returns no errors for unrelated strategies', () => {
+    for (const strategyType of [
+      'append',
+      'delete+insert',
+      'merge',
+      'overwrite_existing_partitions',
+    ]) {
+      const modelJson = {
+        type: 'int_select_model',
+        materialization: {
+          type: 'incremental',
+          strategy: { type: strategyType },
+        },
+      };
+      expect(
+        validateDjIcebergPartitionOverwrite(modelJson, undefined),
+      ).toHaveLength(0);
+    }
+  });
+
+  test('returns no errors when materialization is absent or shorthand string', () => {
+    expect(
+      validateDjIcebergPartitionOverwrite(
+        { type: 'int_select_model' },
+        undefined,
+      ),
+    ).toHaveLength(0);
+
+    expect(
+      validateDjIcebergPartitionOverwrite(
+        { type: 'int_select_model', materialization: 'incremental' },
+        undefined,
+      ),
+    ).toHaveLength(0);
   });
 });

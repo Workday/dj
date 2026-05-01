@@ -556,6 +556,14 @@ export type SchemaModelSelectCTE =
  */
 export type SchemaModelExcludeDateFilter = boolean;
 /**
+ * Exclude Daily Filter
+ */
+export type ModelExcludeDailyFilterSchemaJson = boolean;
+/**
+ * Includes the full month when running any given event date
+ */
+export type ModelIncludeFullMonthSchemaJson = boolean;
+/**
  * Validate model group by
  */
 export type SchemaModelGroupBy1 =
@@ -832,6 +840,10 @@ export interface SchemaModelCTE {
     )[],
   ];
   exclude_date_filter?: SchemaModelExcludeDateFilter;
+  exclude_daily_filter?: ModelExcludeDailyFilterSchemaJson;
+  exclude_portal_partition_columns?: SchemaModelExcludePortalPartitionColumns;
+  exclude_portal_source_count?: SchemaModelExcludePortalSourceCount;
+  include_full_month?: ModelIncludeFullMonthSchemaJson;
   where?: SchemaModelWhere;
   group_by?: SchemaModelGroupBy1;
   having?: SchemaModelHaving;

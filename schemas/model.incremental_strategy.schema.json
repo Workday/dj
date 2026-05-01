@@ -1,8 +1,8 @@
 {
   "$id": "model.incremental_strategy.schema.json",
   "title": "Incremental Strategy",
-  "description": "Incremental Strategy for dbt-trino. Pick one of: 'append', 'delete+insert', 'merge', 'overwrite_existing_partitions'. NOTE: 'overwrite_existing_partitions' requires a custom dbt macro in your project and is not shipped by the DJ extension. 'merge' requires the target table to use Iceberg format in dbt-trino. When in doubt, use 'delete+insert' with a partition column as unique_key.",
-  "markdownDescription": "**Incremental Strategy (dbt-trino)**\n\n| Strategy | When to use | Caveat |\n|---|---|---|\n| `append` | Fast insert-only, no dedup | Upstream must guarantee no duplicates |\n| `delete+insert` | Partition-safe upsert, **safe default** | Requires `unique_key` (auto-derived from partitions) |\n| `merge` | Row-level upsert on a primary key | **dbt-trino requires Iceberg format** |\n| `overwrite_existing_partitions` | Re-drop & rewrite only touched partitions | **Requires a custom dbt macro in your project.** The DJ extension does NOT ship this strategy. If your project does not define `get_incremental_overwrite_existing_partitions_sql` (or the equivalent adapter dispatch macro), use `delete+insert` instead. |",
+  "description": "Incremental Strategy for dbt-trino. Pick one of: 'append', 'delete+insert', 'merge', 'overwrite_existing_partitions', 'dj_iceberg_partition_overwrite'. NOTE: 'overwrite_existing_partitions' requires a custom dbt macro in your project and is not shipped by the DJ extension. 'merge' and 'dj_iceberg_partition_overwrite' require the target table to use Iceberg format in dbt-trino. When in doubt, use 'delete+insert' with a partition column as unique_key.",
+  "markdownDescription": "**Incremental Strategy (dbt-trino)**\n\n| Strategy | When to use | Caveat |\n|---|---|---|\n| `append` | Fast insert-only, no dedup | Upstream must guarantee no duplicates |\n| `delete+insert` | Partition-safe upsert, **safe default** | Requires `unique_key` (auto-derived from partitions) |\n| `merge` | Row-level upsert on a primary key | **dbt-trino requires Iceberg format** |\n| `overwrite_existing_partitions` | Re-drop & rewrite only touched partitions | **Requires a custom dbt macro in your project.** The DJ extension does NOT ship this strategy. If your project does not define `get_incremental_overwrite_existing_partitions_sql` (or the equivalent adapter dispatch macro), use `delete+insert` instead. |\n| `dj_iceberg_partition_overwrite` | Re-drop & rewrite only touched partitions on Iceberg tables | **Shipped by DJ** (`macros/strategies.sql` -> `<project>/macros/_ext_/`). **Requires Iceberg format** (`materialization.format: \"iceberg\"` or project var `storage_type: iceberg`). On Delta Lake / Hive use `delete+insert` instead. |",
   "anyOf": [
     {
       "description": "Append: insert new rows without de-duplication. Fastest strategy, but upstream must guarantee no duplicates in the new slice. No unique_key needed.",
@@ -85,6 +85,19 @@
         "type": {
           "const": "overwrite_existing_partitions",
           "description": "Overwrite only the partitions in the new slice. REQUIRES a custom macro in your dbt project — prefer 'delete+insert' if you do not have one."
+        }
+      }
+    },
+    {
+      "description": "DJ Iceberg partition overwrite: drop and rewrite only the partitions present in the new slice on an Iceberg target. SHIPPED by the DJ extension via macros/strategies.sql (auto-copied to <project>/macros/_ext_/strategies.sql on project refresh). REQUIRES Iceberg format on the target table — set materialization.format='iceberg' or the project var storage_type='iceberg'; otherwise the macro silently degrades to a full-table refresh. The macro derives the partition list from the new slice itself by reading properties.partitioning, so unique_key is not applicable and is rejected by the schema. On Delta Lake / Hive use 'delete+insert' instead.",
+      "markdownDescription": "**`dj_iceberg_partition_overwrite`** — drop & rewrite only partitions in the new slice on Iceberg tables.\n\n> **Shipped by DJ.** No consumer setup required — `macros/strategies.sql` is auto-copied to `<project>/macros/_ext_/strategies.sql` when you run **DJ: Refresh Projects**. The dispatch macro is `get_incremental_dj_iceberg_partition_overwrite_sql`.\n>\n> **WARNING — Iceberg format required.** This strategy reads the Iceberg-only `properties.partitioning` config. Set `materialization.format: \"iceberg\"` or the project var `storage_type: iceberg`. On Delta Lake / Hive the macro silently degrades to a full-table refresh — DJ surfaces this as a Problems-tab error.\n>\n> **`unique_key` is not applicable** — the macro derives partitions from the new slice itself, so this strategy ignores `unique_key` and the schema rejects it.\n>\n> **Not on Iceberg?** Use `{ \"type\": \"delete+insert\" }` instead — DJ auto-fills `unique_key` from the partition column.",
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "dj_iceberg_partition_overwrite",
+          "description": "Overwrite only the partitions in the new slice on an Iceberg table. Shipped by DJ; requires Iceberg format."
         }
       }
     }

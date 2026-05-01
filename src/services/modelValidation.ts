@@ -768,6 +768,67 @@ function normalizeGroupBy(groupBy: any): string {
   return 'none';
 }
 
+/**
+ * Validates that the `dj_iceberg_partition_overwrite` incremental strategy
+ * is only used on Iceberg tables.
+ *
+ * The DJ-shipped macro `get_incremental_dj_iceberg_partition_overwrite_sql`
+ * (in `macros/strategies.sql`) reads `properties.partitioning`, which
+ * `frameworkGenerateModelOutput` only emits on Iceberg-format models. On
+ * Delta Lake / Hive (where only `partitioned_by` is emitted), the macro
+ * silently degrades to a full-table refresh -- almost certainly not what
+ * the author intended. We surface this as a Problems-tab error so users
+ * notice immediately.
+ *
+ * Format resolution mirrors the SQL generator: model-level
+ * `materialization.format` wins, then project-level `storage_type`, then
+ * neither (Delta/Hive default).
+ *
+ * Emits the detail with `severity: 'error'` so it can ride the existing
+ * post-generation warning channel without overwriting other warnings on
+ * the same URI.
+ */
+export function validateDjIcebergPartitionOverwrite(
+  modelJson: any,
+  storageType?: string | null,
+): ValidationErrorDetail[] {
+  const errors: ValidationErrorDetail[] = [];
+  if (!modelJson || typeof modelJson !== 'object') {
+    return errors;
+  }
+
+  const materialization = modelJson.materialization;
+  if (!materialization || typeof materialization !== 'object') {
+    return errors;
+  }
+  const strategy = materialization.strategy;
+  if (
+    !strategy ||
+    typeof strategy !== 'object' ||
+    strategy.type !== 'dj_iceberg_partition_overwrite'
+  ) {
+    return errors;
+  }
+
+  const modelFormat =
+    typeof materialization.format === 'string' ? materialization.format : null;
+  const resolvedFormat =
+    modelFormat || (storageType === 'iceberg' ? 'iceberg' : null);
+
+  if (resolvedFormat !== 'iceberg') {
+    errors.push({
+      message:
+        "incremental_strategy 'dj_iceberg_partition_overwrite' requires Iceberg format. " +
+        "Set materialization.format to 'iceberg' or the project var storage_type to 'iceberg'. " +
+        "On Delta Lake / Hive use 'delete+insert' instead -- DJ auto-derives unique_key from the partition column.",
+      instancePath: '/materialization/strategy/type',
+      severity: 'error',
+    });
+  }
+
+  return errors;
+}
+
 const EXISTS_OPERATORS = new Set(['exists', 'not_exists']);
 
 /**

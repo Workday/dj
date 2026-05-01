@@ -21,6 +21,7 @@ import {
 import {
   validateCteColumnReferences,
   validateDeadOuterLayer,
+  validateDjIcebergPartitionOverwrite,
   validateMainModelAggregation,
 } from '@services/modelValidation';
 import { jsonParse } from '@shared';
@@ -130,6 +131,7 @@ export class ModelProcessor {
     const cteColumnRegistry = hasCtes
       ? frameworkBuildCteColumnRegistry({
           ctes: modelJson.ctes!,
+          modelJson,
           project,
         })
       : undefined;
@@ -186,6 +188,22 @@ export class ModelProcessor {
         for (const w of deadLayerWarnings) {
           this.config.logger.warn?.(`${modelName}: ${w.message}`);
           validationWarnings.push(w);
+        }
+      }
+
+      // dj_iceberg_partition_overwrite requires Iceberg format on the target
+      // table; emit a hard Error (red squiggle) when the resolved format is
+      // not Iceberg so users notice immediately. Each detail carries
+      // severity: 'error' so it renders correctly even when batched
+      // alongside warnings on the same URI.
+      const icebergStrategyErrors = validateDjIcebergPartitionOverwrite(
+        modelJson,
+        project.variables?.storage_type,
+      );
+      if (icebergStrategyErrors.length > 0) {
+        for (const e of icebergStrategyErrors) {
+          this.config.logger.error(`${modelName}: ${e.message}`);
+          validationWarnings.push(e);
         }
       }
 

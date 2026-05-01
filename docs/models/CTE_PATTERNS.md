@@ -237,6 +237,37 @@ and `dims_from_cte` see on the main model, ensures downstream passthroughs
 never silently drop audit or partition columns, and prevents materialization
 errors where `partitioned_by` cannot find the partition columns.
 
+### Opting out of auto-injection
+
+CTE-level exclude/include flags mirror their main-model counterparts: they
+take the same names and the same boolean semantics, and they **inherit**
+from the model when omitted on the CTE. Resolution is uniform across the
+set: **CTE override > model value > false**. Set a flag once on the model to
+have every CTE honor it, or set it on a single CTE to override just that CTE
+(including setting `false` on a CTE to opt back in when the model excluded).
+
+The full set:
+
+- `"exclude_portal_partition_columns": true` — drops `portal_partition_*`
+  injection.
+- `"exclude_portal_source_count": true` — drops `portal_source_count`
+  injection.
+- `"exclude_date_filter": true` — drops the auto `_ext_event_date_filter`
+  WHERE-clause macros entirely (model-level OR CTE-level: either side
+  triggers suppression).
+- `"exclude_daily_filter": true` — drops just the daily-grain
+  `_ext_event_date_filter`; the monthly-grain filter is preserved.
+- `"include_full_month": true` — same effect as `exclude_daily_filter` for
+  partition pruning; emits the full-month range filter only.
+
+`datetime` itself has no CTE-level opt-out (the main model has none either,
+so the two stay symmetric). If you don't want `datetime` in a CTE's output,
+chain through another CTE (`from: { cte: ... }`) — auto-injection is skipped
+for non-`from: { model }` shapes.
+
+These flags have no effect on CTEs whose `from` is another CTE, a source, or
+a union, since those shapes never auto-inject in the first place.
+
 ---
 
 ## 6. Dead Outer Layer Warning

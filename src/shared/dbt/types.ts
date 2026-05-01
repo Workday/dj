@@ -201,6 +201,7 @@ export type DbtModelConfig = {
   incremental_strategy?:
     | 'append'
     | 'delete+insert'
+    | 'dj_iceberg_partition_overwrite'
     | 'merge'
     | 'overwrite_existing_partitions';
   materialized?:

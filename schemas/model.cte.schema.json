@@ -144,6 +144,18 @@
     "exclude_date_filter": {
       "$ref": "model.exclude_date_filter.schema.json"
     },
+    "exclude_daily_filter": {
+      "$ref": "model.exclude_daily_filter.schema.json"
+    },
+    "exclude_portal_partition_columns": {
+      "$ref": "model.exclude_portal_partition_columns.schema.json"
+    },
+    "exclude_portal_source_count": {
+      "$ref": "model.exclude_portal_source_count.schema.json"
+    },
+    "include_full_month": {
+      "$ref": "model.include_full_month.schema.json"
+    },
     "where": {
       "$ref": "model.where.schema.json"
     },
