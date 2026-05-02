@@ -34,12 +34,12 @@ export const ErrorMessage: React.FC<ErrorMessageProps> = ({
   // style with border & bg: text-rose-600 bg-rose-50 border border-rose-100'
   const variantClasses =
     variant === 'warning'
-      ? 'text-black bg-[#fffaec] border border-[#e3b44a]'
+      ? 'text-amber-900 dark:text-amber-100 bg-amber-50 dark:bg-amber-900/30 border border-amber-400 dark:border-amber-600'
       : 'text-error';
 
   return (
     <div
-      className={`flex items-center gap-2 text-sm italic ${variant === 'warning' ? 'text-black' : ''} ${variantClasses} rounded ${
+      className={`flex items-center gap-2 text-sm italic ${variantClasses} rounded ${
         className || ''
       }`}
       role="alert"
@@ -49,7 +49,7 @@ export const ErrorMessage: React.FC<ErrorMessageProps> = ({
       {false && (
         <ExclamationCircleIcon
           className={`w-4 h-4 flex-shrink-0 mt-0.5 ${
-            variant === 'warning' ? 'text-black' : 'text-error'
+            variant === 'warning' ? 'text-amber-600 dark:text-amber-400' : 'text-error'
           }`}
         />
       )}

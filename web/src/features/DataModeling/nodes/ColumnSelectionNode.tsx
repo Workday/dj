@@ -856,10 +856,10 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
           Column Selection
         </h3>
 
-        <div className="bg-[#E5F3FF] rounded-lg p-3">
+        <div className="bg-message-info rounded-lg p-3">
           <div className="flex items-start gap-2">
-            <InformationCircleIcon className="w-5 h-5 text-[#004B9C] flex-shrink-0 mt-0.5" />
-            <p className="text-sm text-[#004B9C] leading-relaxed">
+            <InformationCircleIcon className="w-5 h-5 text-message-info-contrast flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-message-info-contrast leading-relaxed">
               This view shows the columns that will be in your final output
               based on the selection in previous steps of the data pipeline. You
               can add and configure columns manually and choose which columns to
@@ -1105,8 +1105,8 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
                                         <span
                                           className={`px-2 py-1 text-xs font-medium rounded-full ${
                                             column.type === 'fact'
-                                              ? 'bg-green-100 text-green-800'
-                                              : 'bg-blue-100 text-blue-800'
+                                              ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                                              : 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
                                           }`}
                                         >
                                           {column.type === 'fact'
@@ -1238,7 +1238,7 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
                                                 <TrashIcon className="h-4 w-4" />
                                               }
                                               variant="iconButton"
-                                              className="w-full px-4 py-2 text-left text-sm text-red-600 hover:text-red-600 hover:bg-red-50 flex items-center gap-2 justify-start"
+                                              className="w-full px-4 py-2 text-left text-sm text-red-600 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 flex items-center gap-2 justify-start"
                                               onClick={(e) => {
                                                 e.stopPropagation();
                                                 handleRequestColumnDeletion(
@@ -1359,7 +1359,7 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
       )}
 
       {!shouldShowAddColumnBasic && !editingColumn && isAddColumnAllowed && (
-        <div className="border-t border-neutral p-4 text-center flex justify-center bg-[#F5F5F5]">
+        <div className="border-t border-neutral p-4 text-center flex justify-center bg-surface">
           <Button
             className="text-lg font-semibold text-foreground"
             icon={<PlusIcon className="h-4 w-4" />}
