@@ -1238,6 +1238,9 @@ export class ColumnLineageService implements DJService {
           ctes: ctes as Parameters<
             typeof frameworkBuildCteColumnRegistry
           >[0]['ctes'],
+          modelJson: modelJson as Parameters<
+            typeof frameworkBuildCteColumnRegistry
+          >[0]['modelJson'],
           project,
         });
         const cteCols = registry.get(cteName) || [];
@@ -1792,6 +1795,9 @@ export class ColumnLineageService implements DJService {
           ctes: modelJson.ctes as Parameters<
             typeof frameworkBuildCteColumnRegistry
           >[0]['ctes'],
+          modelJson: modelJson as Parameters<
+            typeof frameworkBuildCteColumnRegistry
+          >[0]['modelJson'],
           project,
         });
         const cteCols = registry.get(selected.cte) || [];

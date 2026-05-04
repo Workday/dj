@@ -1131,6 +1131,81 @@ describe('incremental strategy variants', () => {
     expect(properties?.partitioning).toBe("ARRAY['portal_partition_daily']");
     expect(properties?.partitioned_by).toBeUndefined();
   });
+
+  test('strategy: dj_iceberg_partition_overwrite emits Iceberg partitioning + omits unique_key', () => {
+    // dj_iceberg_partition_overwrite is the DJ-shipped variant of
+    // overwrite_existing_partitions. Like its consumer-supplied cousin it
+    // never emits unique_key (the macro derives partitions from the new
+    // slice itself), but it requires Iceberg format -- so the partition
+    // keyword must be `partitioning` (not `partitioned_by`).
+    const icebergProject: DbtProject = {
+      ...partitionedProject,
+      variables: { storage_type: 'iceberg' },
+    };
+
+    const modelJson: FrameworkModel = {
+      type: 'int_select_model',
+      group: 'swh',
+      topic: 'misc',
+      name: 'daily_dj_iceberg',
+      materialization: {
+        type: 'incremental',
+        strategy: { type: 'dj_iceberg_partition_overwrite' },
+      },
+      select: [
+        'portal_partition_daily',
+        { type: 'dim', name: 'dim_a' } as never,
+      ],
+      from: { model: 'parent_daily' },
+    } as unknown as FrameworkModel;
+
+    const { config } = frameworkGenerateModelOutput({
+      dj: createTestDJ(),
+      modelJson,
+      project: icebergProject,
+    });
+
+    expect(config.materialized).toBe('incremental');
+    expect(config.incremental_strategy).toBe('dj_iceberg_partition_overwrite');
+    expect(config.unique_key).toBeUndefined();
+    const properties = config.properties as Record<string, string> | undefined;
+    expect(properties?.partitioning).toBe("ARRAY['portal_partition_daily']");
+    expect(properties?.partitioned_by).toBeUndefined();
+  });
+
+  test('strategy: dj_iceberg_partition_overwrite honors model-level format override', () => {
+    // No project-level storage_type, but the model overrides format to
+    // iceberg -- the SQL generator must still emit `partitioning` and the
+    // strategy must still be wired through cleanly.
+    const modelJson: FrameworkModel = {
+      type: 'int_select_model',
+      group: 'swh',
+      topic: 'misc',
+      name: 'daily_dj_iceberg_override',
+      materialization: {
+        type: 'incremental',
+        format: 'iceberg',
+        strategy: { type: 'dj_iceberg_partition_overwrite' },
+      },
+      select: [
+        'portal_partition_daily',
+        { type: 'dim', name: 'dim_a' } as never,
+      ],
+      from: { model: 'parent_daily' },
+    } as unknown as FrameworkModel;
+
+    const { config } = frameworkGenerateModelOutput({
+      dj: createTestDJ(),
+      modelJson,
+      project: partitionedProject,
+    });
+
+    expect(config.incremental_strategy).toBe('dj_iceberg_partition_overwrite');
+    expect(config.unique_key).toBeUndefined();
+    const properties = config.properties as Record<string, string> | undefined;
+    expect(properties?.partitioning).toBe("ARRAY['portal_partition_daily']");
+    expect(properties?.partitioned_by).toBeUndefined();
+  });
 });
 
 describe('incremental unique_key defaulting', () => {

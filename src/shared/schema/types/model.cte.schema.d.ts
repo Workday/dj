@@ -491,6 +491,22 @@ export type SchemaModelSelectCTE =
  */
 export type SchemaModelExcludeDateFilter = boolean;
 /**
+ * Exclude Daily Filter
+ */
+export type ModelExcludeDailyFilterSchemaJson = boolean;
+/**
+ * Will prevent the automatic portal partition date columns from getting added
+ */
+export type SchemaModelExcludePortalPartitionColumns = boolean;
+/**
+ * Will prevent the automatic portal source count column from getting added
+ */
+export type SchemaModelExcludePortalSourceCount = boolean;
+/**
+ * Includes the full month when running any given event date
+ */
+export type ModelIncludeFullMonthSchemaJson = boolean;
+/**
  * GROUP BY clause for the CTE. Use "dims" (shorthand) or [{ "type": "dims" }] to automatically group by all dimension column expressions. Avoid bare string aliases when the CTE select contains computed expressions (expr), as they reference the alias rather than the underlying expression and will fail at query runtime.
  */
 export type SchemaModelGroupBy =
@@ -623,6 +639,10 @@ export interface SchemaModelCTE {
     )[],
   ];
   exclude_date_filter?: SchemaModelExcludeDateFilter;
+  exclude_daily_filter?: ModelExcludeDailyFilterSchemaJson;
+  exclude_portal_partition_columns?: SchemaModelExcludePortalPartitionColumns;
+  exclude_portal_source_count?: SchemaModelExcludePortalSourceCount;
+  include_full_month?: ModelIncludeFullMonthSchemaJson;
   where?: SchemaModelWhere;
   group_by?: SchemaModelGroupBy;
   having?: SchemaModelHaving;

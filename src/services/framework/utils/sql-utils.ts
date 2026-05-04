@@ -996,6 +996,8 @@ export function frameworkBuildFilters({
   modelJson,
   prefix,
   project,
+  excludeDailyFilterOverride,
+  includeFullMonthOverride,
 }: {
   datetimeInterval: 'hour' | 'day' | 'month' | 'year' | null;
   dj: DJ;
@@ -1003,6 +1005,16 @@ export function frameworkBuildFilters({
   modelJson: FrameworkModel;
   prefix?: string;
   project: DbtProject;
+  /**
+   * Per-CTE override for `exclude_daily_filter`. When set, takes precedence
+   * over the model-level value; otherwise the model-level flag is used.
+   */
+  excludeDailyFilterOverride?: boolean;
+  /**
+   * Per-CTE override for `include_full_month`. When set, takes precedence
+   * over the model-level value; otherwise the model-level flag is used.
+   */
+  includeFullMonthOverride?: boolean;
 }): string[] {
   const sqlLines: string[] = [];
   // If exclude_date_filter set to true, we return no framework date filters
@@ -1012,10 +1024,13 @@ export function frameworkBuildFilters({
   //
   const modelLayer = frameworkGetModelLayer(modelJson);
 
-  // Model level inputs
-  const includeFullMonth = !!(
-    'include_full_month' in modelJson && modelJson.include_full_month
-  );
+  // Effective flag values: CTE override > model-level > default false.
+  const includeFullMonth =
+    includeFullMonthOverride ??
+    !!('include_full_month' in modelJson && modelJson.include_full_month);
+  const excludeDailyFilter =
+    excludeDailyFilterOverride ??
+    !!('exclude_daily_filter' in modelJson && modelJson.exclude_daily_filter);
 
   if (
     'model' in from &&
@@ -1038,13 +1053,7 @@ export function frameworkBuildFilters({
           break;
         }
         case PARTITION_DAILY: {
-          if (
-            !(
-              'exclude_daily_filter' in modelJson &&
-              modelJson.exclude_daily_filter
-            ) &&
-            !includeFullMonth
-          ) {
+          if (!excludeDailyFilter && !includeFullMonth) {
             sqlLines.push(`{{ _ext_event_date_filter(${args.join(', ')}) }}`);
           }
           break;
@@ -1267,6 +1276,15 @@ export function frameworkGenerateCteSql({
       'exclude_date_filter' in modelJson &&
       modelJson.exclude_date_filter);
 
+  // Per-CTE overrides for the daily-grain date filter and the include-full-month
+  // shape. `undefined` falls through to the model-level value inside
+  // `frameworkBuildFilters` via `??`, so omitting the flag on a CTE preserves
+  // the existing model-level behavior.
+  const cteExcludeDailyFilterOverride =
+    'exclude_daily_filter' in cte ? cte.exclude_daily_filter : undefined;
+  const cteIncludeFullMonthOverride =
+    'include_full_month' in cte ? cte.include_full_month : undefined;
+
   // UNION CTE
   if ('union' in from && from.union) {
     const unionSpec = from.union;
@@ -1305,6 +1323,8 @@ export function frameworkGenerateCteSql({
             from: { model: modelRef },
             modelJson,
             project,
+            excludeDailyFilterOverride: cteExcludeDailyFilterOverride,
+            includeFullMonthOverride: cteIncludeFullMonthOverride,
           });
           if (filters.length) {
             sqlLine += ` where ${filters.join(' and ')}`;
@@ -1443,6 +1463,7 @@ export function frameworkGenerateCteSql({
       const autoDims = frameworkShouldAutoInjectCteFrameworkDims({
         cte,
         alreadyPresentNames: selectParts.map((p) => p.name),
+        modelJson,
         project,
       });
       if (autoDims) {
@@ -1460,6 +1481,7 @@ export function frameworkGenerateCteSql({
       const autoPsc = frameworkShouldAutoInjectCtePortalSourceCount({
         cte,
         alreadyPresentNames: selectParts.map((p) => p.name),
+        modelJson,
         project,
       });
       if (autoPsc) {
@@ -1580,6 +1602,8 @@ export function frameworkGenerateCteSql({
           modelJson,
           project,
           prefix: 'join' in from && from.join ? from.model : undefined,
+          excludeDailyFilterOverride: cteExcludeDailyFilterOverride,
+          includeFullMonthOverride: cteIncludeFullMonthOverride,
         }),
       );
     }
@@ -1818,6 +1842,7 @@ export function frameworkGenerateModelOutput({
       ? frameworkBuildCteColumnRegistry({
           ctes: modelJson.ctes,
           modelId,
+          modelJson,
           partitionColumnNames,
           project,
         })
@@ -1993,6 +2018,18 @@ export function frameworkGenerateModelOutput({
             modelConfig.incremental_strategy = 'overwrite_existing_partitions';
             break;
           }
+          case 'dj_iceberg_partition_overwrite': {
+            // DJ-shipped strategy (macros/strategies.sql -> the dispatch macro
+            // get_incremental_dj_iceberg_partition_overwrite_sql is auto-copied
+            // to <project>/macros/_ext_/strategies.sql by writeMacroFiles).
+            // Requires Iceberg format on the target table; the macro reads
+            // properties.partitioning (Iceberg-only) to derive partitions
+            // from the new slice itself, so unique_key is not applicable
+            // (the JSON schema rejects it). Format is enforced at validation
+            // time via validateDjIcebergPartitionOverwrite, not here.
+            modelConfig.incremental_strategy = 'dj_iceberg_partition_overwrite';
+            break;
+          }
           default: {
             const defaultStrategy =
               dj.config.materializationDefaultIncrementalStrategy ??
@@ -2000,9 +2037,9 @@ export function frameworkGenerateModelOutput({
             modelConfig.incremental_strategy = defaultStrategy;
             // Only delete+insert auto-derives unique_key from partitions.
             // Append never needs one; merge requires a user-supplied key
-            // (and is not a valid default); overwrite_existing_partitions
-            // ignores unique_key entirely (the consumer macro derives
-            // partitions from the new slice itself).
+            // (and is not a valid default); overwrite_existing_partitions and
+            // dj_iceberg_partition_overwrite ignore unique_key entirely (the
+            // macros derive partitions from the new slice itself).
             if (defaultStrategy === 'delete+insert' && partitions.length) {
               modelConfig.unique_key = getDefaultUniqueKey(partitions);
             }
@@ -2580,6 +2617,7 @@ export function frameworkModelManifestMerge({
       ? frameworkBuildCteColumnRegistry({
           ctes: modelJson.ctes,
           modelId: mergeModelId,
+          modelJson,
           partitionColumnNames: frameworkGetPartitionColumnNames({
             modelJson,
             project,

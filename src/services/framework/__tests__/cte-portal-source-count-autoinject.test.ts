@@ -184,6 +184,86 @@ describe('CTE portal_source_count auto-injection (Gap 3)', () => {
   // `portal_source_count_count`. The registry tests above already cover the
   // no-agg passthrough branch on the SQL side indirectly (SQL emitter is
   // driven by the registry).
+  // Inheritance: CTE inherits `exclude_portal_source_count` from the parent
+  // model when the CTE omits the flag (CTE override > model > false).
+  test('inherits from main-model exclude_portal_source_count when CTE omits the flag', () => {
+    const project = projectWithPortalSourceCount();
+    const cte: FrameworkCTE = {
+      name: 'pre_agg',
+      from: { model: 'stg_events' },
+      select: [
+        { name: 'region', type: 'dim' },
+        { name: 'amount', type: 'fct', agg: 'sum' },
+      ],
+      group_by: 'dims',
+    } as any;
+    const modelJson = {
+      type: 'int_select_model',
+      exclude_portal_source_count: true,
+    } as any;
+
+    const registry = frameworkBuildCteColumnRegistry({
+      ctes: [cte],
+      modelJson,
+      project,
+    });
+    const cols = registry.get('pre_agg')!;
+    expect(cols.find((c) => c.name === 'portal_source_count')).toBeUndefined();
+  });
+
+  test('CTE flag overrides model: cte=false beats model=true', () => {
+    const project = projectWithPortalSourceCount();
+    const cte: FrameworkCTE = {
+      name: 'opt_back_in',
+      from: { model: 'stg_events' },
+      select: [{ name: 'region', type: 'dim' }],
+      exclude_portal_source_count: false,
+    } as any;
+    const modelJson = {
+      type: 'int_select_model',
+      exclude_portal_source_count: true,
+    } as any;
+
+    const registry = frameworkBuildCteColumnRegistry({
+      ctes: [cte],
+      modelJson,
+      project,
+    });
+    const cols = registry.get('opt_back_in')!;
+    expect(cols.find((c) => c.name === 'portal_source_count')).toBeDefined();
+  });
+
+  // Per-CTE opt-out via `exclude_portal_source_count: true` (mirrors the
+  // main-model flag with the same name). Both the registry and the SQL emitter
+  // must drop the auto-injected column when the flag is set.
+  test('exclude_portal_source_count: true suppresses auto-injection (registry + SQL)', () => {
+    const project = projectWithPortalSourceCount();
+    const cte: FrameworkCTE = {
+      name: 'pre_agg',
+      from: { model: 'stg_events' },
+      select: [
+        { name: 'region', type: 'dim' },
+        { name: 'amount', type: 'fct', agg: 'sum' },
+      ],
+      group_by: 'dims',
+      exclude_portal_source_count: true,
+    } as any;
+
+    const registry = frameworkBuildCteColumnRegistry({
+      ctes: [cte],
+      project,
+    });
+    const cols = registry.get('pre_agg')!;
+    expect(cols.find((c) => c.name === 'portal_source_count')).toBeUndefined();
+
+    const sql = frameworkGenerateCteSql({
+      cte,
+      cteRegistry: registry,
+      project,
+    });
+    expect(sql).not.toMatch(/portal_source_count/);
+  });
+
   test('SQL emitter injects portal_source_count in aggregating CTE (sum-kernel after collision)', () => {
     const project = projectWithPortalSourceCount();
     const cte: FrameworkCTE = {

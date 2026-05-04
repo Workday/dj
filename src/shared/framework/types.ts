@@ -572,5 +572,6 @@ export type FrameworkSyncOp =
 export type DefaultIncrementalStrategy =
   | 'append'
   | 'delete+insert'
+  | 'dj_iceberg_partition_overwrite'
   | 'merge'
   | 'overwrite_existing_partitions';

@@ -976,11 +976,19 @@ export function frameworkInferCteColumns({
   cte,
   cteRegistry,
   modelId,
+  modelJson,
   project,
 }: {
   cte: FrameworkCTE;
   cteRegistry: CteColumnRegistry;
   modelId?: string | null;
+  /**
+   * Parent model JSON. When provided, CTE-level `exclude_portal_partition_columns`
+   * and `exclude_portal_source_count` inherit from the model when omitted on
+   * the CTE itself (CTE override > model > false). Optional so test fixtures
+   * and lineage previews can build a registry without a full model.
+   */
+  modelJson?: FrameworkModel;
   project: DbtProject;
 }): FrameworkColumn[] {
   const columns: FrameworkColumn[] = [];
@@ -1214,6 +1222,7 @@ export function frameworkInferCteColumns({
   const autoDims = frameworkShouldAutoInjectCteFrameworkDims({
     cte,
     alreadyPresentNames: columns.map((c) => c.name),
+    modelJson,
     project,
   });
   if (autoDims) {
@@ -1241,6 +1250,7 @@ export function frameworkInferCteColumns({
   const autoPsc = frameworkShouldAutoInjectCtePortalSourceCount({
     cte,
     alreadyPresentNames: columns.map((c) => c.name),
+    modelJson,
     project,
   });
   if (autoPsc) {
@@ -1283,6 +1293,10 @@ export function frameworkInferCteColumns({
  * - The CTE's FROM is a plain `{ model }` ref (no union, no cte chaining).
  * - The upstream model actually has `portal_source_count` in its catalog.
  * - The CTE's own select / bulk expansions haven't already pulled it in.
+ * - The CTE has not opted out via `exclude_portal_source_count: true`,
+ *   matching the main-model flag with the same name. The CTE flag overrides
+ *   the model-level value; when omitted on the CTE the model-level value is
+ *   inherited (CTE override > model > false).
  *
  * `applyAgg` is true when the CTE aggregates (non-empty `group_by`), mirroring
  * the main-model `frameworkModelHasAgg` rule. The caller is responsible for
@@ -1292,12 +1306,28 @@ export function frameworkInferCteColumns({
 export function frameworkShouldAutoInjectCtePortalSourceCount({
   cte,
   alreadyPresentNames,
+  modelJson,
   project,
 }: {
   cte: FrameworkCTE;
   alreadyPresentNames: string[];
+  /**
+   * When provided, the model's own `exclude_portal_source_count` is used as
+   * a fallback when the CTE does not declare the flag. CTE-only call sites
+   * (tests, lineage previews) may omit this; behavior reduces to "no model
+   * inheritance" in that case.
+   */
+  modelJson?: FrameworkModel;
   project: DbtProject;
 }): { baseModel: string; applyAgg: boolean } | null {
+  const effectiveExclude =
+    cte.exclude_portal_source_count ??
+    (modelJson && 'exclude_portal_source_count' in modelJson
+      ? modelJson.exclude_portal_source_count
+      : undefined);
+  if (effectiveExclude) {
+    return null;
+  }
   if (!('model' in cte.from) || !cte.from.model) {
     return null;
   }
@@ -1344,6 +1374,12 @@ export function frameworkShouldAutoInjectCtePortalSourceCount({
  * - The CTE's own select hasn't already pulled the column in.
  * - The candidate is not excluded by the effective datetime interval
  *   (day → hourly dropped; month → daily+hourly dropped; year → all three).
+ * - The CTE has not opted out via `exclude_portal_partition_columns: true`
+ *   (suppresses all `portal_partition_*`), matching the main-model flag with
+ *   the same name. The CTE flag overrides the model-level value; when omitted
+ *   on the CTE the model-level value is inherited (CTE override > model >
+ *   false). `datetime` itself has no per-CTE opt-out; the main model has none
+ *   either, so the two stay symmetric.
  *
  * The effective datetime interval is determined from either an explicit
  * `{ name: 'datetime', interval: X }` entry in the CTE select, or by
@@ -1352,10 +1388,18 @@ export function frameworkShouldAutoInjectCtePortalSourceCount({
 export function frameworkShouldAutoInjectCteFrameworkDims({
   cte,
   alreadyPresentNames,
+  modelJson,
   project,
 }: {
   cte: FrameworkCTE;
   alreadyPresentNames: string[];
+  /**
+   * When provided, the model's own `exclude_portal_partition_columns` is used
+   * as a fallback when the CTE does not declare the flag. CTE-only call sites
+   * (tests, lineage previews) may omit this; behavior reduces to "no model
+   * inheritance" in that case.
+   */
+  modelJson?: FrameworkModel;
   project: DbtProject;
 }): {
   baseModel: string;
@@ -1419,12 +1463,22 @@ export function frameworkShouldAutoInjectCteFrameworkDims({
       break;
   }
 
-  const candidates: ('datetime' | FrameworkPartitionName)[] = [
-    'datetime',
-    PARTITION_MONTHLY,
-    PARTITION_DAILY,
-    PARTITION_HOURLY,
-  ];
+  // Per-CTE opt-out: `exclude_portal_partition_columns` suppresses the
+  // partition columns, mirroring the main-model flag with the same name.
+  // CTE override > model > false: a CTE that omits the flag inherits the
+  // model-level value, so users can set it once on the model and have all
+  // CTEs honor it without per-CTE repetition. There is no `exclude_datetime`
+  // on either schema -- if you don't want `datetime` in a CTE, source from
+  // another CTE or use a lookback model.
+  const effectiveExcludePartitions =
+    cte.exclude_portal_partition_columns ??
+    (modelJson && 'exclude_portal_partition_columns' in modelJson
+      ? modelJson.exclude_portal_partition_columns
+      : undefined);
+  const candidates: ('datetime' | FrameworkPartitionName)[] = ['datetime'];
+  if (!effectiveExcludePartitions) {
+    candidates.push(PARTITION_MONTHLY, PARTITION_DAILY, PARTITION_HOURLY);
+  }
   const alreadyPresent = new Set(alreadyPresentNames);
   const missing = candidates.filter(
     (c) => !alreadyPresent.has(c) && !excluded.has(c),
@@ -1456,11 +1510,17 @@ export function frameworkShouldAutoInjectCteFrameworkDims({
 export function frameworkBuildCteColumnRegistry({
   ctes,
   modelId,
+  modelJson,
   partitionColumnNames,
   project,
 }: {
   ctes: FrameworkCTE[];
   modelId?: string | null;
+  /**
+   * Parent model JSON. Forwarded to `frameworkInferCteColumns` so that CTE
+   * exclude flags inherit from the model when omitted on the CTE.
+   */
+  modelJson?: FrameworkModel;
   partitionColumnNames?: string[];
   project: DbtProject;
 }): CteColumnRegistry {
@@ -1470,6 +1530,7 @@ export function frameworkBuildCteColumnRegistry({
       cte,
       cteRegistry: registry,
       modelId,
+      modelJson,
       project,
     });
     // Sort alphabetically with partition columns at the end, matching the

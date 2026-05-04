@@ -382,6 +382,136 @@ describe('CTE Partition Filters', () => {
     });
   });
 
+  // CTE-level `exclude_daily_filter` and `include_full_month` mirror the
+  // main-model flags with the same names. Both suppress just the daily-grain
+  // _ext_event_date_filter while leaving the monthly-grain filter in place.
+  // CTE values take precedence over model values via `??` in
+  // `frameworkBuildFilters`.
+  describe('CTE-level exclude_daily_filter / include_full_month', () => {
+    test('CTE exclude_daily_filter=true drops daily filter, keeps monthly', () => {
+      const cte: FrameworkCTE = {
+        name: 'no_daily',
+        from: { model: 'partitioned_model' },
+        select: [{ name: 'col_a', type: 'dim' as const }],
+        exclude_daily_filter: true,
+      } as any;
+
+      const registry = frameworkBuildCteColumnRegistry({
+        ctes: [cte],
+        project: partitionedProject,
+      });
+
+      const sql = frameworkGenerateCteSql({
+        cte,
+        cteRegistry: registry,
+        datetimeInterval: null,
+        dj,
+        modelJson: intModelJson,
+        project: partitionedProject,
+      });
+
+      // Monthly filter still emitted with `interval="month"`; daily filter
+      // (no interval arg) is suppressed.
+      expect(sql).toMatch(/_ext_event_date_filter\([^)]*interval="month"/);
+      expect(sql).not.toMatch(
+        /_ext_event_date_filter\("portal_partition_daily"[^)]*\)/,
+      );
+    });
+
+    test('CTE include_full_month=true drops daily filter, keeps monthly', () => {
+      const cte: FrameworkCTE = {
+        name: 'full_month',
+        from: { model: 'partitioned_model' },
+        select: [{ name: 'col_a', type: 'dim' as const }],
+        include_full_month: true,
+      } as any;
+
+      const registry = frameworkBuildCteColumnRegistry({
+        ctes: [cte],
+        project: partitionedProject,
+      });
+
+      const sql = frameworkGenerateCteSql({
+        cte,
+        cteRegistry: registry,
+        datetimeInterval: null,
+        dj,
+        modelJson: intModelJson,
+        project: partitionedProject,
+      });
+
+      expect(sql).toMatch(/_ext_event_date_filter\([^)]*interval="month"/);
+      expect(sql).not.toMatch(
+        /_ext_event_date_filter\("portal_partition_daily"[^)]*\)/,
+      );
+    });
+
+    test('CTE flag overrides the model-level value', () => {
+      // Model says exclude daily; CTE explicitly opts back in (`false`).
+      const modelOptOut: FrameworkModel = {
+        ...intModelJson,
+        exclude_daily_filter: true,
+      } as any;
+      const cte: FrameworkCTE = {
+        name: 'opt_back_in',
+        from: { model: 'partitioned_model' },
+        select: [{ name: 'col_a', type: 'dim' as const }],
+        exclude_daily_filter: false,
+      } as any;
+
+      const registry = frameworkBuildCteColumnRegistry({
+        ctes: [cte],
+        project: partitionedProject,
+      });
+
+      const sql = frameworkGenerateCteSql({
+        cte,
+        cteRegistry: registry,
+        datetimeInterval: null,
+        dj,
+        modelJson: modelOptOut,
+        project: partitionedProject,
+      });
+
+      // Daily filter should appear because the CTE override (`false`) wins
+      // over the model-level `true`.
+      expect(sql).toMatch(
+        /_ext_event_date_filter\("portal_partition_daily"[^)]*\)/,
+      );
+    });
+
+    test('omitting CTE override falls through to model-level value', () => {
+      const modelOptOut: FrameworkModel = {
+        ...intModelJson,
+        exclude_daily_filter: true,
+      } as any;
+      const cte: FrameworkCTE = {
+        name: 'inherits',
+        from: { model: 'partitioned_model' },
+        select: [{ name: 'col_a', type: 'dim' as const }],
+      } as any;
+
+      const registry = frameworkBuildCteColumnRegistry({
+        ctes: [cte],
+        project: partitionedProject,
+      });
+
+      const sql = frameworkGenerateCteSql({
+        cte,
+        cteRegistry: registry,
+        datetimeInterval: null,
+        dj,
+        modelJson: modelOptOut,
+        project: partitionedProject,
+      });
+
+      // No CTE override -> falls through to model value (true) -> no daily.
+      expect(sql).not.toMatch(
+        /_ext_event_date_filter\("portal_partition_daily"[^)]*\)/,
+      );
+    });
+  });
+
   describe('Full model integration', () => {
     test('model with CTEs generates partition filters in CTE SQL', () => {
       const modelJson: FrameworkModel = {

@@ -64,7 +64,7 @@ export type SchemaColumnName = string;
  */
 export type SchemaModelPartitions = SchemaColumnName[];
 /**
- * Incremental Strategy for dbt-trino. Pick one of: 'append', 'delete+insert', 'merge', 'overwrite_existing_partitions'. NOTE: 'overwrite_existing_partitions' requires a custom dbt macro in your project and is not shipped by the DJ extension. 'merge' requires the target table to use Iceberg format in dbt-trino. When in doubt, use 'delete+insert' with a partition column as unique_key.
+ * Incremental Strategy for dbt-trino. Pick one of: 'append', 'delete+insert', 'merge', 'overwrite_existing_partitions', 'dj_iceberg_partition_overwrite'. NOTE: 'overwrite_existing_partitions' requires a custom dbt macro in your project and is not shipped by the DJ extension. 'merge' and 'dj_iceberg_partition_overwrite' require the target table to use Iceberg format in dbt-trino. When in doubt, use 'delete+insert' with a partition column as unique_key.
  */
 export type IncrementalStrategy =
   | {
@@ -106,6 +106,12 @@ export type IncrementalStrategy =
        * Overwrite only the partitions in the new slice. REQUIRES a custom macro in your dbt project — prefer 'delete+insert' if you do not have one.
        */
       type: 'overwrite_existing_partitions';
+    }
+  | {
+      /**
+       * Overwrite only the partitions in the new slice on an Iceberg table. Shipped by DJ; requires Iceberg format.
+       */
+      type: 'dj_iceberg_partition_overwrite';
     };
 /**
  * Type of materialization

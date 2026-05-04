@@ -259,6 +259,7 @@ export class ModelCrudHandlers {
     ) {
       const cteColumnRegistry = frameworkBuildCteColumnRegistry({
         ctes: modelJsonForValidation.ctes,
+        modelJson: modelJsonForValidation,
         project,
       });
       const colRefErrors = validateCteColumnReferences(

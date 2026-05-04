@@ -35,6 +35,10 @@ const INCREMENTAL_STRATEGY_OPTIONS = [
     label: 'Overwrite Existing Partitions',
     value: 'overwrite_existing_partitions',
   },
+  {
+    label: 'DJ Iceberg Partition Overwrite',
+    value: 'dj_iceberg_partition_overwrite',
+  },
 ] as const;
 
 export function AdditionalFields({
@@ -228,16 +232,19 @@ export function AdditionalFields({
                     '\u2022 append: inserts new rows without dedup (upstream must guarantee no duplicates).\n' +
                     '\u2022 delete+insert: partition-safe upsert; unique_key auto-derived from partitions.\n' +
                     '\u2022 merge: row-level upsert on unique_key (requires Iceberg format in dbt-trino).\n' +
-                    '\u2022 overwrite_existing_partitions: drops & rewrites partitions in the new slice; no unique_key needed (the macro derives partitions from the new slice). Requires a custom dbt macro in your project \u2014 if unavailable, use delete+insert instead.\n' +
+                    '\u2022 overwrite_existing_partitions: drops & rewrites partitions in the new slice; no unique_key needed (the macro derives partitions from the new slice). Requires a custom dbt macro in your project, if unavailable, use delete+insert instead.\n' +
+                    '\u2022 dj_iceberg_partition_overwrite: drops & rewrites partitions in the new slice on Iceberg tables; shipped by DJ (no consumer macro required). Requires Iceberg format on Delta Lake / Hive use delete+insert instead.\n' +
                     'The default can be configured via dj.materialization.defaultIncrementalStrategy.'
                   }
                 />
               )}
             />
 
-            {/* Unique Key - not applicable for 'append' or 'overwrite_existing_partitions' */}
+            {/* Unique Key - not applicable for 'append', 'overwrite_existing_partitions', or 'dj_iceberg_partition_overwrite' */}
             {incrementalStrategy?.type !== 'append' &&
-              incrementalStrategy?.type !== 'overwrite_existing_partitions' && (
+              incrementalStrategy?.type !== 'overwrite_existing_partitions' &&
+              incrementalStrategy?.type !==
+                'dj_iceberg_partition_overwrite' && (
                 <Controller
                   control={control}
                   name="incremental_strategy.unique_key"
