@@ -1,0 +1,187 @@
+name: Create Tag for new dj version
+
+on:
+  workflow_dispatch:
+    inputs:
+      ignore_changes:
+        description: "Skip source code change detection and force tag creation"
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: create-tag
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  create-tag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    outputs:
+      version_tag: ${{ steps.version.outputs.version_tag }}
+
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Check for source code changes
+        if: inputs.ignore_changes == false
+        id: check_changes
+        run: |
+          set -euo pipefail
+
+          if git rev-parse HEAD^ >/dev/null 2>&1; then
+            CHANGED_FILES=$(git diff --name-only HEAD^ HEAD)
+          else
+            echo "Initial commit detected; treating all tracked files as changed."
+            CHANGED_FILES=$(git ls-tree -r --name-only HEAD)
+          fi
+
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+
+          SOURCE_CHANGES="$CHANGED_FILES"
+
+          if [ -f ".tagignore" ] && [ -s ".tagignore" ]; then
+            PATTERNS=$(grep -vE '^[[:space:]]*(#|$)' .tagignore || true)
+            if [ -n "$PATTERNS" ]; then
+              ESC() { sed -E 's:[][/.^$*+?(){}|\\]:\\&:g'; }
+              DIRS=$(printf '%s\n' "$PATTERNS" | grep '/$' | sed 's:/$::' | ESC | paste -sd '|' -)
+              FILES=$(printf '%s\n' "$PATTERNS" | grep -v '/$' | ESC | paste -sd '|' -)
+              REGEX=""
+              [ -n "$FILES" ] && REGEX="^(${FILES})$"
+              [ -n "$DIRS" ]  && REGEX="${REGEX:+$REGEX|}^(${DIRS})/"
+              if [ -n "$REGEX" ]; then
+                SOURCE_CHANGES=$(echo "$CHANGED_FILES" | grep -vE "$REGEX" || true)
+              fi
+            fi
+          fi
+
+          if [ -z "$SOURCE_CHANGES" ]; then
+            echo "No source code changes detected. Skipping tag creation."
+            echo "should_tag=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Source code changes detected:"
+            echo "$SOURCE_CHANGES"
+            echo "should_tag=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Get version from package.json
+        if: inputs.ignore_changes == true || steps.check_changes.outputs.should_tag == 'true'
+        id: version
+        run: |
+          set -euo pipefail
+          if [ ! -f package.json ]; then
+            echo "::error::package.json not found"
+            exit 1
+          fi
+          VERSION=$(node -p "require('./package.json').version" 2>/dev/null || true)
+          if [ -z "$VERSION" ] || [ "$VERSION" = "undefined" ]; then
+            echo "::error::Could not read version from package.json"
+            exit 1
+          fi
+          if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-+].+)?$'; then
+            echo "::error::Invalid semver '$VERSION' in package.json"
+            exit 1
+          fi
+          echo "version_tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Check if tag already exists
+        if: inputs.ignore_changes == true || steps.check_changes.outputs.should_tag == 'true'
+        env:
+          TAG: ${{ steps.version.outputs.version_tag }}
+        run: |
+          set -euo pipefail
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            echo "::error::Tag ${TAG} already exists locally"
+            exit 1
+          fi
+          if git ls-remote --tags --exit-code origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "::error::Tag ${TAG} already exists on remote"
+            exit 1
+          fi
+          echo "Tag ${TAG} does not exist. Proceeding."
+
+      - name: Install vsce
+        if: inputs.ignore_changes == true || steps.check_changes.outputs.should_tag == 'true'
+        run: npm install -g @vscode/vsce@^3.6 --silent --no-fund --no-audit
+
+      - name: Check marketplace version
+        if: inputs.ignore_changes == true || steps.check_changes.outputs.should_tag == 'true'
+        env:
+          TAG: ${{ steps.version.outputs.version_tag }}
+        run: |
+          set -euo pipefail
+          PACKAGE_NAME=$(node -p "require('./package.json').name || ''" 2>/dev/null || true)
+          PUBLISHER=$(node -p "require('./package.json').publisher || ''" 2>/dev/null || true)
+          if [ -z "$PACKAGE_NAME" ] || [ -z "$PUBLISHER" ]; then
+            echo "::error::Failed to read name/publisher from package.json"
+            exit 1
+          fi
+          EXTENSION_ID="${PUBLISHER}.${PACKAGE_NAME}"
+          PACKAGE_VERSION="${TAG#v}"
+
+          TMP_OUT=$(mktemp)
+          TMP_ERR=$(mktemp)
+          set +e
+          vsce show "$EXTENSION_ID" --json >"$TMP_OUT" 2>"$TMP_ERR"
+          RC=$?
+          set -e
+          ERR=$(cat "$TMP_ERR"); rm -f "$TMP_ERR"
+          RAW=$(sed -n '/^[[:space:]]*[{[]/,$p' "$TMP_OUT")
+          rm -f "$TMP_OUT"
+
+          if [ $RC -ne 0 ] || [ -z "$RAW" ]; then
+            if echo "$ERR" | grep -qiE "not found|could not be found|no extension"; then
+              echo "Extension '$EXTENSION_ID' not on marketplace yet (first publish). OK."
+              exit 0
+            fi
+            echo "::error::vsce show failed for '$EXTENSION_ID': $ERR"
+            exit 1
+          fi
+
+          if ! echo "$RAW" | jq -e . >/dev/null 2>&1; then
+            echo "::error::vsce show returned non-JSON output for '$EXTENSION_ID': $RAW"
+            exit 1
+          fi
+
+          PUBLISHED=$(echo "$RAW" | jq -r '.versions[].version')
+          if echo "$PUBLISHED" | grep -Fxq "$PACKAGE_VERSION"; then
+            echo "::error::Version $PACKAGE_VERSION already exists on marketplace for $EXTENSION_ID"
+            exit 1
+          fi
+
+          LATEST=$(echo "$PUBLISHED" | sort -V | tail -n1)
+          if [ -n "$LATEST" ]; then
+            HIGHER=$(printf '%s\n%s\n' "$LATEST" "$PACKAGE_VERSION" | sort -V | tail -n1)
+            if [ "$HIGHER" != "$PACKAGE_VERSION" ] || [ "$LATEST" = "$PACKAGE_VERSION" ]; then
+              echo "::error::Version $PACKAGE_VERSION must be greater than latest published $LATEST for $EXTENSION_ID"
+              exit 1
+            fi
+          fi
+          echo "Version $PACKAGE_VERSION is available to publish for $EXTENSION_ID (latest published: ${LATEST:-none})."
+
+      - name: Tag new version
+        if: inputs.ignore_changes == true || steps.check_changes.outputs.should_tag == 'true'
+        env:
+          TAG: ${{ steps.version.outputs.version_tag }}
+          ACTOR: ${{ github.actor }}
+          ACTOR_ID: ${{ github.actor_id }}
+        run: |
+          set -euo pipefail
+          git config user.name "$ACTOR"
+          git config user.email "${ACTOR_ID}+${ACTOR}@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG (triggered by $ACTOR)"
+          git push origin "refs/tags/${TAG}"
