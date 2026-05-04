@@ -1,5 +1,11 @@
 # Change Log
 
+## 1.3.5
+
+- **`unique_key` no longer emitted for `overwrite_existing_partitions`** — this strategy requires a custom dbt macro in your project (typically `get_incremental_overwrite_existing_partitions_sql`); the DJ extension does not ship it and dbt-trino does not provide it natively. If your project does not define the macro, switch to `{ "type": "delete+insert" }` — it auto-derives `unique_key` from partition columns.
+- **`dj.lightdash.defaultPartitionColumnCaseSensitive`** (default: `false`) — when `true`, partition columns in generated YAML get `meta.dimension.case_sensitive: true`. This stops Lightdash from wrapping them in `UPPER()` in queries, preserving Trino predicate pushdown on partitioned tables. Per-model and per-column `lightdash.case_sensitive` overrides in `.model.json` continue to apply.
+- **Aggregation Validator Enhancements** — Validation issues are now flagged as Warnings rather than errors, allowing you to generate SQL and iterate even if columns are un-aggregated. The validator now ignores constant values (e.g., 0, null, 'foo') and Jinja/dbt macros that it cannot introspect. Specific messages added to guide on partition-column alignment for window functions, replacing generic aggregation errors.
+
 ## 1.3.4
 
 - Partition columns automatically emit `case_sensitive: true` in YAML meta so Lightdash does not wrap them in `UPPER()`, preserving predicate pushdown

@@ -4,24 +4,25 @@ Complete guide to configuring the DJ VS Code extension.
 
 ## Quick Reference
 
-| Setting                     | Purpose                            | Takes Effect    |
-| --------------------------- | ---------------------------------- | --------------- |
-| `pythonVenvPath`            | Python virtual environment path    | Next command ⚡ |
-| `trinoPath`                 | Trino CLI executable location      | Next query ⚡   |
-| `dbtProjectNames`           | Filter which dbt projects to load  | Refresh 🔄      |
-| `dbtMacroPath`              | Custom path for extension macros   | Refresh 🔄      |
-| `dbtGenericTestsPath`       | Custom path for generic test files | Refresh 🔄      |
-| `airflowGenerateDags`       | Enable Airflow DAG generation      | Refresh 🔄      |
-| `airflowTargetVersion`      | Target Airflow version             | Refresh 🔄      |
-| `airflowDagsPath`           | Custom path for Airflow DAGs       | Refresh 🔄      |
-| `lightdashProjectPath`      | Custom Lightdash project path      | Next preview ⚡ |
-| `lightdashProfilesPath`     | Custom Lightdash profiles path     | Next preview ⚡ |
-| `aiHintTag`                 | Tag for AI-generated hints         | Next sync 🔄    |
-| `codingAgent`               | Coding agent integration           | Refresh 🔄      |
-| `autoGenerateTests`         | Auto-generate row count tests      | Varies 🔄       |
-| `columnLineage.autoRefresh` | Auto-refresh column lineage        | File switch ✅  |
-| `dataExplorer.autoRefresh`  | Auto-refresh data explorer         | File switch ✅  |
-| `logLevel`                  | Extension logging level            | Immediate ✅    |
+| Setting                                         | Purpose                                                          | Takes Effect    |
+| ----------------------------------------------- | ---------------------------------------------------------------- | --------------- |
+| `pythonVenvPath`                                | Python virtual environment path                                  | Next command ⚡ |
+| `trinoPath`                                     | Trino CLI executable location                                    | Next query ⚡   |
+| `dbtProjectNames`                               | Filter which dbt projects to load                                | Refresh 🔄      |
+| `dbtMacroPath`                                  | Custom path for extension macros                                 | Refresh 🔄      |
+| `dbtGenericTestsPath`                           | Custom path for generic test files                               | Refresh 🔄      |
+| `airflowGenerateDags`                           | Enable Airflow DAG generation                                    | Refresh 🔄      |
+| `airflowTargetVersion`                          | Target Airflow version                                           | Refresh 🔄      |
+| `airflowDagsPath`                               | Custom path for Airflow DAGs                                     | Refresh 🔄      |
+| `lightdashProjectPath`                          | Custom Lightdash project path                                    | Next preview ⚡ |
+| `lightdashProfilesPath`                         | Custom Lightdash profiles path                                   | Next preview ⚡ |
+| `lightdash.defaultPartitionColumnCaseSensitive` | Set default `case_sensitive` value for partition columns in YAML | Next sync 🔄    |
+| `aiHintTag`                                     | Tag for AI-generated hints                                       | Next sync 🔄    |
+| `codingAgent`                                   | Coding agent integration                                         | Refresh 🔄      |
+| `autoGenerateTests`                             | Auto-generate row count tests                                    | Varies 🔄       |
+| `columnLineage.autoRefresh`                     | Auto-refresh column lineage                                      | File switch ✅  |
+| `dataExplorer.autoRefresh`                      | Auto-refresh data explorer                                       | File switch ✅  |
+| `logLevel`                                      | Extension logging level                                          | Immediate ✅    |
 
 **Legend:** ✅ Immediate | ⚡ Next command/action | 🔄 Requires `DJ: Refresh Projects` or sync
 
@@ -116,6 +117,16 @@ Complete guide to configuring the DJ VS Code extension.
 
 - Both optional (extension auto-detects by default)
 - See [Lightdash Configuration Guide](setup/lightdash-configuration.md)
+
+**`dj.lightdash.defaultPartitionColumnCaseSensitive`** - Auto-emit `case_sensitive: true` on partition columns in generated YAML (default: `false`)
+
+```json
+{ "dj.lightdash.defaultPartitionColumnCaseSensitive": true }
+```
+
+- When `true`, every generated partition column in `.yml` files gets `meta.dimension.case_sensitive: true`. This stops Lightdash from wrapping the column in `UPPER()` in queries, preserving Trino predicate pushdown on partitioned tables.
+- When `false` (the default), partition columns are emitted without the auto-injected `case_sensitive` flag. Per-model and per-column `lightdash.case_sensitive` overrides in `.model.json` continue to work in either mode.
+- Takes effect on next `DJ: Sync to SQL and YML`.
 
 ---
 
@@ -230,6 +241,7 @@ Run this command (`Cmd/Ctrl+Shift+P` → `DJ: Refresh Projects`) after changing:
 ### 🔄 Requires `DJ: Sync to SQL and YML`
 
 - `aiHintTag` - Recompiles models with updated tags
+- `lightdash.defaultPartitionColumnCaseSensitive` - Re-emits partition column YAML meta
 
 ---
 

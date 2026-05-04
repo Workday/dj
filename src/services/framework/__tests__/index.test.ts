@@ -949,7 +949,11 @@ describe('incremental strategy variants', () => {
     expect(config.unique_key).toBeUndefined();
   });
 
-  test('strategy: overwrite_existing_partitions auto-derives unique_key from partitions', () => {
+  test('strategy: overwrite_existing_partitions omits unique_key on partitioned models', () => {
+    // unique_key is dead config for overwrite_existing_partitions: the
+    // consumer macro derives the partition list from the new slice itself.
+    // Even when the model has partition columns, we intentionally never emit
+    // unique_key (and the JSON schema rejects it on this strategy).
     const modelJson: FrameworkModel = {
       type: 'int_select_model',
       group: 'swh',
@@ -974,13 +978,10 @@ describe('incremental strategy variants', () => {
 
     expect(config.materialized).toBe('incremental');
     expect(config.incremental_strategy).toBe('overwrite_existing_partitions');
-    expect(config.unique_key).toBe('portal_partition_daily');
+    expect(config.unique_key).toBeUndefined();
   });
 
-  test('strategy: overwrite_existing_partitions without partitions omits unique_key', () => {
-    // Mirrors delete+insert behavior: if the model has no partition columns,
-    // unique_key is left unset so dbt / the custom macro surfaces its own
-    // error rather than us emitting a phantom column.
+  test('strategy: overwrite_existing_partitions omits unique_key on unpartitioned models', () => {
     const modelJson: FrameworkModel = {
       type: 'int_select_model',
       group: 'sales',
@@ -1004,37 +1005,10 @@ describe('incremental strategy variants', () => {
     expect(config.unique_key).toBeUndefined();
   });
 
-  test('strategy: overwrite_existing_partitions honors explicit unique_key', () => {
-    const modelJson: FrameworkModel = {
-      type: 'int_select_model',
-      group: 'sales',
-      topic: 'orders',
-      name: 'enriched',
-      materialization: {
-        type: 'incremental',
-        strategy: {
-          type: 'overwrite_existing_partitions',
-          unique_key: 'dim_a',
-        },
-      },
-      select: [{ model: 'model_a', columns: ['dim_a'] }],
-      from: { model: 'model_a' },
-    } as unknown as FrameworkModel;
-
-    const { config } = frameworkGenerateModelOutput({
-      dj: createTestDJ(),
-      modelJson,
-      project: unpartitionedProject,
-    });
-
-    expect(config.incremental_strategy).toBe('overwrite_existing_partitions');
-    expect(config.unique_key).toBe('dim_a');
-  });
-
-  test('default fallback overwrite_existing_partitions auto-derives unique_key from partitions', () => {
-    // When the extension default kicks in (no explicit strategy) and the
-    // model has partition columns, the partition-based unique_key should
-    // also fire for the overwrite_existing_partitions default path.
+  test('default fallback overwrite_existing_partitions omits unique_key', () => {
+    // When the extension default kicks in (no explicit strategy) and resolves
+    // to overwrite_existing_partitions, unique_key must NOT be emitted -- the
+    // consumer macro derives partitions from the new slice.
     const modelJson: FrameworkModel = {
       type: 'int_select_model',
       group: 'swh',
@@ -1055,7 +1029,7 @@ describe('incremental strategy variants', () => {
     });
 
     expect(config.incremental_strategy).toBe('overwrite_existing_partitions');
-    expect(config.unique_key).toBe('portal_partition_daily');
+    expect(config.unique_key).toBeUndefined();
   });
 
   test('Delta Lake / Hive partitioning uses properties.partitioned_by', () => {
@@ -1124,6 +1098,10 @@ describe('incremental strategy variants', () => {
   });
 
   test('Iceberg (via model-level format override) uses properties.partitioning', () => {
+    // Use delete+insert so we can assert unique_key defaulting alongside the
+    // Iceberg `partitioning` keyword. overwrite_existing_partitions never
+    // emits unique_key, so the partitioning assertion still works either way,
+    // but delete+insert gives us coverage of both behaviors at once.
     const modelJson: FrameworkModel = {
       type: 'int_select_model',
       group: 'swh',
@@ -1132,7 +1110,7 @@ describe('incremental strategy variants', () => {
       materialization: {
         type: 'incremental',
         format: 'iceberg',
-        strategy: { type: 'overwrite_existing_partitions' },
+        strategy: { type: 'delete+insert' },
       },
       select: [
         'portal_partition_daily',
@@ -1148,7 +1126,7 @@ describe('incremental strategy variants', () => {
     });
 
     const properties = config.properties as Record<string, string> | undefined;
-    expect(config.incremental_strategy).toBe('overwrite_existing_partitions');
+    expect(config.incremental_strategy).toBe('delete+insert');
     expect(config.unique_key).toBe('portal_partition_daily');
     expect(properties?.partitioning).toBe("ARRAY['portal_partition_daily']");
     expect(properties?.partitioned_by).toBeUndefined();
@@ -1284,15 +1262,18 @@ describe('incremental unique_key defaulting', () => {
     // column from the child model's `columns`, matching the real monthly-
     // rollup shape in production. Without the fix, getDefaultUniqueKey would
     // still pick 'daily' from the inherited meta and emit a phantom unique_key.
-    // `createTestDJ()` leaves `materializationDefaultIncrementalStrategy`
-    // unset so the default (`overwrite_existing_partitions`) applies — the
-    // partition-based unique_key resolution fires for that strategy as well.
+    // Use explicit `delete+insert` so this test directly exercises the
+    // partition-based unique_key resolution (overwrite_existing_partitions
+    // never emits unique_key).
     const modelJson: FrameworkModel = {
       type: 'int_select_model',
       group: 'swh',
       topic: 'misc',
       name: 'monthly_rollup',
-      materialization: 'incremental',
+      materialization: {
+        type: 'incremental',
+        strategy: { type: 'delete+insert' },
+      },
       select: [{ name: 'dim_a', type: 'dim' }],
       from: { model: 'parent_daily', rollup: { interval: 'month' } },
     } as unknown as FrameworkModel;
@@ -1304,7 +1285,7 @@ describe('incremental unique_key defaulting', () => {
     });
 
     expect(config.materialized).toBe('incremental');
-    expect(config.incremental_strategy).toBe('overwrite_existing_partitions');
+    expect(config.incremental_strategy).toBe('delete+insert');
     expect(config.unique_key).toBe('portal_partition_monthly');
     // Inherited meta is propagated as-is. The local intersection inside
     // `frameworkGenerateModelOutput` is what guarantees `unique_key` is
@@ -1317,19 +1298,21 @@ describe('incremental unique_key defaulting', () => {
     ]);
   });
 
-  test('unpartitioned incremental model omits unique_key entirely', () => {
+  test('unpartitioned incremental delete+insert model omits unique_key entirely', () => {
     // No parent meta, no partition columns on the model - getDefaultUniqueKey
     // previously fell back to the hardcoded default list and chose
     // portal_partition_daily, producing a phantom unique_key that Trino then
     // fails to resolve at runtime. After the fix, unique_key is simply omitted
-    // so dbt (or the consumer's `overwrite_existing_partitions` macro) raises
-    // its own clear error instead.
+    // so dbt raises its own clear "delete+insert requires unique_key" error.
     const modelJson: FrameworkModel = {
       type: 'int_select_model',
       group: 'capeng',
       topic: 'tenant',
       name: 'account',
-      materialization: 'incremental',
+      materialization: {
+        type: 'incremental',
+        strategy: { type: 'delete+insert' },
+      },
       select: [{ name: 'dim_a', type: 'dim' }],
       from: { model: 'parent_unpartitioned' },
     } as unknown as FrameworkModel;
@@ -1341,12 +1324,12 @@ describe('incremental unique_key defaulting', () => {
     });
 
     expect(config.materialized).toBe('incremental');
-    expect(config.incremental_strategy).toBe('overwrite_existing_partitions');
+    expect(config.incremental_strategy).toBe('delete+insert');
     expect(config.unique_key).toBeUndefined();
     expect(properties.meta?.portal_partition_columns).toBeUndefined();
   });
 
-  test('daily model with portal_partition_daily column keeps daily unique_key', () => {
+  test('daily delete+insert model with portal_partition_daily column keeps daily unique_key', () => {
     // Regression guard: the common "daily model inherits daily meta and
     // actually has the daily column" case must still resolve to daily.
     const modelJson: FrameworkModel = {
@@ -1354,7 +1337,10 @@ describe('incremental unique_key defaulting', () => {
       group: 'swh',
       topic: 'misc',
       name: 'daily_model',
-      materialization: 'incremental',
+      materialization: {
+        type: 'incremental',
+        strategy: { type: 'delete+insert' },
+      },
       select: ['portal_partition_daily', { name: 'dim_a', type: 'dim' }],
       from: { model: 'parent_daily' },
     } as unknown as FrameworkModel;
@@ -1366,7 +1352,7 @@ describe('incremental unique_key defaulting', () => {
     });
 
     expect(config.materialized).toBe('incremental');
-    expect(config.incremental_strategy).toBe('overwrite_existing_partitions');
+    expect(config.incremental_strategy).toBe('delete+insert');
     expect(config.unique_key).toBe('portal_partition_daily');
   });
 
@@ -1488,12 +1474,46 @@ describe('partition column case_sensitive', () => {
     variables: {},
   };
 
-  test('partition columns automatically get case_sensitive: true', () => {
+  test('partition columns automatically get case_sensitive: true when setting enabled', () => {
     const modelJson: FrameworkModel = {
       type: 'int_select_model',
       group: 'sales',
       topic: 'orders',
       name: 'daily_model',
+      materialization: 'incremental',
+      select: ['portal_partition_daily', { name: 'dim_a', type: 'dim' }],
+      from: { model: 'parent_daily' },
+    } as unknown as FrameworkModel;
+
+    const dj: DJ = {
+      config: {
+        ...createTestDJ().config,
+        lightdashDefaultPartitionColumnCaseSensitive: true,
+      },
+    };
+
+    const { properties } = frameworkGenerateModelOutput({
+      dj,
+      modelJson,
+      project,
+    });
+
+    const partitionCol = properties.columns?.find(
+      (c) => c.name === 'portal_partition_daily',
+    );
+    expect(partitionCol?.meta?.dimension?.case_sensitive).toBe(true);
+
+    // Non-partition columns should not get case_sensitive auto-set
+    const dimCol = properties.columns?.find((c) => c.name === 'dim_a');
+    expect(dimCol?.meta?.dimension?.case_sensitive).toBeUndefined();
+  });
+
+  test('partition columns do NOT get case_sensitive when setting is disabled', () => {
+    const modelJson: FrameworkModel = {
+      type: 'int_select_model',
+      group: 'sales',
+      topic: 'orders',
+      name: 'daily_model_disabled',
       materialization: 'incremental',
       select: ['portal_partition_daily', { name: 'dim_a', type: 'dim' }],
       from: { model: 'parent_daily' },
@@ -1508,11 +1528,7 @@ describe('partition column case_sensitive', () => {
     const partitionCol = properties.columns?.find(
       (c) => c.name === 'portal_partition_daily',
     );
-    expect(partitionCol?.meta?.dimension?.case_sensitive).toBe(true);
-
-    // Non-partition columns should not get case_sensitive auto-set
-    const dimCol = properties.columns?.find((c) => c.name === 'dim_a');
-    expect(dimCol?.meta?.dimension?.case_sensitive).toBeUndefined();
+    expect(partitionCol?.meta?.dimension?.case_sensitive).toBeUndefined();
   });
 
   test('explicit case_sensitive: false on partition column is preserved', () => {
@@ -1533,8 +1549,15 @@ describe('partition column case_sensitive', () => {
       from: { model: 'parent_daily' },
     } as unknown as FrameworkModel;
 
+    const dj: DJ = {
+      config: {
+        ...createTestDJ().config,
+        lightdashDefaultPartitionColumnCaseSensitive: true,
+      },
+    };
+
     const { properties } = frameworkGenerateModelOutput({
-      dj: createTestDJ(),
+      dj,
       modelJson,
       project,
     });

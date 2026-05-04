@@ -1987,14 +1987,10 @@ export function frameworkGenerateModelOutput({
           case 'overwrite_existing_partitions': {
             // Requires a custom dbt macro in the consumer project (the DJ
             // extension does not ship it and dbt-trino does not provide it
-            // natively). Auto-derive unique_key from partition columns when
-            // not explicitly supplied, mirroring delete+insert semantics.
+            // natively). The macro derives the partition list from the new
+            // slice itself, so unique_key is dead config for this strategy --
+            // we intentionally never emit it (and the JSON schema rejects it).
             modelConfig.incremental_strategy = 'overwrite_existing_partitions';
-            if (strategy.unique_key) {
-              modelConfig.unique_key = strategy.unique_key;
-            } else if (partitions.length) {
-              modelConfig.unique_key = getDefaultUniqueKey(partitions);
-            }
             break;
           }
           default: {
@@ -2002,15 +1998,12 @@ export function frameworkGenerateModelOutput({
               dj.config.materializationDefaultIncrementalStrategy ??
               DEFAULT_INCREMENTAL_STRATEGY;
             modelConfig.incremental_strategy = defaultStrategy;
-            // Partition-based strategies auto-derive unique_key from the
-            // model's partition column(s) when one exists. Append never
-            // needs a unique_key; merge requires one and is not a valid
-            // default here (it has no reasonable partition-derived key).
-            if (
-              (defaultStrategy === 'delete+insert' ||
-                defaultStrategy === 'overwrite_existing_partitions') &&
-              partitions.length
-            ) {
+            // Only delete+insert auto-derives unique_key from partitions.
+            // Append never needs one; merge requires a user-supplied key
+            // (and is not a valid default); overwrite_existing_partitions
+            // ignores unique_key entirely (the consumer macro derives
+            // partitions from the new slice itself).
+            if (defaultStrategy === 'delete+insert' && partitions.length) {
               modelConfig.unique_key = getDefaultUniqueKey(partitions);
             }
           }
@@ -2433,7 +2426,10 @@ export function frameworkModelProperties({
     // UPPER(), which breaks Trino-Iceberg predicate pushdown.
     if (explicitCaseSensitive !== undefined) {
       cleanedDimension.case_sensitive = explicitCaseSensitive;
-    } else if (partitionColumnNames.includes(column.name)) {
+    } else if (
+      dj.config.lightdashDefaultPartitionColumnCaseSensitive &&
+      partitionColumnNames.includes(column.name)
+    ) {
       cleanedDimension.case_sensitive = true;
     }
 

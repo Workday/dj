@@ -76,8 +76,8 @@
       }
     },
     {
-      "description": "Overwrite existing partitions: drop and rewrite only the partitions present in the new slice. REQUIRES a custom dbt macro in your project (e.g. get_incremental_overwrite_existing_partitions_sql). The DJ extension does NOT ship this macro and dbt-trino does NOT provide it natively. If your project does not define this macro, use 'delete+insert' with a partition column as unique_key — it produces equivalent behavior for daily/monthly partitioned models.",
-      "markdownDescription": "**`overwrite_existing_partitions`** — drop & rewrite only partitions in the new slice.\n\n> **WARNING — CUSTOM MACRO REQUIRED.** This strategy is NOT shipped by the DJ extension and is NOT part of vanilla dbt-trino. Your dbt project must define the dispatch macro (typically `get_incremental_overwrite_existing_partitions_sql`) for it to compile.\n>\n> **Don't have the macro?** Use `{ \"type\": \"delete+insert\" }` instead — if a partition column exists, DJ auto-fills `unique_key` and the behavior is equivalent for partition-aligned daily/monthly incrementals.",
+      "description": "Overwrite existing partitions: drop and rewrite only the partitions present in the new slice. REQUIRES a custom dbt macro in your project (e.g. get_incremental_overwrite_existing_partitions_sql). The DJ extension does NOT ship this macro and dbt-trino does NOT provide it natively. The macro derives the partition list from the new slice itself, so unique_key is not applicable for this strategy and is rejected by the schema. If your project does not define this macro, use 'delete+insert' with a partition column as unique_key — it produces equivalent behavior for daily/monthly partitioned models.",
+      "markdownDescription": "**`overwrite_existing_partitions`** — drop & rewrite only partitions in the new slice.\n\n> **WARNING — CUSTOM MACRO REQUIRED.** This strategy is NOT shipped by the DJ extension and is NOT part of vanilla dbt-trino. Your dbt project must define the dispatch macro (typically `get_incremental_overwrite_existing_partitions_sql`) for it to compile.\n>\n> **`unique_key` is not applicable** — the macro derives the partition list from the new slice itself, so this strategy ignores `unique_key` and the schema rejects it.\n>\n> **Don't have the macro?** Use `{ \"type\": \"delete+insert\" }` instead — if a partition column exists, DJ auto-fills `unique_key` and the behavior is equivalent for partition-aligned daily/monthly incrementals.",
       "type": "object",
       "required": ["type"],
       "additionalProperties": false,
@@ -85,17 +85,6 @@
         "type": {
           "const": "overwrite_existing_partitions",
           "description": "Overwrite only the partitions in the new slice. REQUIRES a custom macro in your dbt project — prefer 'delete+insert' if you do not have one."
-        },
-        "unique_key": {
-          "description": "Optional override for the unique key(s). Defaults to the model's partition column when omitted.",
-          "anyOf": [
-            { "type": "string" },
-            {
-              "type": "array",
-              "minItems": 1,
-              "items": { "type": "string" }
-            }
-          ]
         }
       }
     }

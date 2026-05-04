@@ -48,8 +48,4 @@ export type IncrementalStrategy =
        * Overwrite only the partitions in the new slice. REQUIRES a custom macro in your dbt project — prefer 'delete+insert' if you do not have one.
        */
       type: 'overwrite_existing_partitions';
-      /**
-       * Optional override for the unique key(s). Defaults to the model's partition column when omitted.
-       */
-      unique_key?: string | [string, ...string[]];
     };
