@@ -42,6 +42,6 @@ describe('Skills', () => {
   test('_AGENTS.md template exists and contains expected content', () => {
     const content = fs.readFileSync(AGENTS_TEMPLATE, 'utf-8');
     expect(content).toBeTruthy();
-    expect(content).toContain('DJ (dbt-json) Framework');
+    expect(content).toContain('DJ (Data JSON) Framework');
   });
 });

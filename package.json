@@ -1,16 +1,16 @@
 {
   "name": "dj-framework",
   "author": "Workday",
-  "displayName": "DJ (dbt-json) Framework",
-  "description": "An extension for managing dbt projects using Workday's dbt-json (DJ) framework",
+  "displayName": "DJ (Data JSON) Framework",
+  "description": "An extension for managing dbt projects using Workday's Data JSON (DJ) Framework",
   "icon": "assets/images/dj-logo.png",
   "license": "Apache-2.0",
   "publisher": "workday",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Workday/vscode-dbt-json.git"
+    "url": "https://github.com/Workday/dj.git"
   },
-  "version": "1.3.6",
+  "version": "1.3.7",
   "workspaces": [
     "web"
   ],
@@ -43,8 +43,8 @@
       "description": "License: Apache 2.0"
     },
     {
-      "url": "https://img.shields.io/github/v/release/Workday/vscode-dbt-json",
-      "href": "https://github.com/Workday/vscode-dbt-json/releases",
+      "url": "https://img.shields.io/github/v/release/Workday/dj",
+      "href": "https://github.com/Workday/dj/releases",
       "description": "GitHub Release"
     },
     {
@@ -53,8 +53,8 @@
       "description": "dbt Core"
     },
     {
-      "url": "https://api.scorecard.dev/projects/github.com/Workday/vscode-dbt-json/badge",
-      "href": "https://scorecard.dev/viewer/?uri=github.com/Workday/vscode-dbt-json",
+      "url": "https://api.scorecard.dev/projects/github.com/Workday/dj/badge",
+      "href": "https://scorecard.dev/viewer/?uri=github.com/Workday/dj",
       "description": "OpenSSF Scorecard"
     }
   ],
@@ -63,9 +63,9 @@
     "theme": "dark"
   },
   "pricing": "Free",
-  "qna": "https://github.com/Workday/vscode-dbt-json/discussions",
+  "qna": "https://github.com/Workday/dj/discussions",
   "bugs": {
-    "url": "https://github.com/Workday/vscode-dbt-json/issues"
+    "url": "https://github.com/Workday/dj/issues"
   },
   "activationEvents": [
     "workspaceContains:**/dbt_project.yml"
@@ -243,7 +243,7 @@
       }
     ],
     "configuration": {
-      "title": "DJ (dbt-json framework)",
+      "title": "DJ (Data JSON) Framework",
       "type": "object",
       "properties": {
         "dj.aiHintTag": {
@@ -352,7 +352,7 @@
             "error"
           ],
           "default": "info",
-          "description": "Logging level for DJ extension diagnostics."
+          "description": "Logging level for DJ (Data JSON) Framework diagnostics."
         },
         "dj.materialization.defaultIncrementalStrategy": {
           "type": "string",
@@ -705,7 +705,7 @@
       "activitybar": [
         {
           "id": "dj",
-          "title": "DJ (dbt-json) Framework",
+          "title": "DJ (Data JSON) Framework",
           "icon": "assets/images/dj-icon-white.svg"
         }
       ],

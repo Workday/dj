@@ -1,6 +1,6 @@
 # Local Trino Setup Guide
 
-This guide covers how to set up Trino locally for development with the DJ extension. If you already have Trino running (cloud or on-premises), return to the [main setup guide](setup.md#2-install-trino-cli) instead.
+This guide covers how to set up Trino locally for development with the DJ (Data JSON) Framework. If you already have Trino running (cloud or on-premises), return to the [main setup guide](setup.md#2-install-trino-cli) instead.
 
 **Related Documentation:**
 

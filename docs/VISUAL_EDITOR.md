@@ -5,7 +5,7 @@
 The Data Modeling Visual Editor provides an interactive, node-based interface for creating and editing dbt models. It offers a visual alternative to JSON configuration while generating identical outputs.
 
 <video width="100%" controls>
-  <source src="https://github.com/Workday/vscode-dbt-json/raw/main/assets/videos/visual-editor-intro.mp4" type="video/mp4">
+  <source src="https://github.com/Workday/dj/raw/main/assets/videos/visual-editor-intro.mp4" type="video/mp4">
   Your browser does not support the video tag.
 </video>
 
@@ -433,7 +433,7 @@ See [Lightdash Integration](integrations/lightdash-integration.md) for complete 
 ### Creating a Join Model
 
 <video width="100%" controls>
-  <source src="https://github.com/Workday/vscode-dbt-json/raw/main/assets/videos/visual-editor-join-workflow.mp4" type="video/mp4">
+  <source src="https://github.com/Workday/dj/raw/main/assets/videos/visual-editor-join-workflow.mp4" type="video/mp4">
   Your browser does not support the video tag.
 </video>
 
@@ -480,7 +480,7 @@ DJ supports two types of time-series analysis models: **Rollup** and **Lookback*
 #### Example: Rollup Model (Time Bucketing)
 
 <video width="100%" controls>
-  <source src="https://github.com/Workday/vscode-dbt-json/raw/main/assets/videos/visual-editor-timeseries-workflow.mp4" type="video/mp4">
+  <source src="https://github.com/Workday/dj/raw/main/assets/videos/visual-editor-timeseries-workflow.mp4" type="video/mp4">
   Your browser does not support the video tag.
 </video>
 

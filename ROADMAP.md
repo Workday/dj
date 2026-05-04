@@ -22,7 +22,7 @@
 
 ## Suggestions
 
-Suggestions are welcome! Please feel free to suggest features or report issues in the [GitHub Issues](https://github.com/Workday/vscode-dbt-json/issues).
+Suggestions are welcome! Please feel free to suggest features or report issues in the [GitHub Issues](https://github.com/Workday/dj/issues).
 
 ## Contributing
 

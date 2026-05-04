@@ -6,7 +6,7 @@
   "publisher": "workday",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Workday/vscode-dbt-json.git"
+    "url": "https://github.com/Workday/dj.git"
   },
   "type": "module",
   "version": "0.1.0",

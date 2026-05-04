@@ -45,7 +45,7 @@ Compiles model to SQL without executing:
 2. Select "Compile Model"
 
 <video width="100%" controls>
-  <source src="https://github.com/Workday/vscode-dbt-json/raw/main/assets/videos/dbt-operations.mp4" type="video/mp4">
+  <source src="https://github.com/Workday/dj/raw/main/assets/videos/dbt-operations.mp4" type="video/mp4">
   Your browser does not support the video tag.
 </video>
 
@@ -73,7 +73,7 @@ Opens an interactive UI for running dbt models with configurable options.
 2. Click "Run Model" item
 
 <video width="100%" controls>
-  <source src="https://github.com/Workday/vscode-dbt-json/raw/main/assets/videos/dbt-run-model-ui.mp4" type="video/mp4">
+  <source src="https://github.com/Workday/dj/raw/main/assets/videos/dbt-run-model-ui.mp4" type="video/mp4">
   Your browser does not support the video tag.
 </video>
 

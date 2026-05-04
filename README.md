@@ -1,9 +1,9 @@
-# DJ (dbt-json) Framework
+# DJ (Data JSON) Framework
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![GitHub Release](https://img.shields.io/github/v/release/Workday/vscode-dbt-json)](https://github.com/Workday/vscode-dbt-json/releases)
+[![GitHub Release](https://img.shields.io/github/v/release/Workday/dj)](https://github.com/Workday/dj/releases)
 [![dbt](https://img.shields.io/badge/dbt-Core-orange.svg)](https://www.getdbt.com/)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/Workday/vscode-dbt-json/badge)](https://scorecard.dev/viewer/?uri=github.com/Workday/vscode-dbt-json)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/Workday/dj/badge)](https://scorecard.dev/viewer/?uri=github.com/Workday/dj)
 
 DJ is a VS Code extension that revolutionizes dbt development through a structured, JSON-first approach. Define your dbt models and sources as validated `.model.json` and `.source.json` files that automatically generate corresponding SQL and YAML configurations.
 
@@ -15,7 +15,7 @@ DJ is a VS Code extension that revolutionizes dbt development through a structur
 - **Integrated BI Preview** - One-click Lightdash preview from your models
 
 <video width="100%" controls>
-  <source src="https://github.com/Workday/vscode-dbt-json/raw/main/assets/videos/visual-editor-overview.mp4" type="video/mp4">
+  <source src="https://github.com/Workday/dj/raw/main/assets/videos/visual-editor-overview.mp4" type="video/mp4">
   Your browser does not support the video tag.
 </video>
 
@@ -35,7 +35,7 @@ DJ is a VS Code extension that revolutionizes dbt development through a structur
 
 <!-- Using GitHub raw URL to show image in both GitHub and VS Code extension marketplace -->
 
-![DBT Stack](https://github.com/Workday/vscode-dbt-json/blob/main/assets/images/dj_stack.png?raw=true)
+![DBT Stack](https://github.com/Workday/dj/blob/main/assets/images/dj_stack.png?raw=true)
 
 _DJ integrates seamlessly with your modern data stack - from VS Code to dbt, Trino, and Lightdash._
 
@@ -115,14 +115,14 @@ dbt parse # this generates the manifest.json file
 
 ### 4. Install the Extension
 
-1. Download the latest `.vsix` file from the [GitHub Releases page](https://github.com/Workday/vscode-dbt-json/releases)
+1. Download the latest `.vsix` file from the [GitHub Releases page](https://github.com/Workday/dj/releases)
 2. Install the extension in VS Code:
    - Open VS Code
    - Press `Cmd+Shift+P` (Mac) or `Ctrl+Shift+P` (Windows/Linux)
    - Type "Extensions: Install from VSIX..."
    - Select the downloaded `.vsix` file
 
-Note: Want to build DJ extension from source? See the [DEVELOPMENT_SETUP.md](DEVELOPMENT_SETUP.md) for development setup.
+Note: Want to build the DJ (Data JSON) Framework extension from source? See the [DEVELOPMENT_SETUP.md](DEVELOPMENT_SETUP.md) for development setup.
 
 ### 5. Configure VS Code Settings
 
@@ -131,7 +131,7 @@ The extension can be configured in the VS Code settings or by adding to the `.vs
 To configure the extension via VS Code settings,
 
 - Open the VS Code settings (Cmd/Ctrl + ,)
-- Under "Extensions", select "DJ (dbt-json) Framework".
+- Under "Extensions", select "DJ (Data JSON) Framework".
 - Configure the extension settings as needed.
 
 To configure the extension via `.vscode/settings.json`, add the configuration options as needed to the file:
@@ -183,7 +183,7 @@ See the [Settings Reference](docs/SETTINGS.md#when-settings-take-effect) for com
 
 ### 6. Create Your First Source
 
-1. Look for the DJ extension panel in the sidebar and click on it.
+1. Look for the DJ (Data JSON) Framework extension panel in the sidebar and click on it.
 2. Under "Actions", click on "Create Source".
 3. Fill the form:
    - **Select Project**: Choose your dbt project
@@ -205,7 +205,7 @@ DJ offers multiple ways to build models - choose what works best for you:
 
 ### 8. Create Your First Model
 
-1. Look for the DJ extension panel in the sidebar and click on it.
+1. Look for the DJ (Data JSON) Framework extension panel in the sidebar and click on it.
 2. Under "Actions", click on "Create Model".
 3. Fill the form:
    - **Select Project**: Choose your dbt project
@@ -293,8 +293,8 @@ DJ supports the following model types:
 
 ## Support & Community
 
-- **Discussions**: [GitHub Discussions](https://github.com/Workday/vscode-dbt-json/discussions)
-- **Issues**: [GitHub Issues](https://github.com/Workday/vscode-dbt-json/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/Workday/dj/discussions)
+- **Issues**: [GitHub Issues](https://github.com/Workday/dj/issues)
 - **Documentation**: [Complete Docs](docs/)
 
 ## Contributing

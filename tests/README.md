@@ -1,10 +1,10 @@
 # Tests
 
-This directory contains the test suite for the DJ (dbt-json) extension, which validates that the framework correctly converts JSON model definitions to SQL and YAML files.
+This directory contains the test suite for the DJ (Data JSON) Framework extension, which validates that the framework correctly converts JSON model definitions to SQL and YAML files.
 
 ## Overview
 
-The DJ extension allows defining dbt models using JSON schemas, which are then automatically converted to:
+The DJ (Data JSON) Framework extension allows defining dbt models using JSON schemas, which are then automatically converted to:
 
 - **SQL files**: Executable dbt model code
 - **YAML files**: dbt model properties and documentation
@@ -29,7 +29,7 @@ tests/
 
 **What are fixtures?** Test data files that represent real, working examples from the `docs/examples/jaffle_shop` project.
 
-**Coverage:** Staging, intermediate, and mart models that test all DJ framework capabilities.
+**Coverage:** Staging, intermediate, and mart models that test all DJ (Data JSON) Framework capabilities.
 
 ## Usage
 
@@ -78,7 +78,7 @@ npm run fixtures:update
 
 ## Contributing
 
-When contributing to the DJ framework:
+When contributing to the DJ (Data JSON) Framework:
 
 1. **Always update fixtures** after model changes (`npm run fixtures:update`)
 2. **Run tests** before submitting PRs

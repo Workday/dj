@@ -457,7 +457,7 @@ export class Framework implements ApiEnabledService<'framework'> {
 
       // 4. Show prompt
       const answer = await vscode.window.showInformationMessage(
-        'The DJ extension uses a .dj folder for local state. Would you like to add it to .gitignore?',
+        'The DJ (Data JSON) Framework extension uses a .dj folder for local state. Would you like to add it to .gitignore?',
         'Yes',
         'No',
         "Don't ask again",
@@ -465,7 +465,7 @@ export class Framework implements ApiEnabledService<'framework'> {
 
       if (answer === 'Yes') {
         const newLine = content.endsWith('\n') ? '\n' : '\n\n';
-        const newContent = `${content}${newLine}# DJ Extension\n${DJ_IGNORE_ENTRY}\n`;
+        const newContent = `${content}${newLine}# DJ (Data JSON) Framework\n${DJ_IGNORE_ENTRY}\n`;
 
         fs.writeFileSync(gitignorePath, newContent, 'utf8');
         vscode.window.showInformationMessage('Added .dj/ to .gitignore');

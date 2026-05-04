@@ -1,5 +1,12 @@
 # Change Log
 
+## 1.3.7
+
+### Naming alignment
+
+- Renamed framework to **DJ (Data JSON) Framework** to better reflect its JSON-first, schema-driven approach
+- Updated repository URL from `Workday/vscode-dbt-json` to `Workday/dj`
+
 ## 1.3.6
 
 - **CTE exclude/include flags now mirror their main-model counterparts and inherit from the model** — a CTE accepts `exclude_date_filter`, `exclude_daily_filter`, `exclude_portal_partition_columns`, `exclude_portal_source_count`, and `include_full_month` with the same semantics as the corresponding main-model flags. Resolution is uniform: CTE override > model value > false. Set `exclude_portal_partition_columns: true` on the model to skip partition auto-injection in every CTE without per-CTE repetition; set it on a single CTE to override only that CTE.

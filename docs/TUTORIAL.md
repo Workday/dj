@@ -28,7 +28,7 @@ Interactive guided mode that walks you through creating specific model types:
 6. Tutorial automatically fills in example data and advances through steps
 
 <video width="100%" controls>
-  <source src="https://github.com/Workday/vscode-dbt-json/raw/main/assets/videos/tutorial-modes.mp4" type="video/mp4">
+  <source src="https://github.com/Workday/dj/raw/main/assets/videos/tutorial-modes.mp4" type="video/mp4">
   Your browser does not support the video tag.
 </video>
 
@@ -106,7 +106,7 @@ dbt seed
 dbt parse
 ```
 
-This creates `target/manifest.json` that the DJ extension needs to provide IntelliSense and validation.
+This creates `target/manifest.json` that the DJ (Data JSON) Framework needs to provide IntelliSense and validation.
 
 Now you have real data and the extension is ready to work!
 
@@ -114,9 +114,9 @@ Now you have real data and the extension is ready to work!
 
 Before creating models, we need to define sources for our raw data.
 
-1. **Use the DJ extension** to create sources incrementally:
+1. **Use the DJ (Data JSON) Framework extension** to create sources incrementally:
 
-   - Look for the DJ extension panel in the sidebar and click on it.
+   - Look for the DJ (Data JSON) Framework extension panel in the sidebar and click on it.
    - Under "Actions", click on "Create Source".
    - In the extension UI, fill the form:
      - **Select Project**: `jaffle_shop`
@@ -153,7 +153,7 @@ Now the extension can provide IntelliSense for your sources!
 
 ## Step 3: Configure Groups for Model Organization
 
-Before creating models, we need to define groups that will be available in the DJ extension UI.
+Before creating models, we need to define groups that will be available in the DJ (Data JSON) Framework extension UI.
 
 1. **Business-focused groups** in the example project:
 
@@ -208,15 +208,15 @@ Before creating models, we need to define groups that will be available in the D
 dbt parse
 ```
 
-> **Important**: Without groups configured and `dbt parse` run, the DJ extension UI won't populate the Group dropdown, and you cannot create models.
+> **Important**: Without groups configured and `dbt parse` run, the DJ (Data JSON) Framework extension UI won't populate the Group dropdown, and you cannot create models.
 
 ## Step 4: Create Your First Staging Model
 
-Let's clean up the raw customer data using the DJ extension's UI.
+Let's clean up the raw customer data using the DJ (Data JSON) Framework extension's UI.
 
-1. **Use the DJ extension** to create a new model:
+1. **Use the DJ (Data JSON) Framework extension** to create a new model:
 
-   - Use the DJ extension UI (available through the extension panel)
+   - Use the DJ (Data JSON) Framework extension UI (available through the extension panel)
    - The extension UI will show:
      - **Select Project**: `jaffle_shop`
      - **Select Model Type**: `Staging Select Source`
@@ -264,7 +264,7 @@ Let's clean up the raw customer data using the DJ extension's UI.
    dbt run --select stg__customers__profiles__clean
    ```
 
-**What happened?** The DJ extension:
+**What happened?** The DJ (Data JSON) Framework:
 
 - Used the manifest.json to provide IntelliSense for available sources
 - Showed `development__jaffle_shop_dev_seeds.raw_customers` as an available source option
@@ -278,9 +278,9 @@ Let's clean up the raw customer data using the DJ extension's UI.
 
 Now let's calculate customer order summaries.
 
-1. **Use the DJ extension** to create an intermediate model:
+1. **Use the DJ (Data JSON) Framework extension** to create an intermediate model:
 
-   - Look for the DJ extension panel in the sidebar and click on it.
+   - Look for the DJ (Data JSON) Framework extension panel in the sidebar and click on it.
    - Under "Actions", click on "Create Model".
    - In the extension UI, fill the form:
      - **Select Project**: `jaffle_shop`
@@ -349,7 +349,7 @@ Now let's calculate customer order summaries.
 dbt run --select int__sales__orders__enriched
 ```
 
-**What happened?** The DJ extension:
+**What happened?** The DJ (Data JSON) Framework:
 
 - Used manifest.json to provide IntelliSense for available models
 - Generated SQL with proper JOIN syntax and column selection
@@ -362,9 +362,9 @@ dbt run --select int__sales__orders__enriched
 
 Finally, let's create a business-friendly customer analytics table.
 
-1. **Use the DJ extension** to create a mart model:
+1. **Use the DJ (Data JSON) Framework extension** to create a mart model:
 
-   - Look for the DJ extension panel in the sidebar and click on it.
+   - Look for the DJ (Data JSON) Framework extension panel in the sidebar and click on it.
    - Under "Actions", click on "Create Model".
    - In the extension UI, fill the form:
      - **Select Project**: `jaffle_shop`
@@ -426,7 +426,7 @@ Finally, let's create a business-friendly customer analytics table.
 dbt run --select mart__sales__reporting__revenue
 ```
 
-**What happened?** The DJ extension:
+**What happened?** The DJ (Data JSON) Framework:
 
 - Provided IntelliSense for available intermediate models
 - Validated your mart configuration against the schema
@@ -470,7 +470,7 @@ Browse the **[Model Types Documentation](models/README.md)** for:
 
 ### Advanced Features
 
-- **UI-driven model creation**: Use the DJ extension UI for guided setup
+- **UI-driven model creation**: Use the DJ (Data JSON) Framework extension UI for guided setup
 - **IntelliSense**: Get autocomplete for models, sources, and columns from manifest.json
 - **Schema validation**: Real-time validation against JSON schemas
 - **Trino integration**: Browse data catalog and get column suggestions

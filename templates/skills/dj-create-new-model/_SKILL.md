@@ -4,7 +4,7 @@ description: >-
   Create a DJ .model.json file for a new dbt model. Use when the user wants to
   create, add, or scaffold a dbt model -- staging, intermediate, or mart --
   including joins, CTEs, rollup, subqueries, or aggregations.
-compatibility: DJ extension workspace with .dj/schemas/ and .agents/dj/AGENTS.md
+compatibility: DJ (Data JSON) Framework extension workspace with .dj/schemas/ and .agents/dj/AGENTS.md
 metadata:
   dj-framework-skill: '1.0'
 ---

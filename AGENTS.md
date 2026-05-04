@@ -4,7 +4,7 @@ This file provides guidance to AI coding agents working with code in this reposi
 
 ## Project Overview
 
-DJ (dbt-json) Framework is a VS Code extension that revolutionizes dbt development through a structured, JSON-first approach. Users define dbt models and sources as validated `.model.json` and `.source.json` files that automatically generate corresponding SQL and YAML configurations.
+DJ (Data JSON) Framework is a VS Code extension that revolutionizes dbt development through a structured, JSON-first approach. Users define dbt models and sources as validated `.model.json` and `.source.json` files that automatically generate corresponding SQL and YAML configurations.
 
 The extension provides a rich visual UI built with React, including interactive model and column lineage graphs, a visual model creation wizard, query result previews, and a data modeling canvas -- all rendered as VS Code webviews.
 
@@ -280,7 +280,7 @@ All API message types defined in `src/shared/api/types.ts` with full TypeScript 
 ## Project Structure
 
 ```text
-vscode-dbt-json/
+dj/
 ├── src/
 │   ├── extension.ts              # Entry point - activates Coder service
 │   ├── admin.ts                  # Platform utilities (paths, process runners)
@@ -671,7 +671,7 @@ LIGHTDASH_TRINO_HOST=host.docker.internal  # Trino host override for Docker
 
 The extension includes built-in support for AI coding agents to help users create DJ-compliant dbt models.
 
-**Project-level AGENTS.md generation:** When installed in a dbt project, the extension generates an `AGENTS.md` file at `.agents/dj/AGENTS.md` in the workspace root. This file contains DJ framework-specific instructions (model types, JSON schema structure, naming conventions, column definitions) that users can reference in their LLM workflows to generate valid `.model.json` and `.source.json` files. The generated file is tailored to the project's configuration and available models/sources.
+**Project-level AGENTS.md generation:** When installed in a dbt project, the extension generates an `AGENTS.md` file at `.agents/dj/AGENTS.md` in the workspace root. This file contains DJ (Data JSON) Framework-specific instructions (model types, JSON schema structure, naming conventions, column definitions) that users can reference in their LLM workflows to generate valid `.model.json` and `.source.json` files. The generated file is tailored to the project's configuration and available models/sources.
 
 **Skill files (`.agents/skills/`):** The extension writes agent-agnostic skill directories to the workspace root's `.agents/skills/` directory, following the [Agent Skills](https://agentskills.io) open standard. Each skill is a subdirectory containing a `SKILL.md` file with YAML frontmatter (`name` and `description`) and markdown instructions (e.g., `.agents/skills/dj-create-new-model/SKILL.md`). Skill templates are bundled with the extension in `templates/skills/` and copied to the workspace at activation time.
 

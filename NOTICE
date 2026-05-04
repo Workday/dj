@@ -1,6 +1,6 @@
 # NOTICE
 
-Workday DJ (dbt-json framework) VS Code Extension
+Workday DJ (Data JSON) Framework VS Code Extension
 Copyright (c) 2025 Workday, Inc.
 
 Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License. You may obtain a copy of the License at
@@ -16,8 +16,8 @@ Licensed under the Apache License, Version 2.0 (the "License"); you may not use 
 
 For questions about this project, please use:
 
-- **GitHub Issues**: https://github.com/Workday/vscode-dbt-json/issues
-- **GitHub Discussions**: https://github.com/Workday/vscode-dbt-json/discussions
+- **GitHub Issues**: https://github.com/Workday/dj/issues
+- **GitHub Discussions**: https://github.com/Workday/dj/discussions
 
 ---
 

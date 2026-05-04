@@ -1,6 +1,6 @@
 # Local Lightdash Setup Guide
 
-Quick setup guide for running Lightdash locally with the DJ extension.
+Quick setup guide for running Lightdash locally with the DJ (Data JSON) Framework.
 
 Lightdash is an open-source BI tool that creates dashboards directly from your dbt models.
 
@@ -54,7 +54,7 @@ docker compose up -d
 
 ### 2. Connect Trino and Lightdash Networks (If both in Docker)
 
-**Note**: This is only required if both Trino and Lightdash are running in Docker containers. If Trino is running on your host machine, skip this step and use `host.docker.internal` in the DJ extension configuration (see below).
+**Note**: This is only required if both Trino and Lightdash are running in Docker containers. If Trino is running on your host machine, skip this step and use `host.docker.internal` in the DJ (Data JSON) Framework extension configuration (see below).
 
 If both are in Docker, connect the networks so they can communicate:
 
@@ -95,9 +95,9 @@ lightdash deploy --create
 
 This will prompt you to enter the project name and once created, you should see URL of the newly created project in the output. This will be something like ` http://localhost:8081/createProject/cli?projectUuid=48c5c6d6-3b63-4661-baa3-da07eb446769`.
 
-### Configure DJ Extension for Docker
+### Configure DJ (Data JSON) Framework Extension for Docker
 
-When using the DJ extension to create Lightdash previews, you need to configure how Lightdash (running in Docker) connects to Trino. Choose the option that matches your setup:
+When using the DJ (Data JSON) Framework extension to create Lightdash previews, you need to configure how Lightdash (running in Docker) connects to Trino. Choose the option that matches your setup:
 
 #### Option A: Trino running on host machine (Not in Docker)
 
@@ -139,7 +139,7 @@ This allows Lightdash to connect to Trino using the container name `trino_defaul
 
 3. **Reopen VS Code from terminal**:
    ```bash
-   cd /Users/gowthamraj.j/Development/Workday/vscode-dbt-json
+   cd /Users/gowthamraj.j/Development/Workday/dj
    code .
    ```
 
@@ -158,15 +158,15 @@ Open the URL of the Lightdash project you created from the output in the browser
 
 ## Troubleshooting
 
-### Connection Errors with DJ Extension Preview
+### Connection Errors with DJ (Data JSON) Framework Extension Preview
 
-If you get connection errors when using the DJ extension's Lightdash preview feature, make sure you've configured the `LIGHTDASH_TRINO_HOST` environment variable as described in the "Configure DJ Extension for Docker" section above.
+If you get connection errors when using the DJ (Data JSON) Framework extension's Lightdash preview feature, make sure you've configured the `LIGHTDASH_TRINO_HOST` environment variable as described in the "Configure DJ (Data JSON) Framework Extension for Docker" section above.
 
 The environment variable ensures the extension passes the correct Trino hostname to dbt when creating previews.
 
 ### Manual Connection Configuration (Lightdash UI)
 
-If you're using `lightdash deploy` directly (not through the DJ extension) and have connection issues, you can manually update the connection settings in the Lightdash UI:
+If you're using `lightdash deploy` directly (not through the DJ (Data JSON) Framework extension) and have connection issues, you can manually update the connection settings in the Lightdash UI:
 
 1. Go to `Settings` -> `Project Settings`
 2. Click on the `Connection Settings` tab

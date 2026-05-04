@@ -1,6 +1,6 @@
 # Lightdash Configuration
 
-The DJ extension provides flexible configuration options for Lightdash integration, allowing you to work with different dbt project structures and multiple projects.
+The DJ (Data JSON) Framework provides flexible configuration options for Lightdash integration, allowing you to work with different dbt project structures and multiple projects.
 
 **Related Documentation:**
 
@@ -184,7 +184,7 @@ If both are running in Docker containers:
 
 #### How It Works
 
-The DJ extension reads `LIGHTDASH_TRINO_HOST` and passes it to dbt via the `DBT_HOST` environment variable when creating Lightdash previews. The dbt profiles.yml uses this to override the connection host.
+The DJ (Data JSON) Framework reads `LIGHTDASH_TRINO_HOST` and passes it to dbt via the `DBT_HOST` environment variable when creating Lightdash previews. The dbt profiles.yml uses this to override the connection host.
 
 **Important**: Your normal dbt commands (running directly on your Mac) will continue to use `localhost` because the environment variable override only applies to the Lightdash preview subprocess.
 

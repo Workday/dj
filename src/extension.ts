@@ -13,7 +13,7 @@ export async function activate(context: vscode.ExtensionContext) {
   } catch (error: unknown) {
     console.error('[DJ] FATAL ERROR during extension activation:', error);
     vscode.window.showErrorMessage(
-      `DJ Extension failed to activate: ${error instanceof Error ? error.message : String(error)}`,
+      `DJ (Data JSON) Framework extension failed to activate: ${error instanceof Error ? error.message : String(error)}`,
     );
     throw error;
   }
