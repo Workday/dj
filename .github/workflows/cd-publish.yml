@@ -1,0 +1,197 @@
+name: Publish Extension to VS Code Marketplace
+run-name: Publish v${{ inputs.version }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (e.g. 0.1.0) - do NOT include 'v' prefix"
+        required: true
+        type: string
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  publish:
+    name: Publish v${{ inputs.version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Validate version input format
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-+].+)?$'; then
+            echo "::error::Invalid version format '$VERSION'. Expected 'X.Y.Z' (no 'v' prefix)."
+            exit 1
+          fi
+
+      - name: Checkout tag
+        uses: actions/checkout@v4
+        with:
+          ref: refs/tags/v${{ inputs.version }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install vsce
+        run: npm install -g @vscode/vsce@^3.6 --silent --no-fund --no-audit
+
+      - name: Resolve package metadata
+        id: pkg
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ ! -f package.json ]; then
+            echo "::error::package.json not found at tag v${VERSION}"
+            exit 1
+          fi
+          PACKAGE_NAME=$(node -p "require('./package.json').name || ''" 2>/dev/null || true)
+          PACKAGE_VERSION=$(node -p "require('./package.json').version || ''" 2>/dev/null || true)
+          PUBLISHER=$(node -p "require('./package.json').publisher || ''" 2>/dev/null || true)
+          if [ -z "$PACKAGE_NAME" ] || [ -z "$PACKAGE_VERSION" ] || [ -z "$PUBLISHER" ]; then
+            echo "::error::Failed to read name/version/publisher from package.json"
+            exit 1
+          fi
+          echo "name=$PACKAGE_NAME" >> "$GITHUB_OUTPUT"
+          echo "version=$PACKAGE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "publisher=$PUBLISHER" >> "$GITHUB_OUTPUT"
+          echo "extension_id=${PUBLISHER}.${PACKAGE_NAME}" >> "$GITHUB_OUTPUT"
+          echo "vsix=${PACKAGE_NAME}-${PACKAGE_VERSION}.vsix" >> "$GITHUB_OUTPUT"
+
+      - name: Verify version matches package.json
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          PKG_VERSION: ${{ steps.pkg.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "$INPUT_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Input version '$INPUT_VERSION' does not match package.json version '$PKG_VERSION'"
+            exit 1
+          fi
+
+      - name: Check VS Code Marketplace for existing version
+        env:
+          EXTENSION_ID: ${{ steps.pkg.outputs.extension_id }}
+          PACKAGE_VERSION: ${{ steps.pkg.outputs.version }}
+        run: |
+          set -euo pipefail
+          TMP_OUT=$(mktemp)
+          TMP_ERR=$(mktemp)
+          set +e
+          vsce show "$EXTENSION_ID" --json >"$TMP_OUT" 2>"$TMP_ERR"
+          RC=$?
+          set -e
+          ERR=$(cat "$TMP_ERR"); rm -f "$TMP_ERR"
+          RAW=$(sed -n '/^[[:space:]]*[{[]/,$p' "$TMP_OUT")
+          rm -f "$TMP_OUT"
+
+          if [ $RC -ne 0 ] || [ -z "$RAW" ]; then
+            if echo "$ERR" | grep -qiE "not found|could not be found|no extension"; then
+              echo "Extension '$EXTENSION_ID' not on marketplace yet (first publish)."
+              exit 0
+            fi
+            echo "::error::vsce show failed for '$EXTENSION_ID': $ERR"
+            exit 1
+          fi
+
+          if ! echo "$RAW" | jq -e . >/dev/null 2>&1; then
+            echo "::error::vsce show returned non-JSON output for '$EXTENSION_ID': $RAW"
+            exit 1
+          fi
+
+          PUBLISHED=$(echo "$RAW" | jq -r '.versions[].version')
+          if echo "$PUBLISHED" | grep -Fxq "$PACKAGE_VERSION"; then
+            echo "::error::Version $PACKAGE_VERSION already published to marketplace for $EXTENSION_ID"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            echo "::warning::package-lock.json not found; falling back to npm install"
+            npm install
+          fi
+
+      - name: Package extension
+        env:
+          VSIX: ${{ steps.pkg.outputs.vsix }}
+        run: |
+          set -euo pipefail
+          npm run package
+          if [ ! -f "$VSIX" ]; then
+            echo "::error::Expected VSIX '$VSIX' not produced by 'npm run package'"
+            ls -1 *.vsix 2>/dev/null || true
+            exit 1
+          fi
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.pkg.outputs.vsix }}
+          path: ./${{ steps.pkg.outputs.vsix }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish to VS Code Marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCODE_MARKETPLACE_PAT }}
+          VSIX: ${{ steps.pkg.outputs.vsix }}
+        run: |
+          set -euo pipefail
+          if [ -z "${VSCE_PAT:-}" ]; then
+            echo "::error::Marketplace PAT secret is missing"
+            exit 1
+          fi
+          vsce publish --no-dependencies --packagePath "./${VSIX}"
+
+      - name: Read changelog entry
+        id: changelog
+        continue-on-error: true
+        uses: mindsers/changelog-reader-action@32aa5b4c155d76c94e4ec883a223c947b2f02656  # v2.2.3
+        with:
+          version: ${{ steps.pkg.outputs.version }}
+          path: ./CHANGELOG.md
+
+      - name: Resolve release body
+        id: body
+        env:
+          CHANGES: ${{ steps.changelog.outputs.changes }}
+          TAG: v${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          {
+            echo "body<<EOF"
+            if [ -n "${CHANGES:-}" ]; then
+              echo "$CHANGES"
+            else
+              echo "Release $TAG"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2.6.2
+        with:
+          tag_name: v${{ inputs.version }}
+          name: v${{ inputs.version }}
+          body: ${{ steps.body.outputs.body }}
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: true
+          files: ./${{ steps.pkg.outputs.vsix }}
