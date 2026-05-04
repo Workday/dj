@@ -54,13 +54,13 @@ export type SchemaColumnDataType =
  */
 export type SchemaColumnDescription = string;
 /**
- * Whether this column should be treated as case-sensitive
- */
-export type SchemaLightdashCaseSensitive = boolean;
-/**
  * Schema for lightdash AI hints
  */
 export type SchemaLightdashAIHint = string | string[];
+/**
+ * Whether this column should be treated as case-sensitive
+ */
+export type SchemaLightdashCaseSensitive = boolean;
 /**
  * Validate model tags
  */
@@ -156,7 +156,6 @@ export type SchemaColumnDataTests = (
 )[];
 
 export interface SchemaColumnLightdash {
-  case_sensitive?: SchemaLightdashCaseSensitive;
   dimension?: SchemaLightdashDimension;
   /**
    * @minItems 1
@@ -197,6 +196,7 @@ export interface SchemaColumnLightdash {
 }
 export interface SchemaLightdashDimension {
   ai_hint?: SchemaLightdashAIHint;
+  case_sensitive?: SchemaLightdashCaseSensitive;
   /**
    * The group label that will be applied to the column in lightdash
    */

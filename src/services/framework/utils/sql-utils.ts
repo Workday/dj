@@ -2305,6 +2305,13 @@ export function frameworkModelProperties({
   const modelCaseSensitive =
     'lightdash' in modelJson ? modelJson.lightdash?.case_sensitive : undefined;
 
+  // Partition columns need case_sensitive: true to preserve predicate pushdown
+  // (Lightdash wraps non-case-sensitive dimensions in UPPER() which prevents it)
+  const partitionColumnNames = frameworkGetPartitionColumnNames({
+    modelJson,
+    project,
+  });
+
   // Persist columns on the model properties
   const modelPropertiesColumns: DbtModelPropertiesColumn[] = [];
   for (const c of columns) {
@@ -2392,6 +2399,7 @@ export function frameworkModelProperties({
       'label',
       'group_label',
       'groups',
+      'case_sensitive',
     ]);
 
     // Order lightdash metric keys and remove empty properties
@@ -2415,20 +2423,27 @@ export function frameworkModelProperties({
       {},
     );
 
+    // Preserve the explicit case_sensitive value before removeEmpty strips `false`.
+    const explicitCaseSensitive = dimension.case_sensitive;
+    const cleanedDimension = removeEmpty(dimension);
+
+    // Re-inject case_sensitive after removeEmpty. Explicit values from
+    // lightdash.dimension.case_sensitive take priority; otherwise auto-set
+    // true on partition columns to prevent Lightdash from wrapping them in
+    // UPPER(), which breaks Trino-Iceberg predicate pushdown.
+    if (explicitCaseSensitive !== undefined) {
+      cleanedDimension.case_sensitive = explicitCaseSensitive;
+    } else if (partitionColumnNames.includes(column.name)) {
+      cleanedDimension.case_sensitive = true;
+    }
+
     // Control ordering and only include certain meta properties
     column.meta = removeEmpty({
       type: column.meta?.type,
       origin: column.meta?.origin,
-      dimension: removeEmpty(dimension),
+      dimension: cleanedDimension,
       metrics,
     });
-
-    if (c.meta.case_sensitive !== undefined) {
-      column.meta = {
-        ...column.meta,
-        case_sensitive: c.meta.case_sensitive,
-      };
-    }
 
     // Remove any remaining empty column properties
     modelPropertiesColumns.push(removeEmpty(column));

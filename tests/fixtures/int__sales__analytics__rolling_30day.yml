@@ -68,3 +68,5 @@ models:
         description: Portal Partition Daily
         meta:
           type: dim
+          dimension:
+            case_sensitive: true

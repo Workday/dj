@@ -375,7 +375,6 @@ export type FrameworkColumn = {
 };
 export type FrameworkColumnMeta = {
   type: 'dim' | 'fct';
-  case_sensitive?: boolean;
   // Only used for datetime column
   interval?: 'day' | 'hour' | 'month' | 'year';
   // Should get stripped out when inherited

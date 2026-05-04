@@ -1,5 +1,9 @@
 # Change Log
 
+## 1.3.4
+
+- Partition columns automatically emit `case_sensitive: true` in YAML meta so Lightdash does not wrap them in `UPPER()`, preserving predicate pushdown
+
 ## 1.3.3
 
 ### Incremental strategies

@@ -215,12 +215,6 @@ export function frameworkProcessSelected({
     if ('data_tests' in selected && selected.data_tests) {
       selectedColumn.data_tests = selected.data_tests;
     }
-    if (
-      'lightdash' in selected &&
-      selected.lightdash?.case_sensitive !== undefined
-    ) {
-      selectedColumn.meta.case_sensitive = selected.lightdash.case_sensitive;
-    }
     if (prefix) {
       selectedColumn.meta.prefix = prefix;
     }
@@ -1119,7 +1113,7 @@ export function frameworkInferCteColumns({
         if (built.expr) {
           selectedColumn.meta.expr = built.expr;
         }
-        // Forward description, data_tests, case_sensitive, override_suffix_agg,
+        // Forward description, data_tests, override_suffix_agg,
         // and exclude_from_group_by from `sel`. The interval schema has no
         // `expr`, so the expr-from-sel branch in the helper is a no-op here.
         frameworkApplyCteSelectMeta(sel, selectedColumn, { hasAgg: false });
@@ -1174,7 +1168,7 @@ export function frameworkInferCteColumns({
       }
 
       // Each `aggs` entry becomes its own fct column, carrying forward the
-      // scalar meta (case_sensitive, override_suffix_agg, etc.) collected
+      // scalar meta (override_suffix_agg, etc.) collected
       // onto `col` above, matching the main-model `mergeDeep` path.
       if (aggs) {
         for (const a of aggs) {
@@ -1719,14 +1713,11 @@ export function frameworkApplyCteSelectMeta(
 
   const ld = (
     'lightdash' in sel && sel.lightdash
-      ? (sel.lightdash as { case_sensitive?: boolean; dimension?: unknown })
+      ? (sel.lightdash as { dimension?: unknown })
       : null
-  ) as { case_sensitive?: boolean; dimension?: unknown } | null;
+  ) as { dimension?: unknown } | null;
   if (ld?.dimension) {
     col.meta.dimension = ld.dimension as FrameworkColumn['meta']['dimension'];
-  }
-  if (ld?.case_sensitive !== undefined) {
-    col.meta.case_sensitive = ld.case_sensitive;
   }
 
   if ('override_suffix_agg' in sel && sel.override_suffix_agg) {

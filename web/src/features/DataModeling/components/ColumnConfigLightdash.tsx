@@ -384,14 +384,19 @@ export const ColumnConfigLightdash = () => {
     [],
   );
 
-  // Column-level case_sensitive override
+  // Column-level case_sensitive override (lives on dimension per Lightdash docs)
   const handleCaseSensitiveChange = useCallback(
     (checked: boolean | React.ChangeEvent<HTMLInputElement>) => {
       const value =
         typeof checked === 'boolean' ? checked : checked.target.checked;
-      updateEditingColumnLightdash({ case_sensitive: value });
+      updateEditingColumnLightdash({
+        dimension: {
+          ...dimensionConfig,
+          case_sensitive: value,
+        } as SchemaLightdashDimension,
+      });
     },
-    [updateEditingColumnLightdash],
+    [dimensionConfig, updateEditingColumnLightdash],
   );
 
   return (
@@ -399,7 +404,7 @@ export const ColumnConfigLightdash = () => {
       {/* Column-level case sensitivity override */}
       <div className="flex items-center gap-2">
         <Checkbox
-          checked={columnLightdashConfig.case_sensitive ?? false}
+          checked={columnLightdashConfig.dimension?.case_sensitive ?? false}
           onChange={handleCaseSensitiveChange}
           label="Case sensitive"
         />

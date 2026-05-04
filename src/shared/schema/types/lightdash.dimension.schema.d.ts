@@ -10,6 +10,10 @@
  */
 export type SchemaLightdashAIHint = string | string[];
 /**
+ * Whether this column should be treated as case-sensitive
+ */
+export type SchemaLightdashCaseSensitive = boolean;
+/**
  * Validate model tags
  */
 export type SchemaModelTags = (
@@ -22,6 +26,7 @@ export type SchemaModelTags = (
 
 export interface SchemaLightdashDimension {
   ai_hint?: SchemaLightdashAIHint;
+  case_sensitive?: SchemaLightdashCaseSensitive;
   /**
    * The group label that will be applied to the column in lightdash
    */

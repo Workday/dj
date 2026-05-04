@@ -162,20 +162,21 @@ describe('frameworkApplyCteSelectMeta', () => {
     expect(col.data_tests).toEqual(['not_null']);
   });
 
-  test('copies lightdash.dimension and lightdash.case_sensitive', () => {
+  test('copies lightdash.dimension (including case_sensitive)', () => {
     const col = makeCol();
     frameworkApplyCteSelectMeta(
       {
         lightdash: {
-          case_sensitive: true,
-          dimension: { label: 'Custom' },
+          dimension: { label: 'Custom', case_sensitive: true },
         },
       },
       col,
       { hasAgg: false },
     );
-    expect(col.meta.dimension).toEqual({ label: 'Custom' });
-    expect(col.meta.case_sensitive).toBe(true);
+    expect(col.meta.dimension).toEqual({
+      label: 'Custom',
+      case_sensitive: true,
+    });
   });
 
   test('copies override_suffix_agg', () => {
@@ -215,11 +216,13 @@ describe('frameworkApplyCteSelectMeta', () => {
     expect(JSON.stringify(col)).toBe(before);
   });
 
-  test('falsy lightdash.case_sensitive (explicit false) is still copied', () => {
+  test('falsy lightdash.dimension.case_sensitive (explicit false) is still copied', () => {
     const col = makeCol();
-    frameworkApplyCteSelectMeta({ lightdash: { case_sensitive: false } }, col, {
-      hasAgg: false,
-    });
-    expect(col.meta.case_sensitive).toBe(false);
+    frameworkApplyCteSelectMeta(
+      { lightdash: { dimension: { case_sensitive: false } } },
+      col,
+      { hasAgg: false },
+    );
+    expect(col.meta.dimension?.case_sensitive).toBe(false);
   });
 });
