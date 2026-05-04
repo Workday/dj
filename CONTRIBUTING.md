@@ -1,6 +1,6 @@
-# Contributing to Workday DJ (dbt-json framework)
+# Contributing to Workday DJ (Data JSON) Framework
 
-Thank you for your interest in contributing to the Workday DJ VS Code extension! This document provides guidelines and information for contributors.
+Thank you for your interest in contributing to the Workday DJ (Data JSON) Framework VS Code extension! This document provides guidelines and information for contributors.
 
 ## Table of Contents
 

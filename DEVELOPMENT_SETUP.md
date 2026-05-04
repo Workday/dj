@@ -1,6 +1,6 @@
 # Development Setup
 
-This guide covers setting up your development environment for contributing to the DJ (dbt-json) VS Code extension.
+This guide covers setting up your development environment for contributing to the DJ (Data JSON) Framework VS Code extension.
 
 ## Table of Contents
 
@@ -32,8 +32,8 @@ For development, you'll also need:
 1. **Clone and install dependencies:**
 
 ```bash
-git clone https://github.com/Workday/vscode-dbt-json.git
-cd vscode-dbt-json
+git clone https://github.com/Workday/dj.git
+cd dj
 npm install
 ```
 

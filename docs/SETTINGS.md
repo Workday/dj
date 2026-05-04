@@ -1,6 +1,6 @@
-# DJ Extension Settings Reference
+# DJ (Data JSON) Framework Settings Reference
 
-Complete guide to configuring the DJ VS Code extension.
+Complete guide to configuring the DJ (Data JSON) Framework VS Code extension.
 
 ## Quick Reference
 
@@ -211,7 +211,7 @@ Complete guide to configuring the DJ VS Code extension.
 ```
 
 - Options: `"debug"` | `"info"` | `"warn"` | `"error"`
-- View logs: `View → Output → DJ Extension`
+- View logs: `View → Output → DJ`
 - Use `debug` for troubleshooting
 
 ---
@@ -251,7 +251,7 @@ Run this command (`Cmd/Ctrl+Shift+P` → `DJ: Refresh Projects`) after changing:
 
 1. Check [When Settings Take Effect](#when-settings-take-effect) section
 2. Run appropriate command (Refresh Projects or Sync)
-3. Check Output panel (`View → Output → DJ Extension`) for validation errors
+3. Check Output panel (`View → Output → DJ`) for validation errors
 
 ### Path Validation Errors?
 

@@ -1,6 +1,6 @@
 # Setup Documentation
 
-Complete setup guides for DJ (dbt-json) framework extension.
+Complete setup guides for the DJ (Data JSON) Framework extension.
 
 ## Getting Started
 

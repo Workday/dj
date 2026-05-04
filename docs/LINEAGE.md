@@ -27,7 +27,7 @@ The Data Explorer visualizes your dbt models as an interactive lineage graph, sh
 2. Select "DJ: Data Explorer"
 
 <video width="100%" controls>
-  <source src="https://github.com/Workday/vscode-dbt-json/raw/main/assets/videos/data-explorer-overview.mp4" type="video/mp4">
+  <source src="https://github.com/Workday/dj/raw/main/assets/videos/data-explorer-overview.mp4" type="video/mp4">
   Your browser does not support the video tag.
 </video>
 
@@ -199,7 +199,7 @@ The Data Explorer includes panels for viewing query results and compilation logs
 2. Column Lineage opens for that model
 
 <video width="100%" controls>
-  <source src="https://github.com/Workday/vscode-dbt-json/raw/main/assets/videos/column-lineage-overview.mp4" type="video/mp4">
+  <source src="https://github.com/Workday/dj/raw/main/assets/videos/column-lineage-overview.mp4" type="video/mp4">
   Your browser does not support the video tag.
 </video>
 

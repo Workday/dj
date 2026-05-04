@@ -1,13 +1,13 @@
-# DJ Extension Setup Guide
+# DJ (Data JSON) Framework Setup Guide
 
-Get the DJ extension up and running in VS Code. This guide covers extension installation and basic configuration.
+Get the DJ (Data JSON) Framework extension up and running in VS Code. This guide covers extension installation and basic configuration.
 
 Table of Contents
 
 1. [Install Prerequisites](#1-install-prerequisites)
 2. [Install Trino CLI](#2-install-trino-cli)
 3. [Configure Trino Connection](#3-configure-trino-connection)
-4. [Install DJ Extension](#4-install-dj-extension)
+4. [Install DJ (Data JSON) Framework Extension](#4-install-dj-framework-extension)
 5. [First Launch](#5-first-launch)
 6. [Configure Extension Settings](#6-configure-extension-settings)
 7. [Optional: Lightdash Integration](#7-optional-lightdash-integration)
@@ -26,7 +26,7 @@ Table of Contents
 
 **dbt Project Requirements:**
 
-The DJ extension requires a dbt project with Python dependencies installed:
+The DJ (Data JSON) Framework requires a dbt project with Python dependencies installed:
 
 - **dbt-core** (minimum version 1.0.0)
 - **dbt adapter** (e.g., dbt-trino, dbt-postgres, dbt-snowflake) that includes dbt-core
@@ -46,7 +46,7 @@ pip install dbt-trino
 
 ## 2. Install Trino CLI
 
-The DJ extension uses Trino CLI for data catalog integration and query execution.
+The DJ (Data JSON) Framework uses Trino CLI for data catalog integration and query execution.
 
 > If you want to use Trino locally, see [Trino Local Setup](trino-local-setup.md)
 
@@ -90,11 +90,11 @@ export TRINO_SCHEMA=<your-schema>
 - **Local Trino**: `localhost:8080`
 - **Enterprise**: `trino.company.com:443`
 
-## 4. Install DJ Extension
+## 4. Install DJ (Data JSON) Framework Extension
 
 1. **Open VS Code**
 2. **Go to Extensions** (Cmd/Ctrl + Shift + X)
-3. **Search for "DJ"** or "dbt-json"
+3. **Search for "DJ"** or "Data JSON"
 4. **Install the extension**
 
 > Note: Want to build from source? See the [DEVELOPMENT_SETUP.md](../DEVELOPMENT_SETUP.md) for development setup.
@@ -142,7 +142,7 @@ The extension can be configured in the VS Code settings or by adding to the `.vs
 To configure the extension via VS Code settings,
 
 - Open the VS Code settings (Cmd/Ctrl + ,)
-- Under "Extensions", select "DJ (dbt-json) Framework".
+- Under "Extensions", select "DJ (Data JSON) Framework".
 - Configure the extension settings as needed.
 
 To configure the extension via `.vscode/settings.json`, add the configuration options as needed to the file:
@@ -156,7 +156,7 @@ To configure the extension via `.vscode/settings.json`, add the configuration op
 
 ## Extension Settings
 
-The DJ extension offers extensive configuration options. For complete documentation with examples, validation details, and troubleshooting, see the **[Settings Reference Guide](../SETTINGS.md)**.
+The DJ (Data JSON) Framework offers extensive configuration options. For complete documentation with examples, validation details, and troubleshooting, see the **[Settings Reference Guide](../SETTINGS.md)**.
 
 ### Essential Settings
 

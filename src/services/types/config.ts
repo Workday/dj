@@ -7,7 +7,7 @@ import type { DefaultIncrementalStrategy } from '@shared/framework/types';
 import type { LogLevel } from '@shared/types/common';
 
 /**
- * Configuration object from VSCode for the DJ extension.
+ * Configuration object from VSCode for the DJ (Data JSON) Framework.
  * Matches all settings defined in package.json.
  * This is extension-only - the web doesn't need the full config.
  */

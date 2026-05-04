@@ -1,5 +1,5 @@
 /**
- * Constants and configuration values for the DJ extension
+ * Constants and configuration values for the DJ (Data JSON) Framework
  * Centralized to avoid hardcoded values throughout the codebase
  */
 

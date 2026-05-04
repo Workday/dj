@@ -41,7 +41,7 @@ Opens an interactive UI for managing Lightdash preview servers.
 2. Click "Lightdash Preview" item
 
 <video width="100%" controls>
-  <source src="https://github.com/Workday/vscode-dbt-json/raw/main/assets/videos/lightdash-preview-ui.mp4" type="video/mp4">
+  <source src="https://github.com/Workday/dj/raw/main/assets/videos/lightdash-preview-ui.mp4" type="video/mp4">
   Your browser does not support the video tag.
 </video>
 

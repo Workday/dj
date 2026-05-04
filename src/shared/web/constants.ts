@@ -4,5 +4,5 @@
  */
 
 export const EXTERNAL_LINKS = {
-  documentation: 'https://github.com/Workday/vscode-dbt-json#readme',
+  documentation: 'https://github.com/Workday/dj#readme',
 };
