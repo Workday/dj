@@ -42,6 +42,10 @@ export function getDjConfig(): CoderConfig {
     trinoPath: config.get('trinoPath', undefined),
     lightdashProjectPath: config.get('lightdashProjectPath', undefined),
     lightdashProfilesPath: config.get('lightdashProfilesPath', undefined),
+    lightdashDefaultPartitionColumnCaseSensitive: config.get(
+      'lightdash.defaultPartitionColumnCaseSensitive',
+      false,
+    ),
 
     // Settings with defaults from package.json.
     // All fallbacks (extension, webview, generator) route through the shared
@@ -259,6 +263,12 @@ export function getSettingReloadRequirement(
       description: "Requires 'DJ: Sync to SQL and YML' to take effect",
     },
     aiHintTag: {
+      requiresAction: true,
+      action: 'compile',
+      actionCommand: 'dj.command.jsonSync',
+      description: "Requires 'DJ: Sync to SQL and YML' to take effect",
+    },
+    'lightdash.defaultPartitionColumnCaseSensitive': {
       requiresAction: true,
       action: 'compile',
       actionCommand: 'dj.command.jsonSync',
@@ -757,6 +767,18 @@ export function registerConfigurationChangeHandler(
       if (event.affectsConfiguration('dj.aiHintTag')) {
         void vscode.window.setStatusBarMessage(
           "DJ: AI Hint tag updated - run 'DJ: Sync to SQL and YML' to apply",
+          5000,
+        );
+      }
+
+      // lightdash.defaultPartitionColumnCaseSensitive - notify about compile requirement
+      if (
+        event.affectsConfiguration(
+          'dj.lightdash.defaultPartitionColumnCaseSensitive',
+        )
+      ) {
+        void vscode.window.setStatusBarMessage(
+          "DJ: Partition column case_sensitive updated - run 'DJ: Sync to SQL and YML' to apply",
           5000,
         );
       }

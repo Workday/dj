@@ -642,6 +642,7 @@ To add/modify JSON schemas:
 | `dj.dataExplorer.autoRefresh`  | boolean | `false`      | Auto-refresh Data Explorer on file switch        |
 | `dj.lightdashProjectPath`      | string  | —            | Custom path to dbt project for Lightdash         |
 | `dj.lightdashProfilesPath`     | string  | —            | Custom path to dbt profiles for Lightdash        |
+| `dj.lightdash.defaultPartitionColumnCaseSensitive` | boolean | `false` | Auto-emit `meta.dimension.case_sensitive: true` on partition columns in generated YAML (stops Lightdash from wrapping partition columns in `UPPER()`, preserving Trino predicate pushdown). Requires `DJ: Sync to SQL and YML` to apply. |
 | `dj.materialization.defaultIncrementalStrategy` | string | `overwrite_existing_partitions` | Default incremental strategy: `append`, `delete+insert`, `merge`, or `overwrite_existing_partitions` |
 | `dj.autoGenerateTests`         | object  | —            | (Experimental) Auto-generate tests on models     |
 

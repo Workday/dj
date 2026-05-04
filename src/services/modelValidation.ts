@@ -1,6 +1,9 @@
 import {
   filterBulkSelectColumns,
   isAggregateExpr,
+  isConstantExpr,
+  isJinjaExpr,
+  isWindowFunctionExpr,
 } from '@services/framework/utils/column-utils';
 import { BULK_CTE_TYPES } from '@shared/framework/constants';
 import type { FrameworkColumn } from '@shared/framework/types';
@@ -540,6 +543,14 @@ export function validateMainModelAggregation(
   // "summary" diagnostic.
   const hint =
     'set "agg"/"aggs", wrap an aggregate in "expr", or set "exclude_from_group_by": true.';
+  // Window-function-specific hint: `agg`/`aggs` are not applicable to a
+  // window function (it's a row-wise transform). The real failure mode is
+  // that the inner argument must resolve through GROUP BY.
+  const windowHint =
+    'ensure window-partition columns are a superset of "group_by" (or wrap the inner argument in an aggregate / set "exclude_from_group_by": true).';
+
+  const isWindow = (sel: any): boolean =>
+    typeof sel?.expr === 'string' && isWindowFunctionExpr(sel.expr);
 
   for (let j = 0; j < modelJson.select.length; j++) {
     const sel = modelJson.select[j];
@@ -556,8 +567,11 @@ export function validateMainModelAggregation(
       if (columnIsAggregated(sel)) {
         continue;
       }
+      const message = isWindow(sel)
+        ? `Window function "${sel.name}" in main-model select with group_by — ${windowHint}`
+        : `Un-aggregated fct column "${sel.name}" with main-model group_by — ${hint}`;
       errors.push({
-        message: `Un-aggregated fct column "${sel.name}" with main-model group_by — ${hint}`,
+        message,
         instancePath: `/select/${j}`,
       });
       continue;
@@ -570,8 +584,11 @@ export function validateMainModelAggregation(
       sel.type === 'fct' &&
       !columnIsAggregated(sel)
     ) {
+      const message = isWindow(sel)
+        ? `Window function "${sel.name}" from CTE "${sel.cte}" in main-model select with group_by — ${windowHint}`
+        : `Un-aggregated fct "${sel.name}" from CTE "${sel.cte}" with main-model group_by — ${hint}`;
       errors.push({
-        message: `Un-aggregated fct "${sel.name}" from CTE "${sel.cte}" with main-model group_by — ${hint}`,
+        message,
         instancePath: `/select/${j}`,
       });
       continue;
@@ -622,10 +639,16 @@ function columnIsAggregated(sel: any): boolean {
   if ('aggs' in sel && Array.isArray(sel.aggs) && sel.aggs.length > 0) {
     return true;
   }
+  // Constants (literals, NULL, CAST(<literal> AS X)) have no column
+  // dependencies and can never conflict with GROUP BY. Jinja expressions
+  // (`{{ macro() }}`) are opaque -- the macro may expand to an aggregate,
+  // so we conservatively treat them as aggregated to avoid false positives.
   if (
     'expr' in sel &&
     typeof sel.expr === 'string' &&
-    isAggregateExpr(sel.expr)
+    (isAggregateExpr(sel.expr) ||
+      isConstantExpr(sel.expr) ||
+      isJinjaExpr(sel.expr))
   ) {
     return true;
   }

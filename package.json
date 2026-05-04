@@ -10,7 +10,7 @@
     "type": "git",
     "url": "https://github.com/Workday/vscode-dbt-json.git"
   },
-  "version": "1.3.4",
+  "version": "1.3.5",
   "workspaces": [
     "web"
   ],
@@ -320,6 +320,11 @@
         "dj.lightdashProfilesPath": {
           "type": "string",
           "description": "Custom path to the dbt profiles directory for Lightdash preview (relative to workspace root). If not set, will use the project directory or workspace root. Takes effect on next command execution."
+        },
+        "dj.lightdash.defaultPartitionColumnCaseSensitive": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically set case_sensitive: true on partition columns in generated YAML. Requires 'DJ: Sync to SQL and YML' to take effect."
         },
         "dj.columnLineage.autoRefresh": {
           "type": "boolean",

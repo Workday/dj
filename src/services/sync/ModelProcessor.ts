@@ -36,6 +36,7 @@ import type {
   SyncCallbacks,
   SyncConfig,
   SyncResource,
+  ValidationErrorDetail,
 } from './types';
 
 const JSONC_FORMAT_OPTIONS = {
@@ -122,8 +123,9 @@ export class ModelProcessor {
       fs.promises.readFile(oldYmlPath, 'utf8').catch(() => ''),
     ]);
 
-    // 4. Pre-generation registry-aware checks (fail fast to avoid writing
-    // .sql / .yml files that we already know are broken).
+    // 4. Pre-generation registry-aware checks. These now emit non-blocking
+    // warnings -- SQL/YML generation always proceeds. Users still see
+    // diagnostics in the Problems tab but are not blocked from iterating.
     const hasCtes = 'ctes' in modelJson && !!modelJson.ctes?.length;
     const cteColumnRegistry = hasCtes
       ? frameworkBuildCteColumnRegistry({
@@ -132,36 +134,20 @@ export class ModelProcessor {
         })
       : undefined;
 
+    // Collect all non-blocking validation warnings here. Emitted as a single
+    // structured `onModelValidationWarning` call after generation so each
+    // detail can be pinned to its specific `select[]` JSON range.
+    const validationWarnings: ValidationErrorDetail[] = [];
+
     const aggErrors = validateMainModelAggregation(
       modelJson,
       cteColumnRegistry,
     );
     if (aggErrors.length > 0) {
-      const summary = aggErrors.map((e) => e.message).join('\n');
-      const message = `Main-model aggregation errors:\n${summary}`;
-      this.config.logger.error(`${modelName}: ${message}`);
-      // Route through the validation-error callback so each offending
-      // select[] item gets its own diagnostic pinned to the exact JSON
-      // range (instead of the fallback 0,0..100,0 generation-error range).
-      this.callbacks.onModelValidationError?.(
-        newJsonUri,
-        message,
-        aggErrors,
-        jsonContent,
-      );
-      return {
-        modelId: resource.id,
-        modelName,
-        sql: '',
-        yml: '',
-        updatedProject: null,
-        operations: [],
-        skipped: false,
-        error: {
-          uri: newJsonUri,
-          message,
-        },
-      };
+      for (const err of aggErrors) {
+        this.config.logger.warn?.(`${modelName}: ${err.message}`);
+      }
+      validationWarnings.push(...aggErrors);
     }
 
     // 5. Generate SQL and YML
@@ -180,19 +166,16 @@ export class ModelProcessor {
       newYml = generated.yml;
 
       // Validate exclude/include column references against the CTE registry
-      let hasColRefWarnings = false;
       if (cteColumnRegistry) {
         const colRefErrors = validateCteColumnReferences(
           modelJson,
           cteColumnRegistry,
         );
         if (colRefErrors.length > 0) {
-          hasColRefWarnings = true;
           for (const msg of colRefErrors) {
             this.config.logger.warn?.(`${modelName}: ${msg}`);
+            validationWarnings.push({ message: msg, instancePath: '' });
           }
-          const warningMessage = `CTE column reference warnings:\n${colRefErrors.join('\n')}`;
-          this.callbacks.onModelValidationWarning?.(newJsonUri, warningMessage);
         }
       }
 
@@ -202,10 +185,21 @@ export class ModelProcessor {
       if (deadLayerWarnings.length > 0) {
         for (const w of deadLayerWarnings) {
           this.config.logger.warn?.(`${modelName}: ${w.message}`);
+          validationWarnings.push(w);
         }
       }
 
-      if (!hasColRefWarnings) {
+      if (validationWarnings.length > 0) {
+        const summary = `Model validation warnings:\n${validationWarnings
+          .map((w) => w.message)
+          .join('\n')}`;
+        this.callbacks.onModelValidationWarning?.(
+          newJsonUri,
+          summary,
+          validationWarnings,
+          jsonContent,
+        );
+      } else {
         this.callbacks.onDiagnosticsClear?.(newJsonUri);
       }
     } catch (err: unknown) {

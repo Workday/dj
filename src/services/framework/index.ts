@@ -1629,14 +1629,14 @@ export class Framework implements ApiEnabledService<'framework'> {
         this.diagnosticModelJson.set(uri, diagnostics);
       },
 
-      onModelValidationWarning: (uri, message) => {
-        this.diagnosticModelJson.set(uri, [
-          new vscode.Diagnostic(
-            new vscode.Range(0, 0, 0, 0),
-            message,
-            vscode.DiagnosticSeverity.Error,
-          ),
-        ]);
+      onModelValidationWarning: (uri, message, errors, jsonContent) => {
+        const diagnostics = resolveValidationDiagnostics(
+          message,
+          errors,
+          jsonContent,
+          vscode.DiagnosticSeverity.Warning,
+        );
+        this.diagnosticModelJson.set(uri, diagnostics);
       },
 
       // Handle generation errors
@@ -1833,13 +1833,14 @@ function resolveValidationDiagnostics(
   fallbackMessage: string,
   errors?: ValidationErrorDetail[],
   jsonContent?: string,
+  severity: vscode.DiagnosticSeverity = vscode.DiagnosticSeverity.Error,
 ): vscode.Diagnostic[] {
   if (!errors?.length || !jsonContent) {
     return [
       new vscode.Diagnostic(
         new vscode.Range(0, 0, 0, 0),
         fallbackMessage,
-        vscode.DiagnosticSeverity.Error,
+        severity,
       ),
     ];
   }
@@ -1874,10 +1875,6 @@ function resolveValidationDiagnostics(
       }
     }
 
-    return new vscode.Diagnostic(
-      range,
-      err.message,
-      vscode.DiagnosticSeverity.Error,
-    );
+    return new vscode.Diagnostic(range, err.message, severity);
   });
 }
