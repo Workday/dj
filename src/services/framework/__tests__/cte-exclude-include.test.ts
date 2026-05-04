@@ -240,8 +240,9 @@ describe('CTE exclude/include support', () => {
         cteRegistry: registry,
         project,
       });
-      expect(sql).toContain('dim_a, dim_b, fct_x');
-      expect(sql).toContain("CAST('2026-03-08' as date) as dim_c");
+      expect(sql).toMatch(
+        /dim_a,\s*dim_b,\s*CAST\('2026-03-08' as date\) as dim_c,\s*fct_x/,
+      );
       expect(sql).not.toContain('*');
     });
 
@@ -695,7 +696,7 @@ describe('CTE bulk select column ordering', () => {
       ]);
     });
 
-    test('all_from_cte without exclude/include preserves source order', () => {
+    test('all_from_cte without exclude/include sorts columns with partitions last', () => {
       const ctes: any[] = [
         {
           name: 'src',
@@ -718,8 +719,17 @@ describe('CTE bulk select column ordering', () => {
         project: projectWithPartitions,
       });
 
+      // `src` auto-inherits `portal_partition_monthly` from the upstream
+      // `wide_model` (mirrors the main-model datetime + partition injection),
+      // so the passthrough CTE now carries both partitions -- monthly/daily
+      // in canonical order, dims sorted alphabetically before them.
       const names = registry.get('passthrough')!.map((c: any) => c.name);
-      expect(names).toEqual(['col_z', 'portal_partition_daily', 'col_a']);
+      expect(names).toEqual([
+        'col_a',
+        'col_z',
+        'portal_partition_monthly',
+        'portal_partition_daily',
+      ]);
     });
 
     test('all_from_model bulk select in CTE stores sorted columns (monthly/daily order)', () => {
@@ -792,7 +802,7 @@ describe('CTE bulk select column ordering', () => {
       });
 
       expect(sql).toMatch(
-        /select\s+col_a,\s*col_b,\s*col_m_fct,\s*portal_partition_monthly,\s*portal_partition_daily/,
+        /select\s+col_a,\s*col_b,\s*col_m_fct,\s*--\s*partition columns\s*portal_partition_monthly,\s*portal_partition_daily/,
       );
     });
   });
@@ -851,7 +861,12 @@ describe('CTE bulk select column ordering', () => {
       const branch1Cols = branches[0].match(colPattern)?.[1]?.trim();
       const branch2Cols = branches[1].match(colPattern)?.[1]?.trim();
       expect(branch1Cols).toBe(branch2Cols);
-      expect(branch1Cols).toBe('col_a, portal_partition_daily');
+      // Both branches auto-inherit `portal_partition_monthly` from the
+      // upstream `wide_model` (mirrors main-model datetime + partition
+      // injection); `col_z` is excluded by the union's `all_from_cte`.
+      expect(branch1Cols).toBe(
+        'col_a, portal_partition_monthly, portal_partition_daily',
+      );
     });
   });
 });

@@ -1,5 +1,9 @@
 import type { DbtProject } from '@shared/dbt/types';
-import { GROUP_BY_DIMS, normalizeGroupBy } from '@shared/framework/constants';
+import {
+  DEFAULT_INCREMENTAL_STRATEGY,
+  GROUP_BY_DIMS,
+  normalizeGroupBy,
+} from '@shared/framework/constants';
 import type {
   FrameworkInterval,
   FrameworkModel,
@@ -9,7 +13,7 @@ import type { SchemaModelGroupBy } from '@shared/schema/types/model.group_by.sch
 import type { SchemaModelLightdash } from '@shared/schema/types/model.lightdash.schema';
 import type { SchemaModelMaterialized } from '@shared/schema/types/model.materialized.schema';
 import type {
-  ModelIncrementalStrategySchemaJson,
+  IncrementalStrategy,
   ModelSqlHooksSchemaJson,
   SchemaModelPartitionedBy,
 } from '@shared/schema/types/model.schema';
@@ -108,7 +112,7 @@ export interface ModelingStateAdapter {
 export interface AdditionalFieldsSchema {
   description?: string;
   tags?: string[];
-  incremental_strategy?: ModelIncrementalStrategySchemaJson;
+  incremental_strategy?: IncrementalStrategy;
   sql_hooks?: ModelSqlHooksSchemaJson;
   partitioned_by?: SchemaModelPartitionedBy;
   exclude_daily_filter?: boolean;
@@ -638,10 +642,11 @@ export const useModelStore = create<ModelStore>()(
             // Preselect default incremental strategy from store state (fetched via preferences API)
             if (!state.additionalFields.incremental_strategy?.type) {
               const defaultStrategy =
-                state.defaultIncrementalStrategy ?? 'delete+insert';
+                state.defaultIncrementalStrategy ??
+                DEFAULT_INCREMENTAL_STRATEGY;
               const defaultIncrementalStrategy = {
                 type: defaultStrategy,
-              } as ModelIncrementalStrategySchemaJson;
+              } as IncrementalStrategy;
               newAdditionalFields = {
                 ...newAdditionalFields,
                 incremental_strategy: defaultIncrementalStrategy,

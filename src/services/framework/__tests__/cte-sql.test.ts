@@ -32,7 +32,7 @@ describe('CTE SQL Generation', () => {
       project,
     });
 
-    expect(sql).toContain('select col_a, SUM(col_b) as total');
+    expect(sql).toMatch(/select\s+col_a,\s*SUM\(col_b\) as total/);
     expect(sql).toContain("from {{ ref('model_a') }}");
     expect(sql).toContain('where col_a > 0');
   });

@@ -1,5 +1,9 @@
-import { filterBulkSelectColumns } from '@services/framework/utils/column-utils';
+import {
+  filterBulkSelectColumns,
+  isAggregateExpr,
+} from '@services/framework/utils/column-utils';
 import { BULK_CTE_TYPES } from '@shared/framework/constants';
+import type { FrameworkColumn } from '@shared/framework/types';
 import type { ValidateFunction } from 'ajv';
 import type { ErrorObject } from 'ajv';
 
@@ -253,6 +257,74 @@ export function validateCtes(modelJson: any): string[] {
 }
 
 /**
+ * Rejects `lightdash.metrics` / `lightdash.metrics_merge` declared inside
+ * `ctes[].select[]`. The schema permits those fields on any select item, but
+ * the framework only materializes Lightdash metrics from the main-model
+ * `select` (via `lightdashBuildMetrics`). Metrics placed on CTE select items
+ * are silently dropped, producing YAML with missing measures and no
+ * diagnostic -- exactly the foot-gun that motivated this check.
+ *
+ * `lightdash.dimension` (label, type, hidden, ...) is still supported on CTE
+ * select items because it is forwarded through CTE meta propagation; only the
+ * metric-shaped fields are rejected here.
+ */
+export function validateCteLightdashMetrics(
+  modelJson: any,
+): ValidationErrorDetail[] {
+  const errors: ValidationErrorDetail[] = [];
+  if (!Array.isArray(modelJson?.ctes)) {
+    return errors;
+  }
+
+  for (let i = 0; i < modelJson.ctes.length; i++) {
+    const cte = modelJson.ctes[i];
+    if (!Array.isArray(cte?.select)) {
+      continue;
+    }
+
+    for (let j = 0; j < cte.select.length; j++) {
+      const sel = cte.select[j];
+      if (!sel || typeof sel !== 'object') {
+        continue;
+      }
+      const ld = sel.lightdash;
+      if (!ld || typeof ld !== 'object') {
+        continue;
+      }
+
+      const badFields: string[] = [];
+      if ('metrics' in ld && ld.metrics !== undefined && ld.metrics !== null) {
+        badFields.push('lightdash.metrics');
+      }
+      if (
+        'metrics_merge' in ld &&
+        ld.metrics_merge !== undefined &&
+        ld.metrics_merge !== null
+      ) {
+        badFields.push('lightdash.metrics_merge');
+      }
+      if (badFields.length === 0) {
+        continue;
+      }
+
+      const ident =
+        'name' in sel && typeof sel.name === 'string'
+          ? `"${sel.name}"`
+          : `select[${j}]`;
+      // JSON Pointer targets the offending `lightdash` block so VS Code can
+      // highlight the exact range in the editor rather than falling back to
+      // line 1.
+      errors.push({
+        message: `CTE "${cte.name}" select ${ident}: ${badFields.join(' and ')} is not supported on CTE select items. Move the metric definition to the main-model select.`,
+        instancePath: `/ctes/${i}/select/${j}/lightdash`,
+      });
+    }
+  }
+
+  return errors;
+}
+
+/**
  * Validates that CTE group_by entries do not use bare string aliases for
  * computed columns (those with an `expr` in the CTE's select). String aliases
  * produce invalid SQL because Trino's GROUP BY references source columns, not
@@ -416,6 +488,261 @@ export function validateCteColumnReferences(
   }
 
   return errors;
+}
+
+/**
+ * Bulk CTE select types (main-model) that pull fct columns through without
+ * re-aggregation. Kept in sync with `BULK_CTE_TYPES` but narrowed to the
+ * variants that can carry fcts (`dims_from_cte` is safe).
+ */
+const BULK_CTE_FCT_CARRIERS = new Set(['all_from_cte', 'fcts_from_cte']);
+
+/**
+ * Validates main-model fct columns against the model's `group_by`. Fct
+ * columns in the outer SELECT must either be framework-aggregated
+ * (`agg` / `aggs`), wrap an aggregate in `expr`, or be explicitly opted out
+ * via `exclude_from_group_by: true`. Bare fct references plus a non-empty
+ * `group_by` produce invalid Trino SQL ("column must appear in GROUP BY").
+ *
+ * Two failure modes are caught here, before `dj sync` writes the .sql file:
+ * - Named select items (`{ name, type: "fct" }` with no aggregation wiring).
+ * - Bulk `all_from_cte` / `fcts_from_cte` that drag fct columns through from
+ *   a pre-aggregated CTE. Detected only when the CTE column registry is
+ *   supplied (i.e. when called from ModelProcessor).
+ *
+ * Models with `rollup` or `lookback` FROM clauses skip this check because
+ * their aggregation semantics are implicit rather than expressed via
+ * `group_by`.
+ */
+export function validateMainModelAggregation(
+  modelJson: any,
+  cteColumnRegistry?: ReadonlyMap<string, FrameworkColumn[]>,
+): ValidationErrorDetail[] {
+  const errors: ValidationErrorDetail[] = [];
+  if (!modelJson || typeof modelJson !== 'object') {
+    return errors;
+  }
+
+  const groupBy = modelJson.group_by;
+  const hasGroupBy =
+    (typeof groupBy === 'string' && groupBy.length > 0) ||
+    (Array.isArray(groupBy) && groupBy.length > 0);
+  if (!hasGroupBy) {
+    return errors;
+  }
+
+  if (!Array.isArray(modelJson.select)) {
+    return errors;
+  }
+
+  // Compact shared hint appended to each diagnostic so every offender is
+  // self-describing without requiring the user to scroll to a sibling
+  // "summary" diagnostic.
+  const hint =
+    'set "agg"/"aggs", wrap an aggregate in "expr", or set "exclude_from_group_by": true.';
+
+  for (let j = 0; j < modelJson.select.length; j++) {
+    const sel = modelJson.select[j];
+    if (!sel || typeof sel !== 'object') {
+      continue;
+    }
+
+    if ('exclude_from_group_by' in sel && sel.exclude_from_group_by === true) {
+      continue;
+    }
+
+    // Named scalar select: { name, type: "fct", ... }
+    if ('name' in sel && sel.type === 'fct' && !('cte' in sel)) {
+      if (columnIsAggregated(sel)) {
+        continue;
+      }
+      errors.push({
+        message: `Un-aggregated fct column "${sel.name}" with main-model group_by — ${hint}`,
+        instancePath: `/select/${j}`,
+      });
+      continue;
+    }
+
+    // Scalar CTE fct ref: { cte, name, type: "fct" } — always bare passthrough
+    if (
+      'cte' in sel &&
+      'name' in sel &&
+      sel.type === 'fct' &&
+      !columnIsAggregated(sel)
+    ) {
+      errors.push({
+        message: `Un-aggregated fct "${sel.name}" from CTE "${sel.cte}" with main-model group_by — ${hint}`,
+        instancePath: `/select/${j}`,
+      });
+      continue;
+    }
+
+    // Bulk CTE carriers: all_from_cte / fcts_from_cte
+    if (
+      'cte' in sel &&
+      typeof sel.cte === 'string' &&
+      BULK_CTE_FCT_CARRIERS.has(sel.type) &&
+      cteColumnRegistry
+    ) {
+      const cteCols = cteColumnRegistry.get(sel.cte);
+      if (!cteCols) {
+        continue;
+      }
+      const fctNames = cteCols
+        .filter((c) => c.meta?.type === 'fct')
+        .map((c) => c.name);
+      if (fctNames.length === 0) {
+        continue;
+      }
+      const excludeList = Array.isArray(sel.exclude) ? sel.exclude : [];
+      const includeList = Array.isArray(sel.include) ? sel.include : null;
+      const leftover = fctNames.filter(
+        (n) =>
+          !excludeList.includes(n) && (!includeList || includeList.includes(n)),
+      );
+      if (leftover.length > 0) {
+        errors.push({
+          message: `${sel.type} from CTE "${sel.cte}" carries un-aggregated fct column(s): ${leftover.join(', ')} — re-aggregate each in the main-model select or add to "exclude".`,
+          instancePath: `/select/${j}`,
+        });
+      }
+    }
+  }
+
+  return errors;
+}
+
+function columnIsAggregated(sel: any): boolean {
+  if (!sel || typeof sel !== 'object') {
+    return false;
+  }
+  if ('agg' in sel && sel.agg) {
+    return true;
+  }
+  if ('aggs' in sel && Array.isArray(sel.aggs) && sel.aggs.length > 0) {
+    return true;
+  }
+  if (
+    'expr' in sel &&
+    typeof sel.expr === 'string' &&
+    isAggregateExpr(sel.expr)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Detects "dead outer layer" main models: `from: { cte: X }` + main `select`
+ * that is a single `all_from_cte` / `dims_from_cte` passthrough of that same
+ * CTE + main `group_by` that matches the CTE's group_by. In that shape the
+ * outer query adds no new projection, no new filtering, and no new
+ * aggregation -- it's pure overhead. Emitted as a warning so users can drop
+ * the outer layer or add meaningful work to it.
+ *
+ * Returns warning strings; the caller decides severity.
+ */
+export function validateDeadOuterLayer(
+  modelJson: any,
+): ValidationErrorDetail[] {
+  const warnings: ValidationErrorDetail[] = [];
+  if (!modelJson || typeof modelJson !== 'object') {
+    return warnings;
+  }
+  const from = modelJson.from;
+  if (!from || typeof from !== 'object' || !('cte' in from) || !from.cte) {
+    return warnings;
+  }
+  if ('join' in from && Array.isArray(from.join) && from.join.length > 0) {
+    return warnings;
+  }
+  const cteName = from.cte;
+
+  if (!Array.isArray(modelJson.select) || modelJson.select.length !== 1) {
+    return warnings;
+  }
+  const sole = modelJson.select[0];
+  if (
+    !sole ||
+    typeof sole !== 'object' ||
+    !('cte' in sole) ||
+    sole.cte !== cteName
+  ) {
+    return warnings;
+  }
+  if (sole.type !== 'all_from_cte' && sole.type !== 'dims_from_cte') {
+    return warnings;
+  }
+  if (
+    (Array.isArray(sole.exclude) && sole.exclude.length > 0) ||
+    (Array.isArray(sole.include) && sole.include.length > 0)
+  ) {
+    return warnings;
+  }
+
+  // Passthrough of a single CTE. Compare group_by shapes.
+  const ctes = Array.isArray(modelJson.ctes) ? modelJson.ctes : [];
+  const cte = ctes.find((c: any) => c?.name === cteName);
+  if (!cte) {
+    return warnings;
+  }
+
+  const mainGB = normalizeGroupBy(modelJson.group_by);
+  const cteGB = normalizeGroupBy(cte.group_by);
+  if (mainGB === 'none' || cteGB === 'none') {
+    return warnings;
+  }
+  if (mainGB !== cteGB) {
+    return warnings;
+  }
+
+  // Also require that the main model adds no where / having / limit / distinct
+  // / order_by on top -- those justify a wrapper even with identical group_by.
+  const hasWhere =
+    modelJson.where &&
+    typeof modelJson.where === 'object' &&
+    Object.keys(modelJson.where).length > 0;
+  const hasHaving =
+    modelJson.having &&
+    typeof modelJson.having === 'object' &&
+    Object.keys(modelJson.having).length > 0;
+  const hasOrder =
+    Array.isArray(modelJson.order_by) && modelJson.order_by.length > 0;
+  const hasLimit = typeof modelJson.limit === 'number';
+  const hasDistinct = modelJson.distinct === true;
+  if (hasWhere || hasHaving || hasOrder || hasLimit || hasDistinct) {
+    return warnings;
+  }
+
+  warnings.push({
+    message: `Main-model outer layer is a no-op: select is a single ${sole.type} passthrough of CTE "${cteName}" with the same group_by as the CTE and no extra filters / limits. Consider dropping the outer wrapper and moving the CTE's select into the main model, or adding new projection / filtering on top.`,
+    instancePath: `/select/0`,
+  });
+  return warnings;
+}
+
+function normalizeGroupBy(groupBy: any): string {
+  if (!groupBy) {
+    return 'none';
+  }
+  if (typeof groupBy === 'string') {
+    return groupBy === 'dims' ? 'dims' : `string:${groupBy}`;
+  }
+  if (Array.isArray(groupBy)) {
+    if (groupBy.length === 0) {
+      return 'none';
+    }
+    // Canonicalize: "[{type:'dims'}]" == "dims"
+    if (
+      groupBy.length === 1 &&
+      typeof groupBy[0] === 'object' &&
+      groupBy[0]?.type === 'dims'
+    ) {
+      return 'dims';
+    }
+    return `array:${JSON.stringify(groupBy)}`;
+  }
+  return 'none';
 }
 
 const EXISTS_OPERATORS = new Set(['exists', 'not_exists']);

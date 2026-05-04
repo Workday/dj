@@ -1,6 +1,7 @@
 import { COMMAND_ID } from '@services/constants';
 import { FRAMEWORK_JSON_SYNC_EXCLUDE_PATHS } from '@services/framework/constants';
 import type { CoderConfig } from '@services/types/config';
+import { DEFAULT_INCREMENTAL_STRATEGY } from '@shared/framework/constants';
 import { WORKSPACE_ROOT } from 'admin';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -42,10 +43,14 @@ export function getDjConfig(): CoderConfig {
     lightdashProjectPath: config.get('lightdashProjectPath', undefined),
     lightdashProfilesPath: config.get('lightdashProfilesPath', undefined),
 
-    // Settings with defaults from package.json
+    // Settings with defaults from package.json.
+    // All fallbacks (extension, webview, generator) route through the shared
+    // `DEFAULT_INCREMENTAL_STRATEGY` constant so the default can be changed
+    // in one place. The `default` in `package.json` must be updated in
+    // tandem since VS Code's settings schema cannot reference TS constants.
     materializationDefaultIncrementalStrategy: config.get(
       'materialization.defaultIncrementalStrategy',
-      'delete+insert',
+      DEFAULT_INCREMENTAL_STRATEGY,
     ),
     airflowGenerateDags: config.get('airflowGenerateDags', false),
     columnLineageAutoRefresh: config.get('columnLineage.autoRefresh', true),

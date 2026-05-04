@@ -10,7 +10,7 @@
     "type": "git",
     "url": "https://github.com/Workday/vscode-dbt-json.git"
   },
-  "version": "1.3.2",
+  "version": "1.3.3",
   "workspaces": [
     "web"
   ],
@@ -352,12 +352,13 @@
         "dj.materialization.defaultIncrementalStrategy": {
           "type": "string",
           "enum": [
+            "append",
             "delete+insert",
             "merge",
             "overwrite_existing_partitions"
           ],
           "default": "overwrite_existing_partitions",
-          "markdownDescription": "Default incremental strategy applied when materialization is set to `incremental` without an explicit strategy. Can be overridden per model via `materialization.strategy`. Changes apply to newly generated SQL immediately; to regenerate SQL/YML for existing models, run **DJ: Sync to SQL and YML**."
+          "markdownDescription": "Default incremental strategy applied when `materialization` is set to `incremental` without an explicit `strategy`. Can be overridden per model via `materialization.strategy`.\n\n**Strategy notes (dbt-trino):**\n- `append` — fastest; inserts without de-dup. Upstream must guarantee no duplicates in the new slice.\n- `delete+insert` — partition-safe upsert; `unique_key` is auto-derived from partitions when omitted. Works on Delta Lake, Hive, and Iceberg. _Planned to become the factory default in a future release._\n- `merge` — row-level upsert on `unique_key`. Requires the target table to use **Iceberg** format in dbt-trino.\n- `overwrite_existing_partitions` — **current default.** Drops & rewrites only partitions in the new slice. **Requires a custom dbt macro in your project** (e.g. `get_incremental_overwrite_existing_partitions_sql`); if your project does not define it, use `delete+insert` instead.\n\nTo change this default globally for a workspace, set this value here. To change the factory default across the extension, update `DEFAULT_INCREMENTAL_STRATEGY` in `src/shared/framework/constants.ts` and this `default` in lockstep.\n\nChanges apply to newly generated SQL immediately; to regenerate SQL/YML for existing models, run **DJ: Sync to SQL and YML**."
         },
         "dj.autoGenerateTests": {
           "type": "object",
@@ -755,7 +756,7 @@
     "lodash": "^4.17.21",
     "sql-formatter": "^15.3.1",
     "tailwind-merge": "^3.3.1",
-    "uuid": "^10.0.0",
+    "uuid": "^14.0.0",
     "yaml": "^2.4.2"
   },
   "devDependencies": {
@@ -766,7 +767,7 @@
     "@types/vscode": "^1.87.0",
     "@typescript-eslint/eslint-plugin": "^8.46.0",
     "@typescript-eslint/parser": "^8.46.0",
-    "@vscode/vsce": "^3.7.1",
+    "@vscode/vsce": "^3.9.1",
     "esbuild": "^0.25.9",
     "eslint": "^9.37.0",
     "eslint-plugin-simple-import-sort": "^12.1.1",

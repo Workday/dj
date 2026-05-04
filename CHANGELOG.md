@@ -1,5 +1,28 @@
 # Change Log
 
+## 1.3.3
+
+### Incremental strategies
+
+- **All four dbt-trino strategies are now settable per model** — `append`, `delete+insert`, `merge`, and `overwrite_existing_partitions` via `materialization.strategy.type` and the Model Wizard. Previously only `delete+insert` and `merge` were expressible per model.
+- **Hover-time warnings on strategies with prerequisites** — `merge` flags that it requires Iceberg format on the target table, and `overwrite_existing_partitions` flags that it requires a custom dbt macro in your project; both direct you to `delete+insert` when the prerequisite isn't met.
+- **`unique_key` auto-derived from partition columns for `overwrite_existing_partitions`** — matches the existing `delete+insert` behavior, so partitioned incremental models no longer need to spell out their partition column as `unique_key` by hand.
+- **`dj.materialization.defaultIncrementalStrategy` now accepts `append`** — alongside the existing values. The factory default is still `overwrite_existing_partitions` and is planned to move to `delete+insert` in a future release.
+
+### CTE fixes
+
+- **CTE aggregation fixes** — `agg: hll` / `tdigest` / `count` now emit valid kernels (`hll()` was previously a nonexistent function), `{name:"datetime", interval}` actually truncates to the requested grain, `group_by: "dims"` groups by the derived expression instead of the alias, and downstream re-aggregations reference the CTE output alias (e.g. `sum(thread_gb_hours_sum)`) instead of leaking the original `expr`. `agg` over an already-suffixed column (like `{ name: "portal_source_count", agg: "count" }` or `{ name: "x_hll", agg: "hll" }`) keeps the bare name and uses the merge kernel; set `override_suffix_agg: true` to force a fresh aggregation.
+- **Correct CTE YAML and audit columns** — `data_type`, `description`, `meta.dimension` (including `hidden`), `exclude_from_group_by`, `override_suffix_agg`, and `lightdash.case_sensitive` now flow through CTEs into downstream `dims_from_cte` / `fcts_from_cte` consumers. `datetime`, `portal_partition_*`, and `portal_source_count` auto-inject in CTEs whose `from` is a model, mirroring the main-model behavior (previously dropped by narrow `dims_from_model.include` lists). Columns are sorted alphabetically with partitions pushed to the bottom, matching main-model output.
+
+### Incremental materialization
+
+- **`unique_key` only defaults to columns the model actually produces** — monthly rollups correctly fall back to `portal_partition_monthly`; unpartitioned incremental models omit `unique_key` entirely.
+
+### CTE authoring diagnostics
+
+- **Stricter validation in the Problems tab** — rejects `lightdash.metrics` / `metrics_merge` on CTE selects (only main-model selects feed Lightdash), un-aggregated `fct` columns with a main-model `group_by` (would produce invalid Trino SQL), and warns on no-op outer layers. Errors now pin to the specific `select[]` item instead of line 1, and a broad set of Trino aggregate kernels (`sum`, `avg`, `any_value`, `arbitrary`, `merge(cast(... as hyperloglog|tdigest))`, `approx_*`, and any `*_agg` UDAF) is recognized inside `expr`.
+- **New [CTE Patterns](docs/models/CTE_PATTERNS.md) guide** documents inline CTEs, aggregation boundaries, and auto-injection rules.
+
 ## 1.3.2
 
 ### Airflow ETL Improvements

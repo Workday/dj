@@ -131,7 +131,6 @@ export function sortColumnsWithPartitionsLast<T extends { name: string }>(
  */
 export function frameworkProcessSelected({
   existingColumns,
-  datetimeInterval,
   dj,
   fromColumn,
   modelJson,
@@ -141,7 +140,6 @@ export function frameworkProcessSelected({
   selected,
 }: {
   existingColumns: FrameworkColumn[];
-  datetimeInterval: FrameworkInterval | null;
   dj: DJ;
   fromColumn: FrameworkColumn | null;
   modelJson: FrameworkModel;
@@ -267,49 +265,20 @@ export function frameworkProcessSelected({
         'interval' in selected &&
         selected.interval
       ) {
-        const name = selected.name;
-        datetimeInterval = selected.interval;
-        selectedColumn.meta.interval = selected.interval;
-
-        const timeIntervals: LightdashDimension['time_intervals'] = ['YEAR'];
-        switch (datetimeInterval) {
-          case 'hour': {
-            timeIntervals.push('DAY');
-            timeIntervals.push('DAY_OF_WEEK_NAME');
-            timeIntervals.push('HOUR');
-            timeIntervals.push('MONTH');
-            timeIntervals.push('WEEK');
-            break;
-          }
-          case 'day': {
-            timeIntervals.push('DAY');
-            timeIntervals.push('DAY_OF_WEEK_NAME');
-            timeIntervals.push('MONTH');
-            timeIntervals.push('WEEK');
-            break;
-          }
-          case 'month': {
-            timeIntervals.push('MONTH');
-            break;
-          }
-        }
-        timeIntervals.sort();
-        selectedColumn.meta.dimension = {
-          label: `Datetime`,
-          time_intervals: timeIntervals,
-          ...selected.lightdash?.dimension,
-        };
-
-        const fromInterval =
-          fromColumn?.meta &&
-          'interval' in fromColumn.meta &&
-          fromColumn.meta.interval;
-        const shouldTrunc =
-          datetimeInterval && datetimeInterval !== fromInterval;
-
-        if (shouldTrunc) {
-          const prefixedName = prefix ? `${prefix}.${name}` : name;
-          selectedColumn.meta.expr = `date_trunc('${datetimeInterval}', ${prefixedName})`;
+        const sourceInterval =
+          fromColumn?.meta && 'interval' in fromColumn.meta
+            ? fromColumn.meta.interval ?? null
+            : null;
+        const built = frameworkBuildDatetimeColumn({
+          interval: selected.interval,
+          prefix,
+          sourceInterval,
+          userDimension: selected.lightdash?.dimension,
+        });
+        selectedColumn.meta.interval = built.interval;
+        selectedColumn.meta.dimension = built.dimension;
+        if (built.expr) {
+          selectedColumn.meta.expr = built.expr;
         }
       } else {
         if ('agg' in selected && selected.agg) {
@@ -662,7 +631,6 @@ export function frameworkBuildColumns({
           case 'dim':
           default: {
             const processed = frameworkProcessSelected({
-              datetimeInterval,
               dj,
               existingColumns: columns,
               fromColumn,
@@ -980,6 +948,30 @@ function buildCteSourceColumnMap(
 }
 
 /**
+ * Extracts the `interval` of the upstream `datetime` column for a given CTE
+ * `from` clause. Returns `null` when the upstream doesn't carry a datetime
+ * interval. Used by `frameworkBuildDatetimeColumn` to decide whether a
+ * `date_trunc` is needed -- when the upstream is already at the requested
+ * granularity, the truncation is skipped.
+ */
+export function frameworkGetCteDatetimeSourceInterval({
+  cteRegistry,
+  from,
+  project,
+}: {
+  cteRegistry: CteColumnRegistry;
+  from: FrameworkCTE['from'];
+  project: DbtProject;
+}): FrameworkInterval | null {
+  const colMap = buildCteSourceColumnMap(from, cteRegistry, project);
+  const dt = colMap.get('datetime');
+  if (dt?.meta && 'interval' in dt.meta && dt.meta.interval) {
+    return dt.meta.interval;
+  }
+  return null;
+}
+
+/**
  * Infers output columns for a CTE by analyzing its select items.
  * Unlike external models, CTEs have no manifest entry, so their schema
  * must be derived from the select definition at generation time.
@@ -1096,48 +1088,120 @@ export function frameworkInferCteColumns({
     if ('name' in sel) {
       const name = sel.name as string;
       const sourceCol = sourceColumnMap.get(name);
-      const col: FrameworkColumn = {
-        name,
-        meta: { type: selType === 'fct' ? 'fct' : 'dim' },
-      };
-      if (sourceCol?.meta?.origin) {
-        col.meta.origin = sourceCol.meta.origin;
-      }
-      if ('description' in sel && sel.description) {
-        col.description = sel.description as string;
-      }
-      if ('data_type' in sel && sel.data_type) {
-        col.data_type = sel.data_type as FrameworkColumn['data_type'];
-      }
-      if ('data_tests' in sel && sel.data_tests) {
-        col.data_tests = sel.data_tests as FrameworkColumn['data_tests'];
-      }
-      if (
-        'lightdash' in sel &&
-        (sel.lightdash as { dimension?: unknown })?.dimension
-      ) {
-        col.meta.dimension = (sel.lightdash as { dimension: unknown })
-          .dimension as FrameworkColumn['meta']['dimension'];
-      }
-      if ('expr' in sel && sel.expr) {
-        col.meta.expr = sel.expr as string;
-      }
       const agg = 'agg' in sel ? (sel.agg as FrameworkColumnAgg) : undefined;
       const aggs =
         'aggs' in sel ? (sel.aggs as FrameworkColumnAgg[]) : undefined;
-      if (agg) {
-        col.meta.agg = agg;
+      const interval =
+        'interval' in sel ? (sel.interval as FrameworkInterval) : undefined;
+
+      // Datetime with interval: produce a dim column with time_intervals and
+      // optionally an expr for date_trunc (matches main-model behavior).
+      if (name === 'datetime' && interval && !agg && !aggs) {
+        const sourceInterval =
+          sourceCol?.meta && 'interval' in sourceCol.meta
+            ? sourceCol.meta.interval ?? null
+            : null;
+        const built = frameworkBuildDatetimeColumn({
+          interval,
+          sourceInterval,
+          userDimension: (
+            sel.lightdash as { dimension?: Partial<LightdashDimension> }
+          )?.dimension,
+        });
+        const selectedColumn: FrameworkColumn = {
+          name,
+          meta: {
+            type: 'dim',
+            dimension: built.dimension,
+            interval: built.interval,
+          },
+        };
+        if (built.expr) {
+          selectedColumn.meta.expr = built.expr;
+        }
+        // Forward description, data_tests, case_sensitive, override_suffix_agg,
+        // and exclude_from_group_by from `sel`. The interval schema has no
+        // `expr`, so the expr-from-sel branch in the helper is a no-op here.
+        frameworkApplyCteSelectMeta(sel, selectedColumn, { hasAgg: false });
+        // frameworkApplyCteSelectMeta may overwrite selectedColumn.meta.dimension
+        // with the raw sel.lightdash.dimension (full replace, not a merge);
+        // restore the merged version from frameworkBuildDatetimeColumn which
+        // already folded user overrides on top of the built defaults.
+        selectedColumn.meta.dimension = built.dimension;
+        // Deep-merge upstream beneath the selected overlay so upstream
+        // data_type (e.g. `timestamp(6)`), description, and nested
+        // meta.dimension fields (e.g. `dimension.type: timestamp`) survive
+        // while the selected column's interval, time_intervals, label, and
+        // expr win. Mirrors the main-model `mergeDeep(fromColumn, selectedColumn)`
+        // pattern in frameworkProcessSelected.
+        const col: FrameworkColumn = sourceCol
+          ? mergeDeep({ ...sourceCol }, selectedColumn)
+          : selectedColumn;
+        if (modelId && !col.meta.origin?.id) {
+          col.meta.origin = { id: modelId };
+        }
+        columns.push(col);
+        continue;
       }
+
+      const selectedColumn: FrameworkColumn = {
+        name,
+        meta: { type: selType === 'fct' ? 'fct' : 'dim' },
+      };
+      frameworkApplyCteSelectMeta(sel, selectedColumn, {
+        hasAgg: !!(agg || aggs),
+      });
+
+      // Deep-merge upstream beneath the selected overlay so upstream
+      // data_type, description, and meta.dimension.* fields are preserved
+      // while selected fields (type, anything forwarded from sel via
+      // frameworkApplyCteSelectMeta) win. Matches the main-model
+      // `mergeDeep(fromColumn, selectedColumn)` pattern.
+      const col: FrameworkColumn = sourceCol
+        ? mergeDeep({ ...sourceCol }, selectedColumn)
+        : selectedColumn;
+
+      // For aggregated columns, the kernel (sum/count/hll/tdigest) determines
+      // the output type, not the upstream input -- strip any inherited
+      // `data_type`. `meta.dimension` is NOT stripped so that framework
+      // auto-synthesized dimensions (e.g. the `portal_source_count` audit
+      // column's `dimension: { label, hidden: true }`) and user-authored
+      // dim-style dimensions on upstream fct columns flow through, exactly
+      // as they do in the main-model `mergeDeep(fromColumn, selectedColumn)`
+      // path. Description, origin, and tags remain inherited via mergeDeep.
+      if ((agg || aggs) && col.data_type !== undefined) {
+        delete col.data_type;
+      }
+
+      // Each `aggs` entry becomes its own fct column, carrying forward the
+      // scalar meta (case_sensitive, override_suffix_agg, etc.) collected
+      // onto `col` above, matching the main-model `mergeDeep` path.
       if (aggs) {
         for (const a of aggs) {
-          columns.push({ name: `${name}_${a}`, meta: { type: 'fct', agg: a } });
+          const resolved = frameworkResolveAgg({
+            agg: a,
+            name,
+            overrideSuffixAgg: col.meta.override_suffix_agg,
+          });
+          const aggCol: FrameworkColumn = {
+            ...col,
+            name: resolved.outputName,
+            meta: { ...col.meta, agg: a, type: 'fct' },
+          };
+          columns.push(aggCol);
         }
         if (!agg) {
           continue;
         }
       }
       if (agg) {
-        col.name = `${name}_${agg}`;
+        const resolved = frameworkResolveAgg({
+          agg,
+          name,
+          overrideSuffixAgg: col.meta.override_suffix_agg,
+        });
+        col.name = resolved.outputName;
+        col.meta.agg = agg;
       }
       if (modelId && !col.meta.origin?.id) {
         col.meta.origin = { id: modelId };
@@ -1145,13 +1209,249 @@ export function frameworkInferCteColumns({
       columns.push(col);
       continue;
     }
+  }
 
-    if ('interval' in sel) {
-      columns.push({ name: 'datetime', meta: { type: 'dim' } });
+  // Mirror the main-model datetime + partition auto-injection (see L727-744
+  // in this file) for CTEs whose FROM is a plain model reference. Without
+  // this, a `dims_from_model` bulk select with a small `include` list, or a
+  // pre-aggregation CTE that only enumerates non-partition dims, silently
+  // drops `portal_partition_*` (and `datetime`), and downstream materialization
+  // fails because `partitioned_by` can't find the columns.
+  const autoDims = frameworkShouldAutoInjectCteFrameworkDims({
+    cte,
+    alreadyPresentNames: columns.map((c) => c.name),
+    project,
+  });
+  if (autoDims) {
+    const upstream = frameworkGetNodeColumns({
+      from: { model: autoDims.baseModel },
+      include: autoDims.include,
+      project,
+      useCsvFallback: false,
+    });
+    // Framework-managed passthroughs: preserve whatever origin the upstream
+    // had (typically none for `datetime` / `portal_partition_*`). Do NOT
+    // stamp `modelId` here — that would cascade a spurious `meta.origin.id`
+    // into every downstream YAML and diverge from the main-model auto-inject
+    // behavior (see L727-744 in this file), which also leaves origin alone.
+    const injected = frameworkInheritColumns(upstream.columns, {});
+    columns.push(...injected);
+  }
+
+  // Mirror the main-model `portal_source_count` auto-injection (see L746-763
+  // in this file) for CTEs whose FROM is a plain model reference. Without
+  // this, a CTE that pre-aggregates a model silently drops the audit column
+  // and downstream `all_from_cte` / `dims_from_cte` passthroughs can't put
+  // it back. The SQL emitter (`frameworkGenerateCteSql`) uses the same
+  // helper so the registry and the emitted SQL stay in lock-step.
+  const autoPsc = frameworkShouldAutoInjectCtePortalSourceCount({
+    cte,
+    alreadyPresentNames: columns.map((c) => c.name),
+    project,
+  });
+  if (autoPsc) {
+    const upstream = frameworkGetNodeColumns({
+      from: { model: autoPsc.baseModel },
+      include: ['portal_source_count'],
+      project,
+      useCsvFallback: false,
+    });
+    const injected = frameworkInheritColumns(upstream.columns, {
+      meta: {
+        ...(autoPsc.applyAgg && { agg: 'count' }),
+      },
+    });
+    for (const col of injected) {
+      if (autoPsc.applyAgg) {
+        const resolved = frameworkResolveAgg({
+          agg: 'count',
+          name: col.name,
+          overrideSuffixAgg: col.meta.override_suffix_agg,
+        });
+        col.name = resolved.outputName;
+      }
+      if (modelId && !col.meta.origin?.id) {
+        col.meta.origin = { id: modelId };
+      }
     }
+    columns.push(...injected);
   }
 
   return columns;
+}
+
+/**
+ * Shared gate for the CTE `portal_source_count` auto-injection, used by both
+ * the CTE column registry (`frameworkInferCteColumns`) and the CTE SQL
+ * emitter (`frameworkGenerateCteSql`) so the two stay consistent.
+ *
+ * Auto-injection fires when:
+ * - The CTE's FROM is a plain `{ model }` ref (no union, no cte chaining).
+ * - The upstream model actually has `portal_source_count` in its catalog.
+ * - The CTE's own select / bulk expansions haven't already pulled it in.
+ *
+ * `applyAgg` is true when the CTE aggregates (non-empty `group_by`), mirroring
+ * the main-model `frameworkModelHasAgg` rule. The caller is responsible for
+ * feeding `applyAgg` into `frameworkResolveAgg` / `frameworkBuildAggSql` so
+ * the suffix-collision + merge-kernel semantics match the named-select path.
+ */
+export function frameworkShouldAutoInjectCtePortalSourceCount({
+  cte,
+  alreadyPresentNames,
+  project,
+}: {
+  cte: FrameworkCTE;
+  alreadyPresentNames: string[];
+  project: DbtProject;
+}): { baseModel: string; applyAgg: boolean } | null {
+  if (!('model' in cte.from) || !cte.from.model) {
+    return null;
+  }
+  if ('union' in cte.from) {
+    return null;
+  }
+  if (alreadyPresentNames.includes('portal_source_count')) {
+    return null;
+  }
+
+  const upstream = frameworkGetNodeColumns({
+    from: { model: cte.from.model },
+    include: ['portal_source_count'],
+    project,
+    useCsvFallback: false,
+  });
+  if (upstream.columns.length === 0) {
+    return null;
+  }
+
+  const applyAgg = !!(typeof cte.group_by === 'string'
+    ? cte.group_by.length > 0
+    : Array.isArray(cte.group_by) && cte.group_by.length > 0);
+
+  return { baseModel: cte.from.model, applyAgg };
+}
+
+/**
+ * Shared gate for the CTE `datetime` + `portal_partition_*` auto-injection,
+ * used by both the CTE column registry (`frameworkInferCteColumns`) and the
+ * CTE SQL emitter (`frameworkGenerateCteSql`) so the two stay consistent.
+ *
+ * Mirrors the main-model behavior in `frameworkModelColumns` (see L727-744 in
+ * this file): when a CTE sources from a plain `{ model }` ref, datetime and
+ * the partition columns are considered framework-managed and are appended
+ * automatically even if the user's select (or `dims_from_model` include list)
+ * did not mention them. Without this, a CTE that pre-aggregates upstream
+ * columns silently drops the partitions, and the downstream model fails at
+ * materialization because `partitioned_by` can't find them.
+ *
+ * Auto-injection fires when:
+ * - The CTE's FROM is a plain `{ model }` ref (no union, no cte chaining).
+ * - The upstream model actually has the candidate column in its catalog.
+ * - The CTE's own select hasn't already pulled the column in.
+ * - The candidate is not excluded by the effective datetime interval
+ *   (day → hourly dropped; month → daily+hourly dropped; year → all three).
+ *
+ * The effective datetime interval is determined from either an explicit
+ * `{ name: 'datetime', interval: X }` entry in the CTE select, or by
+ * falling back to the upstream column's own `meta.interval`.
+ */
+export function frameworkShouldAutoInjectCteFrameworkDims({
+  cte,
+  alreadyPresentNames,
+  project,
+}: {
+  cte: FrameworkCTE;
+  alreadyPresentNames: string[];
+  project: DbtProject;
+}): {
+  baseModel: string;
+  include: ('datetime' | FrameworkPartitionName)[];
+} | null {
+  if (!('model' in cte.from) || !cte.from.model) {
+    return null;
+  }
+  if ('union' in cte.from) {
+    return null;
+  }
+
+  const baseModel = cte.from.model;
+
+  let datetimeInterval: FrameworkInterval | null = null;
+  if (Array.isArray(cte.select)) {
+    for (const item of cte.select) {
+      if (
+        typeof item === 'object' &&
+        item &&
+        'name' in item &&
+        item.name === 'datetime' &&
+        'interval' in item &&
+        (item as { interval?: FrameworkInterval }).interval
+      ) {
+        datetimeInterval =
+          (item as { interval: FrameworkInterval }).interval ?? null;
+        break;
+      }
+    }
+  }
+  if (!datetimeInterval) {
+    const upstreamDt = frameworkGetNodeColumns({
+      from: { model: baseModel },
+      include: ['datetime'],
+      project,
+      useCsvFallback: false,
+    }).columns[0];
+    if (
+      upstreamDt?.meta &&
+      'interval' in upstreamDt.meta &&
+      upstreamDt.meta.interval
+    ) {
+      datetimeInterval = upstreamDt.meta.interval;
+    }
+  }
+
+  const excluded = new Set<string>();
+  switch (datetimeInterval) {
+    case 'day':
+      excluded.add(PARTITION_HOURLY);
+      break;
+    case 'month':
+      excluded.add(PARTITION_DAILY);
+      excluded.add(PARTITION_HOURLY);
+      break;
+    case 'year':
+      excluded.add(PARTITION_MONTHLY);
+      excluded.add(PARTITION_DAILY);
+      excluded.add(PARTITION_HOURLY);
+      break;
+  }
+
+  const candidates: ('datetime' | FrameworkPartitionName)[] = [
+    'datetime',
+    PARTITION_MONTHLY,
+    PARTITION_DAILY,
+    PARTITION_HOURLY,
+  ];
+  const alreadyPresent = new Set(alreadyPresentNames);
+  const missing = candidates.filter(
+    (c) => !alreadyPresent.has(c) && !excluded.has(c),
+  );
+  if (missing.length === 0) {
+    return null;
+  }
+
+  const upstream = frameworkGetNodeColumns({
+    from: { model: baseModel },
+    include: missing,
+    project,
+    useCsvFallback: false,
+  });
+  const upstreamNames = new Set(upstream.columns.map((c) => c.name));
+  const include = missing.filter((c) => upstreamNames.has(c));
+  if (include.length === 0) {
+    return null;
+  }
+
+  return { baseModel, include };
 }
 
 /**
@@ -1162,10 +1462,12 @@ export function frameworkInferCteColumns({
 export function frameworkBuildCteColumnRegistry({
   ctes,
   modelId,
+  partitionColumnNames,
   project,
 }: {
   ctes: FrameworkCTE[];
   modelId?: string | null;
+  partitionColumnNames?: string[];
   project: DbtProject;
 }): CteColumnRegistry {
   const registry: CteColumnRegistry = new Map();
@@ -1176,7 +1478,14 @@ export function frameworkBuildCteColumnRegistry({
       modelId,
       project,
     });
-    registry.set(cte.name, columns);
+    // Sort alphabetically with partition columns at the end, matching the
+    // main-model convention. Downstream dims_from_cte / fcts_from_cte bulk
+    // expansions and the CTE's own group_by: "dims" builder both read from
+    // the registry and thus inherit the same canonical order.
+    registry.set(
+      cte.name,
+      sortColumnsWithPartitionsLast(columns, partitionColumnNames),
+    );
   }
   return registry;
 }
@@ -1275,6 +1584,167 @@ export function frameworkBuildSourceDateColumns({
   return sourceDateColumns;
 }
 
+// ========================================================================
+// Shared primitives (consumed by main-model + CTE paths)
+// ========================================================================
+
+/**
+ * Resolves the suffix-collision rule for a column being aggregated.
+ *
+ * When a column name already ends in `_{agg}` (e.g. `portal_source_count`
+ * for `agg: "count"`), we treat the input as already-aggregated: the output
+ * column keeps the original name (no double-suffix) and `frameworkBuildAggSql`
+ * receives `inputSuffixAgg` so it picks the merge-style kernel (`sum` for
+ * pre-counted columns, `merge(cast(... as hyperloglog))` for pre-HLL, etc.).
+ *
+ * Passing `overrideSuffixAgg: true` disables the collision branch: the output
+ * is re-suffixed (`portal_source_count_count`) and a fresh aggregation kernel
+ * is applied.
+ *
+ * Consumed by: main-model `frameworkColumnName`, main-model SELECT emission
+ * in `sql-utils.ts`, CTE SQL generator, CTE registry.
+ */
+export function frameworkResolveAgg({
+  agg,
+  name,
+  overrideSuffixAgg,
+}: {
+  agg: FrameworkColumnAgg;
+  name: string;
+  overrideSuffixAgg?: boolean;
+}): { outputName: string; inputSuffixAgg: FrameworkColumnAgg | null } {
+  const suffixAgg = frameworkSuffixAgg(name);
+  const collides = suffixAgg === agg && !overrideSuffixAgg;
+  return {
+    outputName: collides ? name : `${name}_${agg}`,
+    inputSuffixAgg: collides ? suffixAgg : null,
+  };
+}
+
+/**
+ * Builds the metadata + SQL expression for a `{name:"datetime", interval:"..."}`
+ * select item. Skips the `date_trunc` when the upstream source is already at
+ * the requested granularity.
+ *
+ * Returns:
+ * - `expr`: `date_trunc('<interval>', [prefix.]datetime)` when truncation is
+ *   required, or `null` when `sourceInterval === interval`. Callers emit
+ *   bare `datetime` in the `null` case.
+ * - `interval`: the chosen interval, to be stored on `col.meta.interval`.
+ * - `dimension`: the Lightdash dimension payload with `time_intervals`
+ *   synthesized from the chosen interval and merged with any user overrides.
+ *
+ * Consumed by: main-model `frameworkProcessSelected`, CTE SQL generator,
+ * CTE registry.
+ */
+export function frameworkBuildDatetimeColumn({
+  interval,
+  prefix,
+  sourceInterval,
+  userDimension,
+}: {
+  interval: FrameworkInterval;
+  prefix?: string | null;
+  sourceInterval?: FrameworkInterval | null;
+  userDimension?: Partial<LightdashDimension>;
+}): {
+  dimension: LightdashDimension;
+  expr: string | null;
+  interval: FrameworkInterval;
+} {
+  const timeIntervals: LightdashDimension['time_intervals'] = ['YEAR'];
+  switch (interval) {
+    case 'hour': {
+      timeIntervals.push('DAY');
+      timeIntervals.push('DAY_OF_WEEK_NAME');
+      timeIntervals.push('HOUR');
+      timeIntervals.push('MONTH');
+      timeIntervals.push('WEEK');
+      break;
+    }
+    case 'day': {
+      timeIntervals.push('DAY');
+      timeIntervals.push('DAY_OF_WEEK_NAME');
+      timeIntervals.push('MONTH');
+      timeIntervals.push('WEEK');
+      break;
+    }
+    case 'month': {
+      timeIntervals.push('MONTH');
+      break;
+    }
+    // 'year' falls through: only YEAR.
+  }
+  timeIntervals.sort();
+
+  const dimension: LightdashDimension = {
+    label: 'Datetime',
+    time_intervals: timeIntervals,
+    ...userDimension,
+  };
+
+  const shouldTrunc = sourceInterval !== interval;
+  const prefixedName = prefix ? `${prefix}.datetime` : 'datetime';
+  const expr = shouldTrunc
+    ? `date_trunc('${interval}', ${prefixedName})`
+    : null;
+
+  return { dimension, expr, interval };
+}
+
+/**
+ * Copies the scalar-meta fields that flow from a CTE `sel` item onto a
+ * `FrameworkColumn`. Single source of truth for CTE field forwarding --
+ * adding a new meta field here propagates it to downstream `dims_from_cte` /
+ * `all_from_cte` consumers in exactly one place.
+ *
+ * The `hasAgg` option suppresses `expr` and `exclude_from_group_by`, which
+ * describe the pre-aggregation input and are meaningless on the aggregated
+ * output column.
+ */
+export function frameworkApplyCteSelectMeta(
+  sel: Record<string, unknown>,
+  col: FrameworkColumn,
+  opts: { hasAgg: boolean },
+): void {
+  if ('description' in sel && sel.description) {
+    col.description = sel.description as string;
+  }
+  if ('data_type' in sel && sel.data_type) {
+    col.data_type = sel.data_type as FrameworkColumn['data_type'];
+  }
+  if ('data_tests' in sel && sel.data_tests) {
+    col.data_tests = sel.data_tests as FrameworkColumn['data_tests'];
+  }
+
+  const ld = (
+    'lightdash' in sel && sel.lightdash
+      ? (sel.lightdash as { case_sensitive?: boolean; dimension?: unknown })
+      : null
+  ) as { case_sensitive?: boolean; dimension?: unknown } | null;
+  if (ld?.dimension) {
+    col.meta.dimension = ld.dimension as FrameworkColumn['meta']['dimension'];
+  }
+  if (ld?.case_sensitive !== undefined) {
+    col.meta.case_sensitive = ld.case_sensitive;
+  }
+
+  if ('override_suffix_agg' in sel && sel.override_suffix_agg) {
+    col.meta.override_suffix_agg = !!sel.override_suffix_agg;
+  }
+
+  if (!opts.hasAgg) {
+    if ('expr' in sel && sel.expr) {
+      col.meta.expr = sel.expr as string;
+    }
+    if ('exclude_from_group_by' in sel && sel.exclude_from_group_by) {
+      col.meta.exclude_from_group_by = true;
+    }
+  }
+}
+
+// ========================================================================
+
 /**
  * Get column select expression
  *
@@ -1302,21 +1772,23 @@ export function frameworkColumnName({
   column: FrameworkColumn;
   modelJson: FrameworkModel;
 }): string {
-  const suffixAgg = frameworkSuffixAgg(column.name) || null;
   const metaAgg = ('agg' in column.meta && column.meta.agg) || null;
-  const overrideSuffixAgg = !!(
-    'override_suffix_agg' in column.meta && column.meta.override_suffix_agg
-  );
   const rollupAgg =
     ('rollup' in modelJson.from &&
       column.meta.type === 'fct' &&
       !column.meta.expr &&
-      suffixAgg) ||
+      frameworkSuffixAgg(column.name)) ||
     null;
   const newAgg = metaAgg || rollupAgg;
-  return newAgg && (newAgg !== suffixAgg || overrideSuffixAgg)
-    ? `${column.name}_${newAgg}`
-    : column.name;
+  if (!newAgg) {
+    return column.name;
+  }
+  return frameworkResolveAgg({
+    agg: newAgg,
+    name: column.name,
+    overrideSuffixAgg:
+      'override_suffix_agg' in column.meta && column.meta.override_suffix_agg,
+  }).outputName;
 }
 
 /**
@@ -1505,7 +1977,6 @@ export function frameworkGetRollupInputs({
     columns.push(
       ...frameworkProcessSelected({
         existingColumns: columns,
-        datetimeInterval: rollup.interval,
         dj,
         fromColumn: fromDatetime,
         modelJson,
@@ -1818,14 +2289,108 @@ export function frameworkGetPartitionColumnNames({
 }
 
 /**
+ * Superset of `FRAMEWORK_AGGS` used purely for expression-level recognition.
+ * `FRAMEWORK_AGGS` remains the list of user-facing `agg` values (the suffixes
+ * `frameworkResolveAgg` knows about); this list adds the raw Trino aggregate
+ * function names that show up inside `expr` strings -- including the HLL /
+ * T-Digest merge kernels the framework itself emits for re-aggregation.
+ *
+ * Without `merge`, `approx_set`, and `tdigest_agg`, hand-written `expr`
+ * values like `cast(merge(cast(col as hyperloglog)) as varbinary)` get
+ * flagged as un-aggregated by `validateMainModelAggregation`, even though
+ * they reduce rows the same way `agg: "hll"` does.
+ *
+ * The `AGGREGATE_EXPR_SUFFIX_REGEX` below complements this list by matching
+ * Trino's `*_agg` naming convention (array_agg, map_agg, set_agg,
+ * reduce_agg, bitwise_and_agg, multimap_agg, etc.) and user-defined UDAFs
+ * that follow the same convention.
+ */
+const AGGREGATE_EXPR_FUNCTIONS = [
+  ...FRAMEWORK_AGGS,
+  // Average isn't in FRAMEWORK_AGGS (no `avg` suffix convention) but shows up
+  // often inside hand-written expressions.
+  'avg',
+  // Raw-input sketch kernels the framework emits for `agg: "hll"` /
+  // `agg: "tdigest"`. Users occasionally copy these into `expr` manually.
+  'approx_set',
+  'tdigest_agg',
+  // Sketch-merge kernel. This is the common one: pre-aggregated HLL /
+  // T-Digest columns are re-combined with `merge(cast(... as hyperloglog))`.
+  'merge',
+  // `any_value` / `arbitrary` both reduce rows to a single arbitrary value
+  // per group and are a legitimate alternative to wrapping a dimension-ish
+  // column with `agg`. Trino accepts both names.
+  'any_value',
+  'arbitrary',
+  // Row-pick aggregates: return the value of one column at the row where
+  // another column is min/max. Common for "winning row" patterns.
+  'max_by',
+  'min_by',
+  // Boolean aggregates.
+  'bool_and',
+  'bool_or',
+  'every',
+  // Conditional counting / summing.
+  'count_if',
+  'sum_if',
+  // Approximate aggregates beyond the sketch kernels above.
+  'approx_distinct',
+  'approx_percentile',
+  'approx_most_frequent',
+  // Dispersion statistics.
+  'stddev',
+  'stddev_pop',
+  'stddev_samp',
+  'variance',
+  'var_pop',
+  'var_samp',
+  'geometric_mean',
+  // Bivariate statistics.
+  'corr',
+  'covar_pop',
+  'covar_samp',
+  // String concatenation aggregate.
+  'listagg',
+  // Row-hash aggregate.
+  'checksum',
+  // Histograms.
+  'histogram',
+  'numeric_histogram',
+];
+
+/**
+ * Matches any function call whose name ends in `_agg` (Trino's aggregate
+ * naming convention). Covers `array_agg`, `map_agg`, `multimap_agg`,
+ * `set_agg`, `reduce_agg`, `bitwise_and_agg`, `bitwise_or_agg`,
+ * `bitwise_xor_agg`, `tdigest_agg`, and user-defined UDAFs following the
+ * same convention. The negative lookahead on `over (` guards against window
+ * functions that happen to end in `_agg`.
+ */
+const AGGREGATE_EXPR_SUFFIX_REGEX = /\b\w*_agg\s*\([^)]+\)(?!\s*over\s*\()/i;
+
+/**
  * Check if an expression contains an aggregate function
  *
  * @see utils.ts:1858-1863
  */
 export function isAggregateExpr(expr?: string): boolean {
-  return FRAMEWORK_AGGS.some((agg) => {
-    const aggRegex = new RegExp(`\\b${agg}\\([^)]+\\)(?!\\s*over\\s*\\()`, 'i');
-    return expr && aggRegex.test(expr.toLowerCase().trim());
+  if (!expr) {
+    return false;
+  }
+  const haystack = expr.toLowerCase().trim();
+  if (AGGREGATE_EXPR_SUFFIX_REGEX.test(haystack)) {
+    return true;
+  }
+  return AGGREGATE_EXPR_FUNCTIONS.some((agg) => {
+    // The `[^)]+` inside is intentionally narrow: we just need evidence the
+    // aggregate is actually called (open paren with at least one non-`)`
+    // character). `(?!\\s*over\\s*\\()` guards against window-function usage,
+    // which is a row-wise transform, not a row reduction.
+    const aggRegex = new RegExp(
+      `\\b${agg}\\s*\\([^)]+\\)(?!\\s*over\\s*\\()`,
+      'i',
+    );
+    return aggRegex.test(haystack);
   });
 }
 

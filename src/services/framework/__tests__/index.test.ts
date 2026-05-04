@@ -718,7 +718,12 @@ describe('materialization shorthand', () => {
     expect(config.incremental_strategy).toBe('delete+insert');
   });
 
-  test('defaults to delete+insert when config is unset', () => {
+  test('defaults to overwrite_existing_partitions when config is unset', () => {
+    // Fallback must match the DEFAULT_INCREMENTAL_STRATEGY shared constant
+    // (src/shared/framework/constants.ts) and the `default` in package.json,
+    // so the extension behaves consistently when the user never touches the
+    // setting. Changing the factory default only requires updating that
+    // constant plus the package.json entry.
     const modelJson: FrameworkModel = {
       type: 'int_select_model',
       group: 'sales',
@@ -738,7 +743,7 @@ describe('materialization shorthand', () => {
     });
 
     expect(config.materialized).toBe('incremental');
-    expect(config.incremental_strategy).toBe('delete+insert');
+    expect(config.incremental_strategy).toBe('overwrite_existing_partitions');
   });
 
   test('materialization object without strategy uses config default', () => {
@@ -797,8 +802,11 @@ describe('materialization shorthand', () => {
   });
 });
 
-describe('materialization shorthand', () => {
-  const project: DbtProject = {
+// Tests for the new `append` and `overwrite_existing_partitions` per-model
+// strategies, plus storage-format-aware partitioning. Use a fresh describe
+// block with its own fixture so the partition-column assertions stay clear.
+describe('incremental strategy variants', () => {
+  const unpartitionedProject: DbtProject = {
     name: 'project',
     macroPaths: ['macros'],
     manifest: {
@@ -837,82 +845,54 @@ describe('materialization shorthand', () => {
     variables: {},
   };
 
-  test('"materialization": "incremental" uses default strategy from config', () => {
-    const modelJson: FrameworkModel = {
-      type: 'int_select_model',
-      group: 'sales',
-      topic: 'orders',
-      name: 'enriched',
-      materialization: 'incremental',
-      select: [{ model: 'model_a', columns: ['dim_a'] }],
-      from: { model: 'model_a' },
-    } as unknown as FrameworkModel;
-
-    const dj: DJ = {
-      config: {
-        materializationDefaultIncrementalStrategy: 'delete+insert',
+  const partitionedProject: DbtProject = {
+    name: 'project',
+    macroPaths: ['macros'],
+    manifest: {
+      child_map: {},
+      disabled: {},
+      docs: {},
+      exposures: {},
+      group_map: {},
+      groups: {},
+      macros: {},
+      metadata: { project_name: 'project' },
+      metrics: {},
+      nodes: {
+        ['model.project.parent_daily']: {
+          meta: {
+            portal_partition_columns: ['portal_partition_daily'],
+          },
+          columns: {
+            dim_a: {
+              name: 'dim_a',
+              data_type: 'varchar',
+              meta: { type: 'dim' },
+            },
+            portal_partition_daily: {
+              name: 'portal_partition_daily',
+              data_type: 'date',
+              meta: { type: 'dim' },
+            },
+          },
+        },
       },
-    };
+      parent_map: {},
+      saved_queries: {},
+      selectors: {},
+      semantic_models: {},
+      sources: {},
+    },
+    modelPaths: ['models'],
+    packagePath: '',
+    pathRelative: '',
+    pathSystem: '',
+    properties: { vars: { event_dates: '2024-07-01' } },
+    targetPath: 'target',
+    variables: {},
+  };
 
-    const { config } = frameworkGenerateModelOutput({
-      dj,
-      modelJson,
-      project,
-    });
-
-    expect(config.materialized).toBe('incremental');
-    expect(config.incremental_strategy).toBe('delete+insert');
-  });
-
-  test('"materialization": "incremental" respects config override to merge', () => {
-    const modelJson: FrameworkModel = {
-      type: 'int_select_model',
-      group: 'sales',
-      topic: 'orders',
-      name: 'enriched',
-      materialization: 'incremental',
-      select: [{ model: 'model_a', columns: ['dim_a'] }],
-      from: { model: 'model_a' },
-    } as unknown as FrameworkModel;
-
-    const dj: DJ = {
-      config: {
-        materializationDefaultIncrementalStrategy: 'merge',
-      },
-    };
-
-    const { config } = frameworkGenerateModelOutput({
-      dj,
-      modelJson,
-      project,
-    });
-
-    expect(config.materialized).toBe('incremental');
-    expect(config.incremental_strategy).toBe('merge');
-  });
-
-  test('"materialization": "ephemeral" string shorthand generates ephemeral config', () => {
-    const modelJson: FrameworkModel = {
-      type: 'int_select_model',
-      group: 'sales',
-      topic: 'orders',
-      name: 'enriched',
-      materialization: 'ephemeral',
-      select: [{ model: 'model_a', columns: ['dim_a'] }],
-      from: { model: 'model_a' },
-    } as unknown as FrameworkModel;
-
-    const { config } = frameworkGenerateModelOutput({
-      dj: createTestDJ(),
-      modelJson,
-      project,
-    });
-
-    expect(config.materialized).toBe('ephemeral');
-    expect(config.incremental_strategy).toBeUndefined();
-  });
-
-  test('materialization object with explicit strategy takes precedence over config', () => {
+  test('strategy: append emits incremental_strategy=append with no unique_key', () => {
     const modelJson: FrameworkModel = {
       type: 'int_select_model',
       group: 'sales',
@@ -920,136 +900,266 @@ describe('materialization shorthand', () => {
       name: 'enriched',
       materialization: {
         type: 'incremental',
-        strategy: { type: 'delete+insert', unique_key: 'dim_a' },
+        strategy: { type: 'append' },
       },
       select: [{ model: 'model_a', columns: ['dim_a'] }],
       from: { model: 'model_a' },
     } as unknown as FrameworkModel;
 
-    const dj: DJ = {
-      config: {
-        materializationDefaultIncrementalStrategy: 'merge',
-      },
-    };
-
     const { config } = frameworkGenerateModelOutput({
-      dj,
+      dj: createTestDJ(),
       modelJson,
-      project,
+      project: unpartitionedProject,
     });
 
     expect(config.materialized).toBe('incremental');
-    expect(config.incremental_strategy).toBe('delete+insert');
-    expect(config.unique_key).toBe('dim_a');
+    expect(config.incremental_strategy).toBe('append');
+    expect(config.unique_key).toBeUndefined();
+    expect(config.merge_update_columns).toBeUndefined();
+    expect(config.merge_exclude_columns).toBeUndefined();
   });
 
-  test('"materialized" string without incremental_strategy uses config default', () => {
-    const modelJson: FrameworkModel = {
-      type: 'stg_select_source',
-      group: 'sales',
-      topic: 'orders',
-      name: 'raw',
-      materialized: 'incremental',
-      select: ['dim_a'],
-      from: { source: 'source_a.table_a' },
-    } as unknown as FrameworkModel;
-
-    const dj: DJ = {
-      config: {
-        materializationDefaultIncrementalStrategy: 'delete+insert',
-      },
-    };
-
-    const { config } = frameworkGenerateModelOutput({
-      dj,
-      modelJson,
-      project,
-    });
-
-    expect(config.materialized).toBe('incremental');
-    expect(config.incremental_strategy).toBe('delete+insert');
-  });
-
-  test('defaults to delete+insert when config is unset', () => {
+  test('strategy: append on a partitioned model still omits unique_key', () => {
+    // append never needs a unique_key regardless of whether the model has a
+    // partition column. Confirms the switch arm does not fall through to the
+    // partition-based defaulting branch.
     const modelJson: FrameworkModel = {
       type: 'int_select_model',
-      group: 'sales',
-      topic: 'orders',
-      name: 'enriched',
-      materialization: 'incremental',
-      select: [{ model: 'model_a', columns: ['dim_a'] }],
-      from: { model: 'model_a' },
+      group: 'swh',
+      topic: 'misc',
+      name: 'daily_append',
+      materialization: {
+        type: 'incremental',
+        strategy: { type: 'append' },
+      },
+      select: [
+        'portal_partition_daily',
+        { type: 'dim', name: 'dim_a' } as never,
+      ],
+      from: { model: 'parent_daily' },
     } as unknown as FrameworkModel;
 
-    const dj: DJ = { config: {} };
-
     const { config } = frameworkGenerateModelOutput({
-      dj,
+      dj: createTestDJ(),
       modelJson,
-      project,
+      project: partitionedProject,
     });
 
-    expect(config.materialized).toBe('incremental');
-    expect(config.incremental_strategy).toBe('delete+insert');
+    expect(config.incremental_strategy).toBe('append');
+    expect(config.unique_key).toBeUndefined();
   });
 
-  test('materialization object without strategy uses config default', () => {
+  test('strategy: overwrite_existing_partitions auto-derives unique_key from partitions', () => {
     const modelJson: FrameworkModel = {
       type: 'int_select_model',
-      group: 'sales',
-      topic: 'orders',
-      name: 'enriched',
-      materialization: { type: 'incremental' },
-      select: [{ model: 'model_a', columns: ['dim_a'] }],
-      from: { model: 'model_a' },
+      group: 'swh',
+      topic: 'misc',
+      name: 'daily_overwrite',
+      materialization: {
+        type: 'incremental',
+        strategy: { type: 'overwrite_existing_partitions' },
+      },
+      select: [
+        'portal_partition_daily',
+        { type: 'dim', name: 'dim_a' } as never,
+      ],
+      from: { model: 'parent_daily' },
     } as unknown as FrameworkModel;
 
-    const dj: DJ = {
-      config: {
-        materializationDefaultIncrementalStrategy: 'merge',
-      },
-    };
-
     const { config } = frameworkGenerateModelOutput({
-      dj,
+      dj: createTestDJ(),
       modelJson,
-      project,
-    });
-
-    expect(config.materialized).toBe('incremental');
-    expect(config.incremental_strategy).toBe('merge');
-  });
-
-  test('overwrite_existing_partitions from config is applied', () => {
-    const modelJson: FrameworkModel = {
-      type: 'int_select_model',
-      group: 'sales',
-      topic: 'orders',
-      name: 'enriched',
-      materialization: 'incremental',
-      select: [{ model: 'model_a', columns: ['dim_a'] }],
-      from: { model: 'model_a' },
-    } as unknown as FrameworkModel;
-
-    const dj: DJ = {
-      config: {
-        materializationDefaultIncrementalStrategy:
-          'overwrite_existing_partitions',
-      },
-    };
-
-    const { config } = frameworkGenerateModelOutput({
-      dj,
-      modelJson,
-      project,
+      project: partitionedProject,
     });
 
     expect(config.materialized).toBe('incremental');
     expect(config.incremental_strategy).toBe('overwrite_existing_partitions');
+    expect(config.unique_key).toBe('portal_partition_daily');
+  });
+
+  test('strategy: overwrite_existing_partitions without partitions omits unique_key', () => {
+    // Mirrors delete+insert behavior: if the model has no partition columns,
+    // unique_key is left unset so dbt / the custom macro surfaces its own
+    // error rather than us emitting a phantom column.
+    const modelJson: FrameworkModel = {
+      type: 'int_select_model',
+      group: 'sales',
+      topic: 'orders',
+      name: 'enriched',
+      materialization: {
+        type: 'incremental',
+        strategy: { type: 'overwrite_existing_partitions' },
+      },
+      select: [{ model: 'model_a', columns: ['dim_a'] }],
+      from: { model: 'model_a' },
+    } as unknown as FrameworkModel;
+
+    const { config } = frameworkGenerateModelOutput({
+      dj: createTestDJ(),
+      modelJson,
+      project: unpartitionedProject,
+    });
+
+    expect(config.incremental_strategy).toBe('overwrite_existing_partitions');
+    expect(config.unique_key).toBeUndefined();
+  });
+
+  test('strategy: overwrite_existing_partitions honors explicit unique_key', () => {
+    const modelJson: FrameworkModel = {
+      type: 'int_select_model',
+      group: 'sales',
+      topic: 'orders',
+      name: 'enriched',
+      materialization: {
+        type: 'incremental',
+        strategy: {
+          type: 'overwrite_existing_partitions',
+          unique_key: 'dim_a',
+        },
+      },
+      select: [{ model: 'model_a', columns: ['dim_a'] }],
+      from: { model: 'model_a' },
+    } as unknown as FrameworkModel;
+
+    const { config } = frameworkGenerateModelOutput({
+      dj: createTestDJ(),
+      modelJson,
+      project: unpartitionedProject,
+    });
+
+    expect(config.incremental_strategy).toBe('overwrite_existing_partitions');
+    expect(config.unique_key).toBe('dim_a');
+  });
+
+  test('default fallback overwrite_existing_partitions auto-derives unique_key from partitions', () => {
+    // When the extension default kicks in (no explicit strategy) and the
+    // model has partition columns, the partition-based unique_key should
+    // also fire for the overwrite_existing_partitions default path.
+    const modelJson: FrameworkModel = {
+      type: 'int_select_model',
+      group: 'swh',
+      topic: 'misc',
+      name: 'daily_default',
+      materialization: 'incremental',
+      select: [
+        'portal_partition_daily',
+        { type: 'dim', name: 'dim_a' } as never,
+      ],
+      from: { model: 'parent_daily' },
+    } as unknown as FrameworkModel;
+
+    const { config } = frameworkGenerateModelOutput({
+      dj: { config: {} } as DJ,
+      modelJson,
+      project: partitionedProject,
+    });
+
+    expect(config.incremental_strategy).toBe('overwrite_existing_partitions');
+    expect(config.unique_key).toBe('portal_partition_daily');
+  });
+
+  test('Delta Lake / Hive partitioning uses properties.partitioned_by', () => {
+    // Without model-level format or project storage_type set, we default to
+    // delta_lake/hive which uses `partitioned_by` in SQL properties.
+    const modelJson: FrameworkModel = {
+      type: 'int_select_model',
+      group: 'swh',
+      topic: 'misc',
+      name: 'daily_delta',
+      materialization: {
+        type: 'incremental',
+        strategy: { type: 'delete+insert' },
+      },
+      select: [
+        'portal_partition_daily',
+        { type: 'dim', name: 'dim_a' } as never,
+      ],
+      from: { model: 'parent_daily' },
+    } as unknown as FrameworkModel;
+
+    const { config } = frameworkGenerateModelOutput({
+      dj: createTestDJ(),
+      modelJson,
+      project: partitionedProject,
+    });
+
+    const properties = config.properties as Record<string, string> | undefined;
+    expect(properties).toBeDefined();
+    expect(properties?.partitioned_by).toBe("ARRAY['portal_partition_daily']");
+    expect(properties?.partitioning).toBeUndefined();
+  });
+
+  test('Iceberg (via project storage_type) uses properties.partitioning', () => {
+    const icebergProject: DbtProject = {
+      ...partitionedProject,
+      variables: { storage_type: 'iceberg' },
+    };
+
+    const modelJson: FrameworkModel = {
+      type: 'int_select_model',
+      group: 'swh',
+      topic: 'misc',
+      name: 'daily_iceberg',
+      materialization: {
+        type: 'incremental',
+        strategy: { type: 'delete+insert' },
+      },
+      select: [
+        'portal_partition_daily',
+        { type: 'dim', name: 'dim_a' } as never,
+      ],
+      from: { model: 'parent_daily' },
+    } as unknown as FrameworkModel;
+
+    const { config } = frameworkGenerateModelOutput({
+      dj: createTestDJ(),
+      modelJson,
+      project: icebergProject,
+    });
+
+    const properties = config.properties as Record<string, string> | undefined;
+    expect(properties).toBeDefined();
+    expect(properties?.partitioning).toBe("ARRAY['portal_partition_daily']");
+    expect(properties?.partitioned_by).toBeUndefined();
+  });
+
+  test('Iceberg (via model-level format override) uses properties.partitioning', () => {
+    const modelJson: FrameworkModel = {
+      type: 'int_select_model',
+      group: 'swh',
+      topic: 'misc',
+      name: 'daily_iceberg_override',
+      materialization: {
+        type: 'incremental',
+        format: 'iceberg',
+        strategy: { type: 'overwrite_existing_partitions' },
+      },
+      select: [
+        'portal_partition_daily',
+        { type: 'dim', name: 'dim_a' } as never,
+      ],
+      from: { model: 'parent_daily' },
+    } as unknown as FrameworkModel;
+
+    const { config } = frameworkGenerateModelOutput({
+      dj: createTestDJ(),
+      modelJson,
+      project: partitionedProject,
+    });
+
+    const properties = config.properties as Record<string, string> | undefined;
+    expect(config.incremental_strategy).toBe('overwrite_existing_partitions');
+    expect(config.unique_key).toBe('portal_partition_daily');
+    expect(properties?.partitioning).toBe("ARRAY['portal_partition_daily']");
+    expect(properties?.partitioned_by).toBeUndefined();
   });
 });
 
-describe('materialization shorthand', () => {
+describe('incremental unique_key defaulting', () => {
+  // Parent model carries BOTH monthly and daily partition columns and
+  // declares meta.portal_partition_columns that includes daily. This is
+  // the shape we see in real projects where a daily-grain model feeds a
+  // monthly rollup.
   const project: DbtProject = {
     name: 'project',
     macroPaths: ['macros'],
@@ -1064,10 +1174,90 @@ describe('materialization shorthand', () => {
       metadata: { project_name: 'project' },
       metrics: {},
       nodes: {
-        ['model.project.model_a']: {
+        ['model.project.parent_daily']: {
+          meta: {
+            portal_partition_columns: [
+              'portal_partition_monthly',
+              'wd_env_type',
+              'portal_partition_daily',
+            ],
+          },
           columns: {
             dim_a: {
               name: 'dim_a',
+              data_type: 'varchar',
+              meta: { type: 'dim' },
+            },
+            portal_partition_monthly: {
+              name: 'portal_partition_monthly',
+              data_type: 'date',
+              meta: { type: 'dim' },
+            },
+            portal_partition_daily: {
+              name: 'portal_partition_daily',
+              data_type: 'date',
+              meta: { type: 'dim' },
+            },
+            wd_env_type: {
+              name: 'wd_env_type',
+              data_type: 'varchar',
+              meta: { type: 'dim' },
+            },
+          },
+        },
+        ['model.project.parent_unpartitioned']: {
+          // No meta.portal_partition_columns and no partition columns - mirrors
+          // the int__capeng__* case where there is no partition config at all.
+          columns: {
+            dim_a: {
+              name: 'dim_a',
+              data_type: 'varchar',
+              meta: { type: 'dim' },
+            },
+          },
+        },
+        ['model.project.parent_with_partial_meta']: {
+          // Mirrors `int__capeng__pca_metrics__oms_job`: inherits
+          // meta.portal_partition_columns including `wd_env_type` from upstream
+          // but does NOT itself produce a `wd_env_type` column. Downstream join
+          // models pick up `wd_env_type` from a different join target, so the
+          // meta must continue to advertise it for them.
+          meta: {
+            portal_partition_columns: [
+              'portal_partition_monthly',
+              'wd_env_type',
+              'portal_partition_daily',
+            ],
+          },
+          columns: {
+            dim_a: {
+              name: 'dim_a',
+              data_type: 'varchar',
+              meta: { type: 'dim' },
+            },
+            portal_partition_monthly: {
+              name: 'portal_partition_monthly',
+              data_type: 'date',
+              meta: { type: 'dim' },
+            },
+            portal_partition_daily: {
+              name: 'portal_partition_daily',
+              data_type: 'date',
+              meta: { type: 'dim' },
+            },
+          },
+        },
+        ['model.project.join_target_with_env']: {
+          // Mirrors `int__capeng__tenant__env_daily`: a sibling joined into the
+          // pca_metrics join models that supplies `wd_env_type`.
+          columns: {
+            dim_a: {
+              name: 'dim_a',
+              data_type: 'varchar',
+              meta: { type: 'dim' },
+            },
+            wd_env_type: {
+              name: 'wd_env_type',
               data_type: 'varchar',
               meta: { type: 'dim' },
             },
@@ -1089,69 +1279,84 @@ describe('materialization shorthand', () => {
     variables: {},
   };
 
-  test('"materialization": "incremental" uses default strategy from config', () => {
+  test('monthly rollup inheriting daily parent meta resolves unique_key to monthly', () => {
+    // `from.rollup: month` causes column-utils to exclude the daily partition
+    // column from the child model's `columns`, matching the real monthly-
+    // rollup shape in production. Without the fix, getDefaultUniqueKey would
+    // still pick 'daily' from the inherited meta and emit a phantom unique_key.
+    // `createTestDJ()` leaves `materializationDefaultIncrementalStrategy`
+    // unset so the default (`overwrite_existing_partitions`) applies — the
+    // partition-based unique_key resolution fires for that strategy as well.
     const modelJson: FrameworkModel = {
       type: 'int_select_model',
-      group: 'sales',
-      topic: 'orders',
-      name: 'enriched',
+      group: 'swh',
+      topic: 'misc',
+      name: 'monthly_rollup',
       materialization: 'incremental',
-      select: [{ model: 'model_a', columns: ['dim_a'] }],
-      from: { model: 'model_a' },
+      select: [{ name: 'dim_a', type: 'dim' }],
+      from: { model: 'parent_daily', rollup: { interval: 'month' } },
     } as unknown as FrameworkModel;
 
-    const dj: DJ = {
-      config: {
-        materializationDefaultIncrementalStrategy: 'delete+insert',
-      },
-    };
-
-    const { config } = frameworkGenerateModelOutput({
-      dj,
+    const { config, properties } = frameworkGenerateModelOutput({
+      dj: createTestDJ(),
       modelJson,
       project,
     });
 
     expect(config.materialized).toBe('incremental');
-    expect(config.incremental_strategy).toBe('delete+insert');
+    expect(config.incremental_strategy).toBe('overwrite_existing_partitions');
+    expect(config.unique_key).toBe('portal_partition_monthly');
+    // Inherited meta is propagated as-is. The local intersection inside
+    // `frameworkGenerateModelOutput` is what guarantees `unique_key` is
+    // correct; filtering the meta here would cascade trim through join models
+    // that legitimately re-introduce these columns.
+    expect(properties.meta?.portal_partition_columns).toEqual([
+      'portal_partition_monthly',
+      'wd_env_type',
+      'portal_partition_daily',
+    ]);
   });
 
-  test('"materialization": "incremental" respects config override to merge', () => {
+  test('unpartitioned incremental model omits unique_key entirely', () => {
+    // No parent meta, no partition columns on the model - getDefaultUniqueKey
+    // previously fell back to the hardcoded default list and chose
+    // portal_partition_daily, producing a phantom unique_key that Trino then
+    // fails to resolve at runtime. After the fix, unique_key is simply omitted
+    // so dbt (or the consumer's `overwrite_existing_partitions` macro) raises
+    // its own clear error instead.
     const modelJson: FrameworkModel = {
       type: 'int_select_model',
-      group: 'sales',
-      topic: 'orders',
-      name: 'enriched',
+      group: 'capeng',
+      topic: 'tenant',
+      name: 'account',
       materialization: 'incremental',
-      select: [{ model: 'model_a', columns: ['dim_a'] }],
-      from: { model: 'model_a' },
+      select: [{ name: 'dim_a', type: 'dim' }],
+      from: { model: 'parent_unpartitioned' },
     } as unknown as FrameworkModel;
 
-    const dj: DJ = {
-      config: {
-        materializationDefaultIncrementalStrategy: 'merge',
-      },
-    };
-
-    const { config } = frameworkGenerateModelOutput({
-      dj,
+    const { config, properties } = frameworkGenerateModelOutput({
+      dj: createTestDJ(),
       modelJson,
       project,
     });
 
     expect(config.materialized).toBe('incremental');
-    expect(config.incremental_strategy).toBe('merge');
+    expect(config.incremental_strategy).toBe('overwrite_existing_partitions');
+    expect(config.unique_key).toBeUndefined();
+    expect(properties.meta?.portal_partition_columns).toBeUndefined();
   });
 
-  test('"materialization": "ephemeral" string shorthand generates ephemeral config', () => {
+  test('daily model with portal_partition_daily column keeps daily unique_key', () => {
+    // Regression guard: the common "daily model inherits daily meta and
+    // actually has the daily column" case must still resolve to daily.
     const modelJson: FrameworkModel = {
       type: 'int_select_model',
-      group: 'sales',
-      topic: 'orders',
-      name: 'enriched',
-      materialization: 'ephemeral',
-      select: [{ model: 'model_a', columns: ['dim_a'] }],
-      from: { model: 'model_a' },
+      group: 'swh',
+      topic: 'misc',
+      name: 'daily_model',
+      materialization: 'incremental',
+      select: ['portal_partition_daily', { name: 'dim_a', type: 'dim' }],
+      from: { model: 'parent_daily' },
     } as unknown as FrameworkModel;
 
     const { config } = frameworkGenerateModelOutput({
@@ -1160,32 +1365,30 @@ describe('materialization shorthand', () => {
       project,
     });
 
-    expect(config.materialized).toBe('ephemeral');
-    expect(config.incremental_strategy).toBeUndefined();
+    expect(config.materialized).toBe('incremental');
+    expect(config.incremental_strategy).toBe('overwrite_existing_partitions');
+    expect(config.unique_key).toBe('portal_partition_daily');
   });
 
-  test('materialization object with explicit strategy takes precedence over config', () => {
+  test('explicit strategy.unique_key is honored even when no matching column exists', () => {
+    // User-supplied unique_key takes precedence over defaulting - even if the
+    // column isn't in the model (the user owns that decision). This preserves
+    // existing behavior of the delete+insert branch.
     const modelJson: FrameworkModel = {
       type: 'int_select_model',
-      group: 'sales',
-      topic: 'orders',
-      name: 'enriched',
+      group: 'capeng',
+      topic: 'tenant',
+      name: 'account_explicit',
       materialization: {
         type: 'incremental',
         strategy: { type: 'delete+insert', unique_key: 'dim_a' },
       },
-      select: [{ model: 'model_a', columns: ['dim_a'] }],
-      from: { model: 'model_a' },
+      select: [{ name: 'dim_a', type: 'dim' }],
+      from: { model: 'parent_unpartitioned' },
     } as unknown as FrameworkModel;
 
-    const dj: DJ = {
-      config: {
-        materializationDefaultIncrementalStrategy: 'merge',
-      },
-    };
-
     const { config } = frameworkGenerateModelOutput({
-      dj,
+      dj: createTestDJ(),
       modelJson,
       project,
     });
@@ -1195,108 +1398,44 @@ describe('materialization shorthand', () => {
     expect(config.unique_key).toBe('dim_a');
   });
 
-  test('"materialized" string without incremental_strategy uses config default', () => {
+  test('join model re-introducing a partition column inherits parent meta intact', () => {
+    // Regression guard for the cascading-loss bug. The base parent
+    // `parent_with_partial_meta` advertises `wd_env_type` in its meta but does
+    // not itself have a `wd_env_type` column. The join model produces
+    // `wd_env_type` via the joined `join_target_with_env`. The child must
+    // inherit the FULL parent meta list so downstream consumers (and SQL
+    // ordering) continue to see `wd_env_type` as a partition column.
     const modelJson: FrameworkModel = {
-      type: 'stg_select_source',
-      group: 'sales',
-      topic: 'orders',
-      name: 'raw',
-      materialized: 'incremental',
-      select: ['dim_a'],
-      from: { source: 'source_a.table_a' },
-    } as unknown as FrameworkModel;
-
-    const dj: DJ = {
-      config: {
-        materializationDefaultIncrementalStrategy: 'delete+insert',
-      },
-    };
-
-    const { config } = frameworkGenerateModelOutput({
-      dj,
-      modelJson,
-      project,
-    });
-
-    expect(config.materialized).toBe('incremental');
-    expect(config.incremental_strategy).toBe('delete+insert');
-  });
-
-  test('defaults to delete+insert when config is unset', () => {
-    const modelJson: FrameworkModel = {
-      type: 'int_select_model',
-      group: 'sales',
-      topic: 'orders',
-      name: 'enriched',
+      type: 'int_join_models',
+      group: 'capeng',
+      topic: 'pca_metrics',
+      name: 'oms_join',
       materialization: 'incremental',
-      select: [{ model: 'model_a', columns: ['dim_a'] }],
-      from: { model: 'model_a' },
-    } as unknown as FrameworkModel;
-
-    const dj: DJ = { config: {} };
-
-    const { config } = frameworkGenerateModelOutput({
-      dj,
-      modelJson,
-      project,
-    });
-
-    expect(config.materialized).toBe('incremental');
-    expect(config.incremental_strategy).toBe('delete+insert');
-  });
-
-  test('materialization object without strategy uses config default', () => {
-    const modelJson: FrameworkModel = {
-      type: 'int_select_model',
-      group: 'sales',
-      topic: 'orders',
-      name: 'enriched',
-      materialization: { type: 'incremental' },
-      select: [{ model: 'model_a', columns: ['dim_a'] }],
-      from: { model: 'model_a' },
-    } as unknown as FrameworkModel;
-
-    const dj: DJ = {
-      config: {
-        materializationDefaultIncrementalStrategy: 'merge',
+      select: [
+        { type: 'dims_from_model', model: 'parent_with_partial_meta' },
+        { type: 'dims_from_model', model: 'join_target_with_env' },
+      ],
+      from: {
+        model: 'parent_with_partial_meta',
+        join: [
+          {
+            model: 'join_target_with_env',
+            on: { and: ['dim_a'] },
+          },
+        ],
       },
-    };
-
-    const { config } = frameworkGenerateModelOutput({
-      dj,
-      modelJson,
-      project,
-    });
-
-    expect(config.materialized).toBe('incremental');
-    expect(config.incremental_strategy).toBe('merge');
-  });
-
-  test('overwrite_existing_partitions from config is applied', () => {
-    const modelJson: FrameworkModel = {
-      type: 'int_select_model',
-      group: 'sales',
-      topic: 'orders',
-      name: 'enriched',
-      materialization: 'incremental',
-      select: [{ model: 'model_a', columns: ['dim_a'] }],
-      from: { model: 'model_a' },
     } as unknown as FrameworkModel;
 
-    const dj: DJ = {
-      config: {
-        materializationDefaultIncrementalStrategy:
-          'overwrite_existing_partitions',
-      },
-    };
-
-    const { config } = frameworkGenerateModelOutput({
-      dj,
+    const { properties } = frameworkGenerateModelOutput({
+      dj: createTestDJ(),
       modelJson,
       project,
     });
 
-    expect(config.materialized).toBe('incremental');
-    expect(config.incremental_strategy).toBe('overwrite_existing_partitions');
+    expect(properties.meta?.portal_partition_columns).toEqual([
+      'portal_partition_monthly',
+      'wd_env_type',
+      'portal_partition_daily',
+    ]);
   });
 });

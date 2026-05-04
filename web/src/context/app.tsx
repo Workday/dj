@@ -2,6 +2,7 @@ import { assertExhaustive, removeEmpty } from '@shared';
 import type { ApiHandler, ApiMessage, ApiResponse } from '@shared/api/types';
 import { apiResponse } from '@shared/api/utils';
 import type { DbtProjectManifest } from '@shared/dbt/types';
+import { DEFAULT_INCREMENTAL_STRATEGY } from '@shared/framework/constants';
 import type { FrameworkModel } from '@shared/framework/types';
 import { TrinoProvider } from '@web/context/trino';
 import { useEnvironment } from '@web/context/useEnvironment';
@@ -996,7 +997,7 @@ where a = 1
                       return resolve(
                         apiResponse<typeof payloadType>({
                           success: true,
-                          value: 'delete+insert',
+                          value: DEFAULT_INCREMENTAL_STRATEGY,
                         }),
                       );
                     }

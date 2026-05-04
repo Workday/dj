@@ -25,6 +25,7 @@ import {
   formatValidationErrorDetails,
   formatValidationErrors,
   getValidatorForType,
+  validateCteLightdashMetrics,
   validateCtes,
   validateSubqueries,
 } from '@services/modelValidation';
@@ -182,6 +183,28 @@ export class ValidationService {
       return {
         valid: false,
         error: message,
+        pathJson,
+      };
+    }
+
+    // Reject lightdash.metrics / lightdash.metrics_merge on CTE select items.
+    // The framework silently drops those from CTEs -- surface it as an error
+    // so users move the metric declarations to the main-model select. Return
+    // `errors` so diagnostics land on each offending `lightdash` block rather
+    // than at line 1 of the file.
+    const cteLightdashErrors = validateCteLightdashMetrics(modelJson);
+    if (cteLightdashErrors.length > 0) {
+      const message = `CTE Lightdash validation errors:\n${cteLightdashErrors
+        .map((e) => e.message)
+        .join('\n')}`;
+      this.logger.error?.(
+        `CTE Lightdash validation failed for ${pathJson}:`,
+        message,
+      );
+      return {
+        valid: false,
+        error: message,
+        errors: cteLightdashErrors,
         pathJson,
       };
     }

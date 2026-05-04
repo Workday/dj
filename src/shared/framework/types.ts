@@ -16,6 +16,7 @@ import type { SchemaModelHaving } from '@shared/schema/types/model.having.schema
 import type { SchemaModelLightdash } from '@shared/schema/types/model.lightdash.schema';
 import type { SchemaModelMaterialized } from '@shared/schema/types/model.materialized.schema';
 import type {
+  IncrementalStrategy,
   SchemaModel,
   SchemaModelSelectInterval,
 } from '@shared/schema/types/model.schema';
@@ -45,12 +46,7 @@ export type FrameworkApi =
         source?: string; // UI field, should be excluded from actual API request
         description?: string;
         tags?: string[];
-        incremental_strategy?: {
-          type: 'delete+insert' | 'merge';
-          unique_key?: string | [string, ...string[]];
-          merge_update_columns?: string[];
-          merge_exclude_columns?: string[];
-        };
+        incremental_strategy?: IncrementalStrategy;
         sql_hooks?: {
           pre?: string | [string, ...string[]];
           post?: string | [string, ...string[]];
@@ -575,6 +571,7 @@ export type FrameworkSyncOp =
  * Shared across extension config, DJ context, and webview.
  */
 export type DefaultIncrementalStrategy =
+  | 'append'
   | 'delete+insert'
   | 'merge'
   | 'overwrite_existing_partitions';

@@ -430,7 +430,7 @@ export function ModelCreate({ mode = 'create' }: ModelCreateProps) {
               .setDefaultIncrementalStrategy(prefResult.value);
           }
         } catch {
-          // Non-critical: falls back to 'delete+insert' in the store
+          // Non-critical: falls back to DEFAULT_INCREMENTAL_STRATEGY in the store
         }
 
         // Load projects first

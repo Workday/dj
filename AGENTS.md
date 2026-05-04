@@ -617,8 +617,9 @@ To add/modify JSON schemas:
 
 ### Storage-Type Branching
 
-- Incremental strategy defaults depend on `storage_type` (Delta Lake vs Iceberg) from `dbt_project.yml` vars. Changes to `getDefaultIncrementalStrategy` or `getMaterializationProp` in `sql-utils.ts` must be tested against **both** storage paths.
-- Iceberg uses `partitioning: ARRAY[...]` while Delta Lake/Hive uses `partitioned_by: ARRAY[...]` — the switch happens in `frameworkGenerateModelOutput` based on model `format` or project `storage_type`.
+- Partitioning keyword depends on storage format: **Iceberg uses `partitioning: ARRAY[...]`** while **Delta Lake / Hive uses `partitioned_by: ARRAY[...]`**. The switch happens in `frameworkGenerateModelOutput` (`sql-utils.ts`) based on `materialization.format` or the project var `storage_type`.
+- Incremental strategy resolution (`frameworkGenerateModelOutput` in `sql-utils.ts`): per-model `materialization.strategy.type` → legacy top-level `incremental_strategy` → extension default via `dj.config.materializationDefaultIncrementalStrategy` → shared constant `DEFAULT_INCREMENTAL_STRATEGY` in `src/shared/framework/constants.ts` (currently `overwrite_existing_partitions`; planned to switch to `delete+insert` in a future release). To change the factory default, update the shared constant **and** the `default` field for `dj.materialization.defaultIncrementalStrategy` in `package.json` in lockstep. All other fallback sites (`config.ts`, `preferences-handler.ts`, `sql-utils.ts`, web store, web mock api) already route through the shared constant.
+- When touching `getMaterializationProp`, `getDefaultUniqueKey`, or the strategy switch in `sql-utils.ts`, run the materialization shorthand tests in `src/services/framework/__tests__/index.test.ts` against both Iceberg and Delta/Hive paths.
 
 ## Configuration
 
@@ -641,7 +642,7 @@ To add/modify JSON schemas:
 | `dj.dataExplorer.autoRefresh`  | boolean | `false`      | Auto-refresh Data Explorer on file switch        |
 | `dj.lightdashProjectPath`      | string  | —            | Custom path to dbt project for Lightdash         |
 | `dj.lightdashProfilesPath`     | string  | —            | Custom path to dbt profiles for Lightdash        |
-| `dj.materialization.defaultIncrementalStrategy` | string | `overwrite_existing_partitions` | Default incremental strategy: `delete+insert`, `merge`, or `overwrite_existing_partitions` |
+| `dj.materialization.defaultIncrementalStrategy` | string | `overwrite_existing_partitions` | Default incremental strategy: `append`, `delete+insert`, `merge`, or `overwrite_existing_partitions` |
 | `dj.autoGenerateTests`         | object  | —            | (Experimental) Auto-generate tests on models     |
 
 ### Environment Variables

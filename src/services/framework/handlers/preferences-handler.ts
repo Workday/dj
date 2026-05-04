@@ -1,6 +1,7 @@
 import { getDjConfig } from '@services/config';
 import type { ApiPayload, ApiResponse } from '@shared/api/types';
 import { apiResponse } from '@shared/api/utils';
+import { DEFAULT_INCREMENTAL_STRATEGY } from '@shared/framework/constants';
 import * as vscode from 'vscode';
 
 import type { FrameworkContext } from '../context';
@@ -108,7 +109,9 @@ export class PreferencesHandler {
       case 'default-incremental-strategy': {
         return apiResponse<typeof payload.type>({
           success: true,
-          value: materializationDefaultIncrementalStrategy ?? 'delete+insert',
+          value:
+            materializationDefaultIncrementalStrategy ??
+            DEFAULT_INCREMENTAL_STRATEGY,
         });
       }
 

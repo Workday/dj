@@ -402,6 +402,13 @@ Need time-based analysis? → Use int_lookback_model or int_rollup_model
 
 ## Advanced Topics
 
+### Inline CTEs and Pre-Aggregation
+
+See **[CTE Patterns](CTE_PATTERNS.md)** for conventions around inline CTEs
+(`ctes` array), where Lightdash metrics belong when pre-aggregating in a CTE,
+and the aggregation / auto-injection rules the framework enforces across the
+CTE boundary.
+
 ### Model Dependencies
 
 Understanding the relationship between model types:
@@ -416,6 +423,17 @@ Understanding the relationship between model types:
 - **Incremental Processing**: Use for large, time-based datasets
 - **Join Optimization**: Order joins by data volume (smallest first)
 - **Aggregation Strategy**: Pre-aggregate in intermediate models
+
+### Incremental Strategies (dbt-trino)
+
+Set `materialization.strategy.type` to one of the following (or rely on the extension default via `dj.materialization.defaultIncrementalStrategy`):
+
+| Strategy | Summary | Caveat |
+| -------- | ------- | ------ |
+| `append` | Inserts new rows with no de-duplication. Fastest. | Upstream must guarantee no duplicates in the new slice. |
+| `delete+insert` | Partition-safe upsert. Safe default. | `unique_key` auto-derived from partition columns when omitted. Works on Delta Lake, Hive, and Iceberg. |
+| `merge` | Row-level upsert on `unique_key`. | **dbt-trino requires Iceberg format** on the target table. On Delta Lake / Hive use `delete+insert` instead. |
+| `overwrite_existing_partitions` | Drops and rewrites only the partitions present in the new slice. | **Requires a custom dbt macro in your project** (e.g. `get_incremental_overwrite_existing_partitions_sql`). The DJ extension does NOT ship this macro and dbt-trino does NOT provide it natively. If your project does not define it, use `delete+insert` with a partition column as `unique_key` \u2014 it produces equivalent behavior for daily/monthly partitioned models. |
 
 ### Data Quality
 

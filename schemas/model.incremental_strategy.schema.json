@@ -1,14 +1,35 @@
 {
   "$id": "model.incremental_strategy.schema.json",
-  "description": "Incremental Strategy",
+  "title": "Incremental Strategy",
+  "description": "Incremental Strategy for dbt-trino. Pick one of: 'append', 'delete+insert', 'merge', 'overwrite_existing_partitions'. NOTE: 'overwrite_existing_partitions' requires a custom dbt macro in your project and is not shipped by the DJ extension. 'merge' requires the target table to use Iceberg format in dbt-trino. When in doubt, use 'delete+insert' with a partition column as unique_key.",
+  "markdownDescription": "**Incremental Strategy (dbt-trino)**\n\n| Strategy | When to use | Caveat |\n|---|---|---|\n| `append` | Fast insert-only, no dedup | Upstream must guarantee no duplicates |\n| `delete+insert` | Partition-safe upsert, **safe default** | Requires `unique_key` (auto-derived from partitions) |\n| `merge` | Row-level upsert on a primary key | **dbt-trino requires Iceberg format** |\n| `overwrite_existing_partitions` | Re-drop & rewrite only touched partitions | **Requires a custom dbt macro in your project.** The DJ extension does NOT ship this strategy. If your project does not define `get_incremental_overwrite_existing_partitions_sql` (or the equivalent adapter dispatch macro), use `delete+insert` instead. |",
   "anyOf": [
     {
+      "description": "Append: insert new rows without de-duplication. Fastest strategy, but upstream must guarantee no duplicates in the new slice. No unique_key needed.",
+      "markdownDescription": "**`append`** — insert new rows without dedup. Fastest; upstream must guarantee no duplicates.",
       "type": "object",
       "required": ["type"],
+      "additionalProperties": false,
       "properties": {
-        "type": { "const": "delete+insert" },
+        "type": {
+          "const": "append",
+          "description": "Append rows without de-duplication."
+        }
+      }
+    },
+    {
+      "description": "Delete+insert: delete rows matching unique_key, then insert. The safe default for date-partitioned data — unique_key is auto-derived from the model's partition column(s) when omitted.",
+      "markdownDescription": "**`delete+insert`** — partition-safe upsert. If `unique_key` is omitted, DJ auto-derives it from the model's partition column(s).",
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "delete+insert",
+          "description": "Delete rows matching unique_key, then insert."
+        },
         "unique_key": {
-          "description": "Override the unique key(s) to use for merging",
+          "description": "Override the unique key(s) to use for delete+insert. Defaults to the model's partition column when omitted.",
           "anyOf": [
             { "type": "string" },
             {
@@ -21,12 +42,18 @@
       }
     },
     {
+      "description": "Merge: row-level upsert on unique_key. IMPORTANT: for dbt-trino the target table must use Iceberg format — set materialization.format to 'iceberg' or set the project var storage_type to 'iceberg'. If you are on Delta Lake / Hive, use 'delete+insert' instead.",
+      "markdownDescription": "**`merge`** — row-level upsert on `unique_key`.\n\n> **WARNING:** dbt-trino only supports `merge` on **Iceberg** tables. Set `materialization.format: \"iceberg\"` or the project var `storage_type: iceberg`. On Delta Lake / Hive use `delete+insert` instead.",
       "type": "object",
       "required": ["type", "unique_key"],
+      "additionalProperties": false,
       "properties": {
-        "type": { "const": "merge" },
+        "type": {
+          "const": "merge",
+          "description": "Row-level upsert on unique_key. Requires Iceberg in dbt-trino."
+        },
         "unique_key": {
-          "description": "The unique key(s) to use for merging",
+          "description": "The unique key(s) to use for merging.",
           "anyOf": [
             { "type": "string" },
             {
@@ -37,14 +64,38 @@
           ]
         },
         "merge_exclude_columns": {
-          "description": "The columns to exclude when merging",
+          "description": "The columns to exclude when merging.",
           "type": "array",
           "items": { "type": "string" }
         },
         "merge_update_columns": {
-          "description": "The columns to update when merging",
+          "description": "The columns to update when merging.",
           "type": "array",
           "items": { "type": "string" }
+        }
+      }
+    },
+    {
+      "description": "Overwrite existing partitions: drop and rewrite only the partitions present in the new slice. REQUIRES a custom dbt macro in your project (e.g. get_incremental_overwrite_existing_partitions_sql). The DJ extension does NOT ship this macro and dbt-trino does NOT provide it natively. If your project does not define this macro, use 'delete+insert' with a partition column as unique_key — it produces equivalent behavior for daily/monthly partitioned models.",
+      "markdownDescription": "**`overwrite_existing_partitions`** — drop & rewrite only partitions in the new slice.\n\n> **WARNING — CUSTOM MACRO REQUIRED.** This strategy is NOT shipped by the DJ extension and is NOT part of vanilla dbt-trino. Your dbt project must define the dispatch macro (typically `get_incremental_overwrite_existing_partitions_sql`) for it to compile.\n>\n> **Don't have the macro?** Use `{ \"type\": \"delete+insert\" }` instead — if a partition column exists, DJ auto-fills `unique_key` and the behavior is equivalent for partition-aligned daily/monthly incrementals.",
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "overwrite_existing_partitions",
+          "description": "Overwrite only the partitions in the new slice. REQUIRES a custom macro in your dbt project — prefer 'delete+insert' if you do not have one."
+        },
+        "unique_key": {
+          "description": "Optional override for the unique key(s). Defaults to the model's partition column when omitted.",
+          "anyOf": [
+            { "type": "string" },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string" }
+            }
+          ]
         }
       }
     }

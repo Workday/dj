@@ -683,14 +683,23 @@ Use the `materialization` field instead of the legacy `materialized` + `incremen
     "type": "incremental",
     "format": "iceberg",                     // optional: "delta_lake", "hive", or "iceberg"
     "partitions": ["portal_partition_daily"], // optional: columns to partition by
-    "strategy": { "type": "delete+insert" }, // optional: "delete+insert" or "merge"
+    "strategy": { "type": "delete+insert" }, // optional: see "Incremental strategies" below
     "database": "custom_database",           // optional: override target database
   },
 }
 ```
 
 - **`format`**: Controls storage format. Defaults to the project's `storage_type` variable in `dbt_project.yml`. Iceberg uses `partitioning` keyword; Delta Lake/Hive uses `partitioned_by`.
-- **`strategy`**: `{ "type": "delete+insert" }` for date-partitioned data, or `{ "type": "merge", "unique_key": "id" }` for upserts. If omitted, uses the extension's default (configurable via `dj.materialization.defaultIncrementalStrategy`).
+- **`strategy`**: See "Incremental strategies" below. If omitted, the extension default applies (configurable via `dj.materialization.defaultIncrementalStrategy`, defaults to `overwrite_existing_partitions`).
+
+#### Incremental strategies (dbt-trino)
+
+| Strategy | Shape | When to use | Caveat |
+| --- | --- | --- | --- |
+| `append` | `{ "type": "append" }` | Fast insert-only; no de-dup | Upstream must guarantee no duplicates in the new slice |
+| `delete+insert` | `{ "type": "delete+insert", "unique_key": "..." }` | Partition-safe upsert (**safe default**) | `unique_key` is auto-derived from partitions when omitted |
+| `merge` | `{ "type": "merge", "unique_key": "id", "merge_update_columns": [...], "merge_exclude_columns": [...] }` | Row-level upsert on a primary key | **dbt-trino requires Iceberg format.** Set `materialization.format: "iceberg"` or the project var `storage_type: iceberg` |
+| `overwrite_existing_partitions` | `{ "type": "overwrite_existing_partitions", "unique_key": "..." }` (unique_key optional) | Drop & rewrite only partitions present in the new slice | **Requires a custom dbt macro in your project** (e.g. `get_incremental_overwrite_existing_partitions_sql`). The DJ extension does NOT ship this macro and dbt-trino does NOT provide it natively. If your project does not define it, use `{ "type": "delete+insert" }` instead \u2014 behavior is equivalent for partition-aligned daily/monthly incrementals when `unique_key` is the partition column. |
 
 ### Legacy Incremental Configuration
 
@@ -945,6 +954,16 @@ When a CTE selects columns as plain strings (e.g., `"select": ["col_a", "col_b"]
 
 Use `"group_by": "dims"` or `"group_by": [{ "type": "dims" }]` inside CTEs. Avoid bare string aliases for computed columns — if a CTE select item has an `expr` (e.g., `{ "name": "month", "expr": "DATE_TRUNC('MONTH', event_date)" }`), using `"group_by": ["month"]` will fail at Trino runtime because the string alias is not a valid SQL GROUP BY target. Use `[{ "type": "dims" }]` instead, which automatically resolves computed expressions.
 
+### CTE authoring rules
+
+- **Lightdash metrics belong on the main-model `select`.** `lightdash.metrics` / `lightdash.metrics_merge` on a CTE `select` item is rejected (only the main-model select feeds Lightdash metric generation). Keep the pre-aggregated column in the CTE and re-declare it on the main-model `select` with the metric block. `lightdash.dimension` on CTE selects is still supported.
+- **`portal_source_count` auto-injects in CTEs whose `from` is `{ model }`.** It's aggregated with `count` when the CTE has a `group_by`; otherwise it passes through. Don't add it manually. Set `override_suffix_agg: true` on the CTE select item only when you need a differently-aggregated variant alongside the audit column.
+- **`datetime` and `portal_partition_*` auto-inject in CTEs whose `from` is `{ model }`.** Mirrors the main-model behavior: if the upstream has them and the CTE's select did not include them (even through a narrow `dims_from_model.include` list), they're appended automatically. `datetime` emits as a bare passthrough unless the CTE sets `{ "name": "datetime", "interval": "..." }`; in that case the interval drives partition exclusion (`day` drops hourly, `month` drops hourly+daily, `year` drops all three). Only fires for plain `from: { model }` — not for `from: { cte }`, source, or union shapes.
+- **Every `fct` column in the main-model `select` must be aggregated when the main model has a `group_by`.** Set `agg` / `aggs`, wrap an aggregate in `expr` (e.g. `sum(x)`, `avg(x)`, `any_value(x)`, `merge(cast(x as hyperloglog))`, `cast(tdigest_agg(x) as varbinary)`), or set `exclude_from_group_by: true`. This is enforced for scalar selects, CTE scalar refs, and bulk `all_from_cte` / `fcts_from_cte` carriers.
+- **Avoid dead outer layers.** A main `select` that's a single `all_from_cte` / `dims_from_cte` passthrough of one CTE with identical `group_by` and no extra filter / limit / projection is flagged as a no-op warning — drop the wrapper (move the CTE's select into the main model) or add new work to the outer layer.
+
+See `docs/models/CTE_PATTERNS.md` for the full CTE authoring guide.
+
 ### CTE Unions
 
 CTE unions use the same pattern as model unions:
@@ -1009,11 +1028,16 @@ Subqueries can appear in `where`, `having`, and join `on` conditions via the `su
 | **Row Multiplication**               | Add `equal_row_count` test. Verify join conditions. Aggregate "many" side before joining.                        |
 | **Duplicate Column Names**           | Use `exclude` on one model or rename with `expr`.                                                                |
 | **Aggregation Without Group By**     | Always add `"group_by": "dims"` (or `[{ "type": "dims" }]`) when using `agg`.                                    |
+| **Un-aggregated `fct` + group_by**   | Every `fct` in the main `select` must set `agg`/`aggs`, wrap an aggregate in `expr` (e.g. `sum(x)`, `merge(cast(x as hyperloglog))`), or `exclude_from_group_by: true`. Applies to scalar and bulk CTE carriers. |
+| **Lightdash metrics on a CTE select**| Not supported; only the main-model `select` feeds Lightdash metric generation. Keep the pre-aggregated column in the CTE and declare `lightdash.metrics` / `lightdash.metrics_merge` on the main-model `select`. `lightdash.dimension` on CTE selects is still supported. |
+| **Duplicated `portal_source_count` in CTE** | When a CTE's `from` is `{ model }`, `portal_source_count` auto-injects (aggregated with `count` when the CTE has `group_by`). Don't add it manually; set `override_suffix_agg: true` only for a differently-aggregated variant alongside the audit column. |
+| **Missing `portal_partition_*` / `datetime` in CTE** | When a CTE's `from` is `{ model }`, `datetime` and `portal_partition_*` auto-inject from the upstream even if a narrow `dims_from_model.include` list omitted them — do not add them by hand. Explicit `{ "name": "datetime", "interval": X }` drives partition exclusion (`day` drops hourly, `month` drops hourly+daily, `year` drops all three). |
 | **Invalid Source Reference**         | Use format `<database>__<schema>.<table_name>` (double underscore, then dot).                                    |
 | **Lightdash Case Sensitivity**       | Optionally set `"case_sensitive": true/false` at model or column level to override the Lightdash global default. |
 | **CTE group_by with computed cols**  | Don't use bare string aliases (e.g., `["month"]`) for columns defined with `expr`. Use `"dims"` or `{ "expr": "..." }`. |
 | **materialized vs materialization**  | Both work; `materialization` is preferred and supports structured config (format, partitions, strategy).          |
 | **CTE column type mismatch**         | Plain string selects in CTEs inherit dim/fct type from upstream. Verify with `dims_from_cte`/`fcts_from_cte`.    |
+| **Dead outer-layer warning**         | Main `select` is a single `all_from_cte` / `dims_from_cte` passthrough of one CTE with identical `group_by` and no extra filter / limit / projection — drop the wrapper or add work to it. See `docs/models/CTE_PATTERNS.md`. |
 
 ---
 

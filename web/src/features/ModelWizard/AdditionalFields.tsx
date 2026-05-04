@@ -1,4 +1,4 @@
-import type { ModelIncrementalStrategySchemaJson } from '@shared/schema/types/model.schema';
+import type { IncrementalStrategy } from '@shared/schema/types/model.schema';
 import { Checkbox, EditableList, TagInput, Tooltip } from '@web/elements';
 import { FieldInputText, FieldSelectSingle } from '@web/forms';
 import type { AdditionalFieldsSchema } from '@web/stores/useModelStore';
@@ -28,6 +28,7 @@ const SHOW_ADVANCED_FIELDS = false;
 
 // Move static options outside component to avoid recreation
 const INCREMENTAL_STRATEGY_OPTIONS = [
+  { label: 'Append', value: 'append' },
   { label: 'Delete + Insert', value: 'delete+insert' },
   { label: 'Merge', value: 'merge' },
   {
@@ -212,8 +213,8 @@ export function AdditionalFields({
                     field.onChange(value);
                     const updateIncrementalStrategy = {
                       ...incrementalStrategy,
-                      type: value as ModelIncrementalStrategySchemaJson['type'],
-                    } as ModelIncrementalStrategySchemaJson;
+                      type: value as IncrementalStrategy['type'],
+                    } as IncrementalStrategy;
                     setValue('incremental_strategy', updateIncrementalStrategy);
                     setAdditionalField(
                       'incremental_strategy',
@@ -222,88 +223,107 @@ export function AdditionalFields({
                   }}
                   label="Type"
                   options={[...INCREMENTAL_STRATEGY_OPTIONS]}
-                  tooltipText="The strategy to use for incremental updates. The default can be configured via the dj.materialization.defaultIncrementalStrategy setting."
+                  tooltipText={
+                    'The strategy to use for incremental updates (dbt-trino).\n' +
+                    '\u2022 append: inserts new rows without dedup (upstream must guarantee no duplicates).\n' +
+                    '\u2022 delete+insert: partition-safe upsert; unique_key auto-derived from partitions.\n' +
+                    '\u2022 merge: row-level upsert on unique_key (requires Iceberg format in dbt-trino).\n' +
+                    '\u2022 overwrite_existing_partitions: drops & rewrites partitions in the new slice. Requires a custom dbt macro in your project \u2014 if unavailable, use delete+insert instead.\n' +
+                    'The default can be configured via dj.materialization.defaultIncrementalStrategy.'
+                  }
                 />
               )}
             />
 
-            {/* Unique Key */}
-            <Controller
-              control={control}
-              name="incremental_strategy.unique_key"
-              rules={{
-                validate: (value, formValues) => {
-                  // Get the current type value from formValues
-                  const strategyType = formValues.incremental_strategy?.type;
+            {/* Unique Key - not applicable for 'append' */}
+            {incrementalStrategy?.type !== 'append' && (
+              <Controller
+                control={control}
+                name="incremental_strategy.unique_key"
+                rules={{
+                  validate: (value, formValues) => {
+                    // Get the current type value from formValues
+                    const strategyType = formValues.incremental_strategy?.type;
 
-                  // If type is merge, unique_key must be provided
-                  if (strategyType === 'merge') {
-                    if (
-                      !value ||
-                      (typeof value === 'string' && value.trim() === '') ||
-                      (Array.isArray(value) && value.length === 0)
-                    ) {
-                      return 'At least one unique key is required for merge strategy';
+                    // If type is merge, unique_key must be provided
+                    if (strategyType === 'merge') {
+                      if (
+                        !value ||
+                        (typeof value === 'string' && value.trim() === '') ||
+                        (Array.isArray(value) && value.length === 0)
+                      ) {
+                        return 'At least one unique key is required for merge strategy';
+                      }
                     }
-                  }
-                  return true;
-                },
-              }}
-              render={({ field }) => {
-                // Convert unique_key to array format for TagInput
-                const uniqueKeyArray = Array.isArray(field.value)
-                  ? field.value
-                  : field.value
-                    ? [field.value]
-                    : [];
+                    return true;
+                  },
+                }}
+                render={({ field }) => {
+                  // Convert unique_key to array format for TagInput
+                  const uniqueKeyArray = Array.isArray(field.value)
+                    ? field.value
+                    : field.value
+                      ? [field.value]
+                      : [];
 
-                return (
-                  <TagInput
-                    value={uniqueKeyArray}
-                    onChange={(value) => {
-                      // Convert to proper format: string or tuple [string, ...string[]]
-                      const uniqueKeyValue:
-                        | string
-                        | [string, ...string[]]
-                        | undefined =
-                        value.length === 0
-                          ? undefined
-                          : value.length === 1
-                            ? value[0]
-                            : (value as [string, ...string[]]);
+                  return (
+                    <TagInput
+                      value={uniqueKeyArray}
+                      onChange={(value) => {
+                        // Convert to proper format: string or tuple [string, ...string[]]
+                        const uniqueKeyValue:
+                          | string
+                          | [string, ...string[]]
+                          | undefined =
+                          value.length === 0
+                            ? undefined
+                            : value.length === 1
+                              ? value[0]
+                              : (value as [string, ...string[]]);
 
-                      field.onChange(uniqueKeyValue);
-                      const newStrategy = {
-                        ...incrementalStrategy,
-                        unique_key: uniqueKeyValue || '',
-                      };
-                      setValue(
-                        'incremental_strategy',
-                        newStrategy as ModelWizardFormValues['incremental_strategy'],
-                      );
-                      setAdditionalField(
-                        'incremental_strategy',
-                        newStrategy as ModelIncrementalStrategySchemaJson,
-                      );
-                    }}
-                    onBlur={field.onBlur}
-                    label="Unique Key(s)"
-                    placeholder="Type and press Enter to add unique keys"
-                    tooltipText={
-                      incrementalStrategy?.type === 'delete+insert'
-                        ? 'Override the unique key(s) to use for merging'
-                        : 'The unique key(s) to use for merging'
-                    }
-                    error={
-                      errors.incremental_strategy?.unique_key
-                        ? (errors.incremental_strategy.unique_key as FieldError)
-                            ?.message
-                        : undefined
-                    }
-                  />
-                );
-              }}
-            />
+                        field.onChange(uniqueKeyValue);
+                        const newStrategy = {
+                          ...incrementalStrategy,
+                          unique_key: uniqueKeyValue || '',
+                        };
+                        setValue(
+                          'incremental_strategy',
+                          newStrategy as ModelWizardFormValues['incremental_strategy'],
+                        );
+                        setAdditionalField(
+                          'incremental_strategy',
+                          newStrategy as IncrementalStrategy,
+                        );
+                      }}
+                      onBlur={field.onBlur}
+                      label="Unique Key(s)"
+                      placeholder="Type and press Enter to add unique keys"
+                      tooltipText={
+                        incrementalStrategy?.type === 'merge'
+                          ? 'Required for merge. The unique key(s) to upsert on.'
+                          : incrementalStrategy?.type === 'delete+insert' ||
+                              incrementalStrategy?.type ===
+                                'overwrite_existing_partitions'
+                            ? 'Optional override. Defaults to the model\u2019s partition column when omitted.'
+                            : 'The unique key(s) to use for incremental updates'
+                      }
+                      error={(() => {
+                        // `incremental_strategy` is a discriminated union, so
+                        // `unique_key` is not present on the `append` variant.
+                        // Access via index so react-hook-form errors resolve
+                        // correctly regardless of the active variant.
+                        const uniqueKeyError = (
+                          errors.incremental_strategy as
+                            | Record<string, FieldError | undefined>
+                            | undefined
+                        )?.['unique_key'];
+                        return uniqueKeyError?.message;
+                      })()}
+                    />
+                  );
+                }}
+              />
+            )}
           </div>
 
           {/* Second Row: Merge strategy-specific fields (only shown when type is 'merge') */}

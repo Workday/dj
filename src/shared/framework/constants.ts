@@ -1,5 +1,28 @@
 import type { SchemaModelGroupBy } from '@shared/schema/types/model.group_by.schema';
 
+import type { DefaultIncrementalStrategy } from './types';
+
+/**
+ * Single source of truth for the default incremental strategy applied when
+ * a model uses `materialization: "incremental"` without an explicit
+ * `strategy`, and the `dj.materialization.defaultIncrementalStrategy`
+ * setting is unset.
+ *
+ * To change the global default, update this one value **and** the `default`
+ * in `package.json`
+ * (contributes.configuration.*.dj.materialization.defaultIncrementalStrategy
+ * .default) in lockstep, since VS Code's JSON settings schema cannot
+ * reference TS constants. All other fallback sites (config.ts, sql-utils.ts,
+ * preferences-handler.ts, the web store, the web mock api) route through
+ * this constant, so those two edits are the full surface area.
+ *
+ * Next release: switch to `'delete+insert'` as the safer cross-storage
+ * default. Kept at `'overwrite_existing_partitions'` for now to avoid
+ * behavior drift for existing workspaces that don't override the setting.
+ */
+export const DEFAULT_INCREMENTAL_STRATEGY: DefaultIncrementalStrategy =
+  'overwrite_existing_partitions';
+
 export const BULK_SELECT_TYPES = {
   ALL_FROM_MODEL: 'all_from_model',
   DIMS_FROM_MODEL: 'dims_from_model',

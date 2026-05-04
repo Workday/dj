@@ -19,7 +19,7 @@ export type SchemaModelMaterialization =
       database?: SchemaModelDatabase;
       format?: SchemaModelFormat;
       partitions?: SchemaModelPartitions;
-      strategy?: ModelIncrementalStrategySchemaJson;
+      strategy?: IncrementalStrategy;
     };
 /**
  * Database override for where the model will be materialized
@@ -38,30 +38,50 @@ export type SchemaColumnName = string;
  */
 export type SchemaModelPartitions = SchemaColumnName[];
 /**
- * Incremental Strategy
+ * Incremental Strategy for dbt-trino. Pick one of: 'append', 'delete+insert', 'merge', 'overwrite_existing_partitions'. NOTE: 'overwrite_existing_partitions' requires a custom dbt macro in your project and is not shipped by the DJ extension. 'merge' requires the target table to use Iceberg format in dbt-trino. When in doubt, use 'delete+insert' with a partition column as unique_key.
  */
-export type ModelIncrementalStrategySchemaJson =
+export type IncrementalStrategy =
   | {
-      type: 'delete+insert';
       /**
-       * Override the unique key(s) to use for merging
+       * Append rows without de-duplication.
        */
-      unique_key?: string | [string, ...string[]];
-      [k: string]: unknown | undefined;
+      type: 'append';
     }
   | {
+      /**
+       * Delete rows matching unique_key, then insert.
+       */
+      type: 'delete+insert';
+      /**
+       * Override the unique key(s) to use for delete+insert. Defaults to the model's partition column when omitted.
+       */
+      unique_key?: string | [string, ...string[]];
+    }
+  | {
+      /**
+       * Row-level upsert on unique_key. Requires Iceberg in dbt-trino.
+       */
       type: 'merge';
       /**
-       * The unique key(s) to use for merging
+       * The unique key(s) to use for merging.
        */
       unique_key: string | [string, ...string[]];
       /**
-       * The columns to exclude when merging
+       * The columns to exclude when merging.
        */
       merge_exclude_columns?: string[];
       /**
-       * The columns to update when merging
+       * The columns to update when merging.
        */
       merge_update_columns?: string[];
-      [k: string]: unknown | undefined;
+    }
+  | {
+      /**
+       * Overwrite only the partitions in the new slice. REQUIRES a custom macro in your dbt project — prefer 'delete+insert' if you do not have one.
+       */
+      type: 'overwrite_existing_partitions';
+      /**
+       * Optional override for the unique key(s). Defaults to the model's partition column when omitted.
+       */
+      unique_key?: string | [string, ...string[]];
     };

@@ -41,11 +41,13 @@ import { getDbtModelId } from '@shared/dbt/utils';
 import {
   BULK_CTE_TYPES,
   BULK_MODEL_TYPES,
+  DEFAULT_INCREMENTAL_STRATEGY,
   JOIN_ON_DIMS,
   normalizeGroupBy,
 } from '@shared/framework/constants';
 import type {
   FrameworkColumn,
+  FrameworkColumnAgg,
   FrameworkCTE,
   FrameworkInterval,
   FrameworkModel,
@@ -78,11 +80,16 @@ import {
   filterBulkSelectColumns,
   frameworkBuildColumns,
   frameworkBuildCteColumnRegistry,
+  frameworkBuildDatetimeColumn,
   frameworkColumnName,
   frameworkColumnSelect,
+  frameworkGetCteDatetimeSourceInterval,
   frameworkGetModelPartitions,
   frameworkGetNodeColumns,
   frameworkGetPartitionColumnNames,
+  frameworkResolveAgg,
+  frameworkShouldAutoInjectCteFrameworkDims,
+  frameworkShouldAutoInjectCtePortalSourceCount,
   frameworkSuffixAgg,
   sortColumnsWithPartitionsLast,
 } from './column-utils';
@@ -512,6 +519,53 @@ export function frameworkModelFrom({
 }
 
 /**
+ * Build the SQL for applying an aggregation to a base expression.
+ *
+ * The `hll`, `tdigest`, and `count` aggregations are special-cased:
+ * - `hll` over raw input uses `approx_set`; over an already-HLL input uses `merge(cast(... as hyperloglog))`.
+ * - `tdigest` over raw input uses `tdigest_agg`; over an already-tdigest input uses `merge(cast(... as tdigest))`.
+ * - `count` over an already-counted input switches to `sum` (partial counts must be summed, not re-counted).
+ *
+ * `inputSuffixAgg` indicates whether the provided `baseExpr` is already the
+ * output of a prior aggregation of the given kind (derived from the column
+ * name suffix upstream). Pass `null` when building a fresh aggregation from
+ * a raw column or expression, such as inside a CTE's select list.
+ */
+export function frameworkBuildAggSql({
+  agg,
+  baseExpr,
+  inputSuffixAgg,
+}: {
+  agg: string;
+  baseExpr: string;
+  inputSuffixAgg: string | null;
+}): string {
+  switch (agg) {
+    case 'count': {
+      if (inputSuffixAgg === 'count') {
+        return `sum(${baseExpr})`;
+      }
+      return `count(${baseExpr})`;
+    }
+    case 'hll': {
+      if (inputSuffixAgg === 'hll') {
+        return `cast(merge(cast(${baseExpr} as hyperloglog)) as varbinary)`;
+      }
+      return `cast(approx_set(${baseExpr}) as varbinary)`;
+    }
+    case 'tdigest': {
+      if (inputSuffixAgg === 'tdigest') {
+        return `cast(merge(cast(${baseExpr} as tdigest)) as varbinary)`;
+      }
+      return `cast(tdigest_agg(${baseExpr}) as varbinary)`;
+    }
+    default: {
+      return `${agg}(${baseExpr})`;
+    }
+  }
+}
+
+/**
  * Generate SQL SELECT clause
  *
  * @see utils.ts:3454-3603
@@ -603,54 +657,35 @@ export function frameworkModelSelect({
     appendSql(sqlLines.join(' union all '));
   } else {
     for (const c of columns) {
-      const suffixAgg = frameworkSuffixAgg(c.name);
-      const metaAgg = ('agg' in c.meta && c.meta.agg) || '';
-      const newAgg =
-        metaAgg ||
-        ('rollup' in modelJson.from &&
-          c.meta.type === 'fct' &&
-          !c.meta.expr &&
-          suffixAgg);
+      const metaAgg = ('agg' in c.meta && c.meta.agg) || null;
+      const rollupAgg =
+        'rollup' in modelJson.from && c.meta.type === 'fct' && !c.meta.expr
+          ? frameworkSuffixAgg(c.name)
+          : null;
+      const newAgg = metaAgg || rollupAgg;
+      const overrideSuffixAgg = !!(
+        'override_suffix_agg' in c.meta && c.meta.override_suffix_agg
+      );
+      const resolved = newAgg
+        ? frameworkResolveAgg({
+            agg: newAgg,
+            name: c.name,
+            overrideSuffixAgg,
+          })
+        : { inputSuffixAgg: null, outputName: c.name };
       const shouldAlias = !!c.meta.expr || !!newAgg;
       const prefix = !c.meta.expr && c.meta.prefix ? `${c.meta.prefix}.` : '';
-      const nameWithSuffix = frameworkColumnName({ column: c, modelJson });
-      // const newSuffixAgg = frameworkSuffixAgg(nameWithSuffix);
 
       let line = c.meta.expr || `${prefix}${c.name}`;
       if (newAgg) {
-        switch (newAgg) {
-          case 'count': {
-            if (suffixAgg === 'count') {
-              // If the input column is already a count agg, them going forward we'll sum it
-              line = `sum(${line})`;
-            } else {
-              line = `count(${line})`;
-            }
-            break;
-          }
-          case 'hll': {
-            if (suffixAgg === 'hll') {
-              line = `cast(merge(cast(${line} as hyperloglog)) as varbinary)`;
-            } else {
-              line = `cast(approx_set(${line}) as varbinary)`;
-            }
-            break;
-          }
-          case 'tdigest': {
-            if (suffixAgg === 'tdigest') {
-              line = `cast(merge(cast(${line} as tdigest)) as varbinary)`;
-            } else {
-              line = `cast(tdigest_agg(${line}) as varbinary)`;
-            }
-            break;
-          }
-          default: {
-            line = `${newAgg}(${line})`;
-          }
-        }
+        line = frameworkBuildAggSql({
+          agg: newAgg,
+          baseExpr: line,
+          inputSuffixAgg: resolved.inputSuffixAgg,
+        });
       }
       if (shouldAlias) {
-        line = `${line} as ${nameWithSuffix}`;
+        line = `${line} as ${resolved.outputName}`;
       }
 
       sqlLines.push(line);
@@ -1213,6 +1248,7 @@ export function frameworkGenerateCteSql({
   datetimeInterval,
   dj,
   modelJson,
+  partitionColumnNames,
   project,
 }: {
   cte: FrameworkCTE;
@@ -1220,6 +1256,7 @@ export function frameworkGenerateCteSql({
   datetimeInterval?: FrameworkInterval | null;
   dj?: DJ;
   modelJson?: FrameworkModel;
+  partitionColumnNames?: string[];
   project: DbtProject;
 }): string {
   const from = cte.from;
@@ -1286,10 +1323,11 @@ export function frameworkGenerateCteSql({
 
   // SELECT
   if (cte.select?.length) {
-    const selectParts: string[] = [];
+    const selectParts: { name: string; sql: string }[] = [];
+    let hasStar = false;
     for (const item of cte.select) {
       if (typeof item === 'string') {
-        selectParts.push(item);
+        selectParts.push({ name: item, sql: item });
         continue;
       }
       const sel = item as Record<string, unknown>;
@@ -1307,45 +1345,171 @@ export function frameworkGenerateCteSql({
           hasJoins,
         });
         if (expanded) {
-          selectParts.push(...expanded);
+          for (const exp of expanded) {
+            // Bulk expansion may yield "alias.col" when joins are active;
+            // strip the alias to recover the bare name for the sort key.
+            const bare = exp.split('.').pop() ?? exp;
+            selectParts.push({ name: bare, sql: exp });
+          }
         } else {
-          selectParts.push('*');
+          hasStar = true;
         }
         continue;
       }
       if ('name' in sel) {
         const name = sel.name as string;
-        const agg = 'agg' in sel ? (sel.agg as string) : undefined;
-        const aggs = 'aggs' in sel ? (sel.aggs as string[]) : undefined;
+        const agg = 'agg' in sel ? (sel.agg as FrameworkColumnAgg) : undefined;
+        const aggs =
+          'aggs' in sel ? (sel.aggs as FrameworkColumnAgg[]) : undefined;
+        const interval =
+          'interval' in sel ? (sel.interval as FrameworkInterval) : undefined;
         const baseExpr =
           'expr' in sel && sel.expr ? (sel.expr as string) : name;
+        const overrideSuffixAgg = !!(
+          'override_suffix_agg' in sel && sel.override_suffix_agg
+        );
 
-        // Apply aggregation inside the CTE so consumers see pre-aggregated columns.
-        // Output names follow the convention: {column}_{agg} (e.g. cost_sum).
+        // Datetime with interval: emit date_trunc('<interval>', datetime) as
+        // datetime, or bare `datetime` when the upstream is already at the
+        // requested granularity. Matches main-model behavior.
+        if (name === 'datetime' && interval && !agg && !aggs) {
+          const sourceInterval = frameworkGetCteDatetimeSourceInterval({
+            cteRegistry,
+            from: cte.from,
+            project,
+          });
+          const built = frameworkBuildDatetimeColumn({
+            interval,
+            sourceInterval,
+          });
+          selectParts.push({
+            name: 'datetime',
+            sql: built.expr ? `${built.expr} as datetime` : 'datetime',
+          });
+          continue;
+        }
+
+        // Apply aggregation inside the CTE so consumers see pre-aggregated
+        // columns. Output names follow the suffix-collision rule
+        // (frameworkResolveAgg): a fresh agg on a raw column yields `name_agg`
+        // with the fresh kernel; an agg matching the trailing suffix (e.g.
+        // `count` on `portal_source_count`) keeps the bare name and uses the
+        // merge-style kernel (`sum` for pre-counted columns, `merge(cast(...
+        // as hyperloglog))` for pre-HLL, etc.).
         if (aggs) {
           for (const a of aggs) {
-            selectParts.push(`${a}(${baseExpr}) as ${name}_${a}`);
+            const resolved = frameworkResolveAgg({
+              agg: a,
+              name,
+              overrideSuffixAgg,
+            });
+            selectParts.push({
+              name: resolved.outputName,
+              sql: `${frameworkBuildAggSql({ agg: a, baseExpr, inputSuffixAgg: resolved.inputSuffixAgg })} as ${resolved.outputName}`,
+            });
           }
           if (!agg) {
             continue;
           }
         }
         if (agg) {
-          selectParts.push(`${agg}(${baseExpr}) as ${name}_${agg}`);
+          const resolved = frameworkResolveAgg({
+            agg,
+            name,
+            overrideSuffixAgg,
+          });
+          selectParts.push({
+            name: resolved.outputName,
+            sql: `${frameworkBuildAggSql({ agg, baseExpr, inputSuffixAgg: resolved.inputSuffixAgg })} as ${resolved.outputName}`,
+          });
         } else if ('expr' in sel && sel.expr) {
-          selectParts.push(`${sel.expr} as ${name}`);
+          selectParts.push({
+            name,
+            sql: `${String(sel.expr)} as ${name}`,
+          });
         } else {
-          selectParts.push(name);
+          selectParts.push({ name, sql: name });
         }
         continue;
       }
-      if ('interval' in sel) {
-        selectParts.push(
-          `date_trunc('${(sel as { interval: string }).interval}', datetime) as datetime`,
-        );
+    }
+
+    // Mirror the main-model datetime + partition auto-injection for CTEs
+    // whose FROM is a plain model ref. Registry (frameworkInferCteColumns)
+    // and emitted SQL must stay in lock-step; both call
+    // `frameworkShouldAutoInjectCteFrameworkDims`. Emitted as bare passthrough
+    // refs -- the sorter below still pushes partitions to the bottom.
+    if (!hasStar) {
+      const autoDims = frameworkShouldAutoInjectCteFrameworkDims({
+        cte,
+        alreadyPresentNames: selectParts.map((p) => p.name),
+        project,
+      });
+      if (autoDims) {
+        for (const name of autoDims.include) {
+          selectParts.push({ name, sql: name });
+        }
       }
     }
-    parts.push(`select ${selectParts.join(', ')}`);
+
+    // Mirror the main-model `portal_source_count` auto-injection for CTEs
+    // whose FROM is a plain model ref. Registry (frameworkInferCteColumns)
+    // and emitted SQL must stay in lock-step; both call
+    // `frameworkShouldAutoInjectCtePortalSourceCount`.
+    if (!hasStar) {
+      const autoPsc = frameworkShouldAutoInjectCtePortalSourceCount({
+        cte,
+        alreadyPresentNames: selectParts.map((p) => p.name),
+        project,
+      });
+      if (autoPsc) {
+        if (autoPsc.applyAgg) {
+          const resolved = frameworkResolveAgg({
+            agg: 'count',
+            name: 'portal_source_count',
+          });
+          const sql = `${frameworkBuildAggSql({
+            agg: 'count',
+            baseExpr: 'portal_source_count',
+            inputSuffixAgg: resolved.inputSuffixAgg,
+          })} as ${resolved.outputName}`;
+          selectParts.push({ name: resolved.outputName, sql });
+        } else {
+          selectParts.push({
+            name: 'portal_source_count',
+            sql: 'portal_source_count',
+          });
+        }
+      }
+    }
+
+    if (hasStar && selectParts.length === 0) {
+      parts.push('select *');
+    } else {
+      // Sort alphabetically with partition columns pushed to the bottom,
+      // matching the main-model convention. A `-- partition columns` comment
+      // is emitted on its own line immediately before the first partition
+      // column in the SELECT list.
+      const sorted = sortColumnsWithPartitionsLast(
+        selectParts,
+        partitionColumnNames,
+      );
+      const partitionSet = new Set(
+        partitionColumnNames ?? [...FRAMEWORK_PARTITIONS],
+      );
+      const renderedLines: string[] = [];
+      let partitionCommentEmitted = false;
+      for (const p of sorted) {
+        if (partitionSet.has(p.name) && !partitionCommentEmitted) {
+          partitionCommentEmitted = true;
+          renderedLines.push(`-- partition columns\n${p.sql}`);
+        } else {
+          renderedLines.push(p.sql);
+        }
+      }
+      const prefix = hasStar ? '*, ' : '';
+      parts.push(`select ${prefix}${renderedLines.join(',\n')}`);
+    }
   } else {
     parts.push('select *');
   }
@@ -1452,8 +1616,16 @@ export function frameworkGenerateCteSql({
       } else if ('type' in gb && gb.type === 'dims') {
         const cols = cteRegistry.get(cte.name) || [];
         const dimCols = cols
-          .filter((c) => c.meta?.type !== 'fct')
-          .map((c) => selectExprMap.get(c.name) || c.name);
+          .filter(
+            (c) => c.meta?.type !== 'fct' && !c.meta?.exclude_from_group_by,
+          )
+          // Fall back to `c.meta.expr` (e.g. `date_trunc('hour', datetime)`
+          // produced by frameworkBuildDatetimeColumn) before the bare name.
+          // Trino's GROUP BY resolves identifiers against input columns, not
+          // SELECT aliases (see trino#16533), so emitting the bare alias for
+          // a derived expression would over-group to the raw input column's
+          // granularity. Matches the main-model builder.
+          .map((c) => selectExprMap.get(c.name) || c.meta?.expr || c.name);
         gbParts.push(...dimCols);
       }
     }
@@ -1636,11 +1808,17 @@ export function frameworkGenerateModelOutput({
   const projectName = project.name;
   const modelId = getDbtModelId({ modelName, projectName });
 
+  const partitionColumnNames = frameworkGetPartitionColumnNames({
+    modelJson,
+    project,
+  });
+
   const cteColumnRegistry: CteColumnRegistry | undefined =
     'ctes' in modelJson && modelJson.ctes?.length
       ? frameworkBuildCteColumnRegistry({
           ctes: modelJson.ctes,
           modelId,
+          partitionColumnNames,
           project,
         })
       : undefined;
@@ -1650,11 +1828,6 @@ export function frameworkGenerateModelOutput({
     modelJson,
     project,
     cteColumnRegistry,
-  });
-
-  const partitionColumnNames = frameworkGetPartitionColumnNames({
-    modelJson,
-    project,
   });
 
   const modelProperties = frameworkModelProperties({
@@ -1718,7 +1891,7 @@ export function frameworkGenerateModelOutput({
   let materialized: DbtModelConfig['materialized'];
   switch (modelLayer) {
     // Staging and intermediate models support user-configurable materialization
-    // (incremental, ephemeral, table, view). Defaults to ephemeral if not specified.
+    // (incremental or ephemeral per JSON schema). Defaults to ephemeral if not specified.
     case 'int':
     case 'stg': {
       materialized =
@@ -1763,14 +1936,40 @@ export function frameworkGenerateModelOutput({
           merge_update_columns?: string[];
           merge_exclude_columns?: string[];
         } | null;
+
+        // Build the partition column list from columns that actually exist on
+        // the model. Candidate partition columns can come from parent meta
+        // (inherited) or from a hardcoded default list, neither of which is
+        // guaranteed to match the current model's actual columns. Filtering
+        // here ensures both `unique_key` defaulting and `partitioning` /
+        // `partitioned_by` only reference columns the model really produces.
+        const partitions: string[] = [];
+        for (const p of partitionColumnNames) {
+          if (columns.find((c) => c.name === p)) {
+            partitions.push(p);
+          }
+        }
+
         switch (strategy?.type) {
+          case 'append': {
+            // Append: insert new rows with no de-duplication. No unique_key
+            // is applicable. Upstream must guarantee no duplicates in the
+            // new slice.
+            modelConfig.incremental_strategy = 'append';
+            break;
+          }
           case 'delete+insert': {
             modelConfig.incremental_strategy = 'delete+insert';
-            // Use user-provided unique_key if set, otherwise default to
-            // the appropriate partition column based on the model's time grain
-            modelConfig.unique_key = strategy.unique_key
-              ? strategy.unique_key
-              : getDefaultUniqueKey(partitionColumnNames);
+            // Use user-provided unique_key if set, otherwise default to the
+            // appropriate partition column based on the model's time grain.
+            // If no partition column exists on the model, omit unique_key so
+            // dbt surfaces its own clear "delete+insert requires unique_key"
+            // error at compile time instead of us emitting a phantom column.
+            if (strategy.unique_key) {
+              modelConfig.unique_key = strategy.unique_key;
+            } else if (partitions.length) {
+              modelConfig.unique_key = getDefaultUniqueKey(partitions);
+            }
             break;
           }
           case 'merge': {
@@ -1785,14 +1984,34 @@ export function frameworkGenerateModelOutput({
             }
             break;
           }
+          case 'overwrite_existing_partitions': {
+            // Requires a custom dbt macro in the consumer project (the DJ
+            // extension does not ship it and dbt-trino does not provide it
+            // natively). Auto-derive unique_key from partition columns when
+            // not explicitly supplied, mirroring delete+insert semantics.
+            modelConfig.incremental_strategy = 'overwrite_existing_partitions';
+            if (strategy.unique_key) {
+              modelConfig.unique_key = strategy.unique_key;
+            } else if (partitions.length) {
+              modelConfig.unique_key = getDefaultUniqueKey(partitions);
+            }
+            break;
+          }
           default: {
             const defaultStrategy =
               dj.config.materializationDefaultIncrementalStrategy ??
-              'delete+insert';
+              DEFAULT_INCREMENTAL_STRATEGY;
             modelConfig.incremental_strategy = defaultStrategy;
-            if (defaultStrategy === 'delete+insert') {
-              modelConfig.unique_key =
-                getDefaultUniqueKey(partitionColumnNames);
+            // Partition-based strategies auto-derive unique_key from the
+            // model's partition column(s) when one exists. Append never
+            // needs a unique_key; merge requires one and is not a valid
+            // default here (it has no reasonable partition-derived key).
+            if (
+              (defaultStrategy === 'delete+insert' ||
+                defaultStrategy === 'overwrite_existing_partitions') &&
+              partitions.length
+            ) {
+              modelConfig.unique_key = getDefaultUniqueKey(partitions);
             }
           }
         }
@@ -1801,13 +2020,6 @@ export function frameworkGenerateModelOutput({
         modelConfig.pre_hook =
           "set session iterative_optimizer_timeout='60m'; set session query_max_planning_time='60m'";
 
-        // Build the partition column list from columns that actually exist on the model
-        const partitions: string[] = [];
-        for (const p of partitionColumnNames) {
-          if (columns.find((c) => c.name === p)) {
-            partitions.push(p);
-          }
-        }
         if (partitions.length) {
           // Resolve storage format: model-level format override > project-level storage_type > delta_lake default.
           // Iceberg uses "partitioning" keyword; Delta Lake/Hive use "partitioned_by" in SQL properties.
@@ -1880,6 +2092,7 @@ export function frameworkGenerateModelOutput({
         datetimeInterval,
         dj,
         modelJson,
+        partitionColumnNames,
         project,
       });
       cteParts.push(`${cte.name} as (\n${cteSqlBody}\n)`);
@@ -2043,7 +2256,13 @@ export function frameworkModelProperties({
     }
   }
   if (portalPartitionColumns) {
-    // This property will continue to be inherited by direct child models
+    // Propagate the inherited partition column list as-is so descendants can
+    // see the full candidate set. Filtering against this model's columns here
+    // would cascade through `frameworkGetParentMeta` (which reads cached YAML
+    // meta) and incorrectly strip columns that downstream join models legitimately
+    // re-introduce via joined sources. The `unique_key` defaulting in
+    // `frameworkGenerateModelOutput` already intersects locally with this
+    // model's actual columns, so correctness is preserved without filtering here.
     modelProperties.meta = {
       ...modelProperties.meta,
       portal_partition_columns: portalPartitionColumns,
@@ -2350,6 +2569,10 @@ export function frameworkModelManifestMerge({
       ? frameworkBuildCteColumnRegistry({
           ctes: modelJson.ctes,
           modelId: mergeModelId,
+          partitionColumnNames: frameworkGetPartitionColumnNames({
+            modelJson,
+            project,
+          }),
           project,
         })
       : undefined;

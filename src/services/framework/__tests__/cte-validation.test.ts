@@ -3,7 +3,10 @@ import { frameworkBuildCteColumnRegistry } from '@services/framework/utils';
 import {
   validateCteColumnReferences,
   validateCteGroupBy,
+  validateCteLightdashMetrics,
   validateCtes,
+  validateDeadOuterLayer,
+  validateMainModelAggregation,
 } from '@services/modelValidation';
 
 import { createTestProject } from './helpers';
@@ -594,5 +597,405 @@ describe('validateCtes with group_by checks', () => {
       from: { cte: 'agg_data' },
     });
     expect(errors).toHaveLength(0);
+  });
+});
+
+/**
+ * Gap 1: `lightdash.metrics` / `lightdash.metrics_merge` are silently dropped
+ * when placed inside a CTE select -- only the main-model select feeds
+ * `lightdashBuildMetrics`. The validator turns that silent foot-gun into a
+ * loud authoring error.
+ */
+describe('validateCteLightdashMetrics (Gap 1)', () => {
+  // `metrics` and `metrics_merge` share the same validation path -- cover both
+  // keys in one matrix. The named variants exercise the column-name branch of
+  // the diagnostic message; the bare (unnamed) variant exercises the
+  // `select[N]` fallback used when no `name` is declared.
+  test.each<{
+    label: string;
+    key: 'metrics' | 'metrics_merge';
+    selectItem: any;
+    expectedIdFragment: string;
+    instancePath: string;
+  }>([
+    {
+      label: 'named select with lightdash.metrics',
+      key: 'metrics',
+      selectItem: {
+        name: 'revenue_sum',
+        type: 'fct',
+        expr: 'sum(amount)',
+        lightdash: {
+          metrics: [{ name: 'metric_revenue', type: 'sum', label: 'Revenue' }],
+        },
+      },
+      expectedIdFragment: 'revenue_sum',
+      instancePath: '/ctes/0/select/0/lightdash',
+    },
+    {
+      label: 'named select with lightdash.metrics_merge',
+      key: 'metrics_merge',
+      selectItem: {
+        name: 'amount_hll',
+        type: 'fct',
+        agg: 'hll',
+        lightdash: { metrics_merge: { group_label: 'Distinct Counts' } },
+      },
+      expectedIdFragment: 'amount_hll',
+      instancePath: '/ctes/0/select/0/lightdash',
+    },
+    {
+      label: 'bare (unnamed) select falls back to select[N] label',
+      key: 'metrics',
+      selectItem: { lightdash: { metrics: [{ name: 'x' }] } },
+      expectedIdFragment: 'select[0]',
+      instancePath: '/ctes/0/select/0/lightdash',
+    },
+  ])(
+    'rejects lightdash.$key: $label',
+    ({ key, selectItem, expectedIdFragment, instancePath }) => {
+      const errors = validateCteLightdashMetrics({
+        ctes: [
+          {
+            name: 'pre_agg',
+            from: { model: 'stg_events' },
+            select: [selectItem],
+          },
+        ],
+      });
+      expect(errors).toHaveLength(1);
+      expect(errors[0].message).toContain(`lightdash.${key}`);
+      expect(errors[0].message).toContain(expectedIdFragment);
+      expect(errors[0].instancePath).toBe(instancePath);
+    },
+  );
+
+  test('allows lightdash.dimension on a CTE select (dimension propagates by design)', () => {
+    const errors = validateCteLightdashMetrics({
+      ctes: [
+        {
+          name: 'pre_agg',
+          from: { model: 'stg_events' },
+          select: [
+            {
+              name: 'region',
+              type: 'dim',
+              lightdash: { dimension: { label: 'Region' } },
+            },
+          ],
+        },
+      ],
+    });
+    expect(errors).toHaveLength(0);
+  });
+
+  test('ignores models with no ctes array', () => {
+    expect(validateCteLightdashMetrics({})).toEqual([]);
+    expect(validateCteLightdashMetrics({ ctes: null })).toEqual([]);
+  });
+});
+
+/**
+ * Gap 2: Main-model `fct` columns must be aggregated when the main model has
+ * a `group_by`. Covers both named scalar selects and bulk CTE selects
+ * (`all_from_cte` / `fcts_from_cte`) that carry fcts through without
+ * re-aggregation.
+ */
+describe('validateMainModelAggregation (Gap 2)', () => {
+  test('errors for bare fct scalar with main-model group_by', () => {
+    const errors = validateMainModelAggregation({
+      group_by: 'dims',
+      select: [
+        { name: 'region', type: 'dim' },
+        { name: 'revenue', type: 'fct' },
+      ],
+    });
+    // One diagnostic per offending select item, pinned to that item.
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toContain('revenue');
+    expect(errors[0].message).toContain('Un-aggregated fct column');
+    expect(errors[0].instancePath).toBe('/select/1');
+  });
+
+  test('emits one diagnostic per offending select item', () => {
+    const errors = validateMainModelAggregation({
+      group_by: 'dims',
+      select: [
+        { name: 'region', type: 'dim' },
+        { name: 'revenue', type: 'fct' },
+        { name: 'cost', type: 'fct' },
+        { name: 'profit', type: 'fct' },
+      ],
+    });
+    expect(errors).toHaveLength(3);
+    expect(errors.map((e) => e.instancePath)).toEqual([
+      '/select/1',
+      '/select/2',
+      '/select/3',
+    ]);
+    expect(errors[0].message).toContain('revenue');
+    expect(errors[1].message).toContain('cost');
+    expect(errors[2].message).toContain('profit');
+  });
+
+  test('no error when scalar fct sets agg', () => {
+    const errors = validateMainModelAggregation({
+      group_by: 'dims',
+      select: [
+        { name: 'region', type: 'dim' },
+        { name: 'revenue', type: 'fct', agg: 'sum' },
+      ],
+    });
+    expect(errors).toHaveLength(0);
+  });
+
+  // The aggregate-expr path is covered exhaustively by the `test.each` below
+  // (including `sum(...)`), so we don't need a separate hand-rolled test for
+  // that case.
+
+  test.each([
+    // Most common user pattern -- also the FRAMEWORK_AGGS representative.
+    ['sum', 'sum(amount)'],
+    // Framework-emitted sketch kernels: `merge(cast(... as hyperloglog))` is
+    // what we emit for `agg: "hll"` re-aggregation; `approx_set` / `tdigest_agg`
+    // are the raw kernels users sometimes copy by hand.
+    [
+      'merge(cast(... as hyperloglog))',
+      'cast(merge(cast(col_hll as hyperloglog)) as varbinary)',
+    ],
+    ['approx_set raw kernel', 'cast(approx_set(user_id) as varbinary)'],
+    // Scalar aggregates outside FRAMEWORK_AGGS that show up in expr most often.
+    // `arbitrary` has spacing variants because the user's `.model.json` used
+    // ` arbitrary(col)` / `arbitrary (col)` and we need to confirm whitespace
+    // handling on both sides of the paren.
+    ['avg', 'avg(latency_ms)'],
+    ['any_value', 'any_value(region)'],
+    ['arbitrary (leading space)', ' arbitrary(x_originator_int_system)'],
+    ['arbitrary (space before paren)', 'arbitrary (integration_system)'],
+    ['max_by', 'max_by(region, event_time)'],
+    ['count_if', 'count_if(amount > 0)'],
+    ['approx_distinct', 'approx_distinct(user_id)'],
+    ['stddev', 'stddev(latency_ms)'],
+    ['listagg', "listagg(value, ',')"],
+    // `_agg` suffix convention: one positive case is enough to exercise the
+    // regex -- `array_agg` stands in for `map_agg`, `set_agg`, `reduce_agg`,
+    // `bitwise_*_agg`, and user UDAFs following the same naming.
+    ['array_agg (_agg suffix)', 'array_agg(event_id)'],
+  ])('no error when expr uses %s', (_desc, expr) => {
+    const errors = validateMainModelAggregation({
+      group_by: 'dims',
+      select: [
+        { name: 'region', type: 'dim' },
+        { name: 'metric', type: 'fct', expr },
+      ],
+    });
+    expect(errors).toHaveLength(0);
+  });
+
+  test('no error when fct is explicitly opted out', () => {
+    const errors = validateMainModelAggregation({
+      group_by: 'dims',
+      select: [
+        { name: 'region', type: 'dim' },
+        {
+          name: 'revenue',
+          type: 'fct',
+          expr: 'any_value(amount)',
+          exclude_from_group_by: true,
+        },
+      ],
+    });
+    expect(errors).toHaveLength(0);
+  });
+
+  test('no error when no group_by is set', () => {
+    const errors = validateMainModelAggregation({
+      select: [{ name: 'revenue', type: 'fct' }],
+    });
+    expect(errors).toHaveLength(0);
+  });
+
+  test('errors for all_from_cte that drags unagged fcts through group_by', () => {
+    const project = createTestProject();
+    const registry = frameworkBuildCteColumnRegistry({
+      ctes: [
+        {
+          name: 'pre_agg',
+          from: { model: 'model_a' },
+          select: [
+            { name: 'col_a', type: 'dim' },
+            { name: 'col_b', type: 'fct', agg: 'sum' },
+          ],
+          group_by: 'dims',
+        },
+      ] as any,
+      project,
+    });
+
+    const errors = validateMainModelAggregation(
+      {
+        group_by: 'dims',
+        from: { cte: 'pre_agg' },
+        select: [{ cte: 'pre_agg', type: 'all_from_cte' }],
+      },
+      registry,
+    );
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toContain('all_from_cte');
+    expect(errors[0].message).toContain('col_b_sum');
+    expect(errors[0].instancePath).toBe('/select/0');
+  });
+
+  test('no error when all_from_cte wraps only dims (no fcts leaked)', () => {
+    const project = createTestProject();
+    const registry = frameworkBuildCteColumnRegistry({
+      ctes: [
+        {
+          name: 'dim_only',
+          from: { model: 'model_a' },
+          select: [{ name: 'col_a', type: 'dim' }],
+        },
+      ] as any,
+      project,
+    });
+
+    const errors = validateMainModelAggregation(
+      {
+        group_by: 'dims',
+        from: { cte: 'dim_only' },
+        select: [{ cte: 'dim_only', type: 'all_from_cte' }],
+      },
+      registry,
+    );
+    expect(errors).toHaveLength(0);
+  });
+
+  test('no error when bulk carrier excludes every fct column', () => {
+    const project = createTestProject();
+    const registry = frameworkBuildCteColumnRegistry({
+      ctes: [
+        {
+          name: 'pre_agg',
+          from: { model: 'model_a' },
+          select: [
+            { name: 'col_a', type: 'dim' },
+            { name: 'col_b', type: 'fct', agg: 'sum' },
+          ],
+          group_by: 'dims',
+        },
+      ] as any,
+      project,
+    });
+
+    const errors = validateMainModelAggregation(
+      {
+        group_by: 'dims',
+        from: { cte: 'pre_agg' },
+        select: [
+          { cte: 'pre_agg', type: 'all_from_cte', exclude: ['col_b_sum'] },
+        ],
+      },
+      registry,
+    );
+    expect(errors).toHaveLength(0);
+  });
+
+  test('errors for bare CTE fct scalar ref with main-model group_by', () => {
+    const errors = validateMainModelAggregation({
+      group_by: 'dims',
+      from: { cte: 'pre_agg' },
+      select: [
+        { cte: 'pre_agg', type: 'dims_from_cte' },
+        { cte: 'pre_agg', name: 'revenue_sum', type: 'fct' },
+      ],
+    });
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toContain('revenue_sum');
+    expect(errors[0].message).toContain('pre_agg');
+    expect(errors[0].instancePath).toBe('/select/1');
+  });
+});
+
+/**
+ * Gap 5: dead outer layers. The validator warns when the main model is a
+ * single `all_from_cte` / `dims_from_cte` passthrough of one CTE, with
+ * identical group_by and no extra projection / filter / order / limit.
+ */
+describe('validateDeadOuterLayer (Gap 5)', () => {
+  // Minimal base model that triggers the warning: one CTE, main model is a
+  // single all_from_cte passthrough with identical group_by and nothing else.
+  // Each escape-hatch case below starts from this shape and mutates exactly
+  // one field.
+  const baseDeadOuterLayerModel = () => ({
+    ctes: [
+      {
+        name: 'pre_agg',
+        from: { model: 'model_a' },
+        select: [
+          { name: 'region', type: 'dim' },
+          { name: 'revenue', type: 'fct', agg: 'sum' },
+        ],
+        group_by: 'dims' as const,
+      },
+    ],
+    from: { cte: 'pre_agg' },
+    group_by: 'dims' as const,
+    select: [{ cte: 'pre_agg', type: 'all_from_cte' as const }],
+  });
+
+  test('warns when main select is a single all_from_cte passthrough with identical group_by', () => {
+    const warnings = validateDeadOuterLayer(baseDeadOuterLayerModel());
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].message).toContain('no-op');
+    expect(warnings[0].message).toContain('pre_agg');
+    expect(warnings[0].instancePath).toBe('/select/0');
+  });
+
+  // Each escape hatch disables the warning by making the outer layer do real
+  // work (extra filter / limit / projection / diverging grain / bulk filter)
+  // or by removing the CTE-passthrough precondition entirely.
+  test.each<{ label: string; mutate: (m: any) => void }>([
+    {
+      label: 'outer layer adds a where clause',
+      mutate: (m) => {
+        m.where = { and: [{ expr: "region = 'us'" }] };
+      },
+    },
+    {
+      label: 'outer layer adds a limit',
+      mutate: (m) => {
+        m.limit = 100;
+      },
+    },
+    {
+      label: 'outer group_by diverges from CTE group_by',
+      mutate: (m) => {
+        m.ctes[0].group_by = ['region'];
+      },
+    },
+    {
+      label: 'outer adds extra projection (multiple select items)',
+      mutate: (m) => {
+        m.select.push({ name: 'suffix', expr: "'us'", type: 'dim' });
+      },
+    },
+    {
+      label: 'from does not reference a CTE',
+      mutate: (m) => {
+        m.ctes = [];
+        m.from = { model: 'model_a' };
+        m.select = [{ model: 'model_a', type: 'dims_from_model' }];
+      },
+    },
+    {
+      label: 'bulk select applies exclude / include filter',
+      mutate: (m) => {
+        m.select[0].exclude = ['noisy_col'];
+      },
+    },
+  ])('no warning: $label', ({ mutate }) => {
+    const m = baseDeadOuterLayerModel();
+    mutate(m);
+    expect(validateDeadOuterLayer(m)).toHaveLength(0);
   });
 });

@@ -18,7 +18,11 @@ import {
   frameworkGetModelName,
   frameworkGetModelPrefix,
 } from '@services/framework/utils';
-import { validateCteColumnReferences } from '@services/modelValidation';
+import {
+  validateCteColumnReferences,
+  validateDeadOuterLayer,
+  validateMainModelAggregation,
+} from '@services/modelValidation';
 import { jsonParse } from '@shared';
 import type { DbtProject } from '@shared/dbt/types';
 import type { FrameworkModel, FrameworkSyncOp } from '@shared/framework/types';
@@ -118,7 +122,49 @@ export class ModelProcessor {
       fs.promises.readFile(oldYmlPath, 'utf8').catch(() => ''),
     ]);
 
-    // 4. Generate SQL and YML
+    // 4. Pre-generation registry-aware checks (fail fast to avoid writing
+    // .sql / .yml files that we already know are broken).
+    const hasCtes = 'ctes' in modelJson && !!modelJson.ctes?.length;
+    const cteColumnRegistry = hasCtes
+      ? frameworkBuildCteColumnRegistry({
+          ctes: modelJson.ctes!,
+          project,
+        })
+      : undefined;
+
+    const aggErrors = validateMainModelAggregation(
+      modelJson,
+      cteColumnRegistry,
+    );
+    if (aggErrors.length > 0) {
+      const summary = aggErrors.map((e) => e.message).join('\n');
+      const message = `Main-model aggregation errors:\n${summary}`;
+      this.config.logger.error(`${modelName}: ${message}`);
+      // Route through the validation-error callback so each offending
+      // select[] item gets its own diagnostic pinned to the exact JSON
+      // range (instead of the fallback 0,0..100,0 generation-error range).
+      this.callbacks.onModelValidationError?.(
+        newJsonUri,
+        message,
+        aggErrors,
+        jsonContent,
+      );
+      return {
+        modelId: resource.id,
+        modelName,
+        sql: '',
+        yml: '',
+        updatedProject: null,
+        operations: [],
+        skipped: false,
+        error: {
+          uri: newJsonUri,
+          message,
+        },
+      };
+    }
+
+    // 5. Generate SQL and YML
     let newSql = '';
     let newYml = '';
     let updatedProject = project;
@@ -135,11 +181,7 @@ export class ModelProcessor {
 
       // Validate exclude/include column references against the CTE registry
       let hasColRefWarnings = false;
-      if ('ctes' in modelJson && modelJson.ctes?.length) {
-        const cteColumnRegistry = frameworkBuildCteColumnRegistry({
-          ctes: modelJson.ctes,
-          project,
-        });
+      if (cteColumnRegistry) {
         const colRefErrors = validateCteColumnReferences(
           modelJson,
           cteColumnRegistry,
@@ -151,6 +193,15 @@ export class ModelProcessor {
           }
           const warningMessage = `CTE column reference warnings:\n${colRefErrors.join('\n')}`;
           this.callbacks.onModelValidationWarning?.(newJsonUri, warningMessage);
+        }
+      }
+
+      // Dead outer-layer warning: main select is a single passthrough of a
+      // CTE with identical group_by. Warning-only -- the SQL is still valid.
+      const deadLayerWarnings = validateDeadOuterLayer(modelJson);
+      if (deadLayerWarnings.length > 0) {
+        for (const w of deadLayerWarnings) {
+          this.config.logger.warn?.(`${modelName}: ${w.message}`);
         }
       }
 

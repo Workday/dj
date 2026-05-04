@@ -32,8 +32,19 @@ describe('CTE Column Registry', () => {
       project,
     });
 
+    // `col_a` is a named-select that resolves to an upstream column on
+    // `model_a`; its data_type, description, and tags now inherit through
+    // (mergeDeep parity with the main-model selected-column builder).
+    // `total` has no upstream counterpart -- it's a pure expr column -- so
+    // nothing to inherit beyond the selected meta.
     expect(registry.get('filtered')).toEqual([
-      { name: 'col_a', meta: { type: 'dim' } },
+      {
+        name: 'col_a',
+        data_type: 'varchar',
+        description: undefined,
+        tags: [],
+        meta: { type: 'dim' },
+      },
       { name: 'total', meta: { type: 'fct', expr: 'SUM(col_b)' } },
     ]);
 
@@ -110,9 +121,24 @@ describe('CTE column type inheritance', () => {
     ];
     const registry = frameworkBuildCteColumnRegistry({ ctes, project });
     const cols = registry.get('step2')!;
+    // step1's named-selects now inherit upstream (model_a) data_type,
+    // description, and tags; step2's plain-string selects spread those
+    // columns verbatim, so the inherited fields flow through.
     expect(cols).toEqual([
-      { name: 'col_a', meta: { type: 'dim' } },
-      { name: 'col_b', meta: { type: 'fct' } },
+      {
+        name: 'col_a',
+        data_type: 'varchar',
+        description: undefined,
+        tags: [],
+        meta: { type: 'dim' },
+      },
+      {
+        name: 'col_b',
+        data_type: 'bigint',
+        description: undefined,
+        tags: [],
+        meta: { type: 'fct' },
+      },
     ]);
   });
 
