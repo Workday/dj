@@ -1,0 +1,16 @@
+# Files/directories to ignore when determining if a tag should be created
+docs/
+.github/
+.prettierignore
+.prettierrc
+.eslintrc.json
+.eslintcache
+.gitignore
+.vscodeignore
+DEVELOPMENT_SETUP.md
+CONTRIBUTING.md
+CODE_OF_CONDUCT.md
+LICENSE.md
+NOTICE
+Makefile
+.tagignore
