@@ -82,7 +82,7 @@ npm run update-test-schemas
 
 ```bash
 npm run package
-code --install-extension dj-framework-*.vsix
+code --install-extension dj-*.vsix
 ```
 
 ## Architecture

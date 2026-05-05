@@ -7,7 +7,7 @@ Table of Contents
 1. [Install Prerequisites](#1-install-prerequisites)
 2. [Install Trino CLI](#2-install-trino-cli)
 3. [Configure Trino Connection](#3-configure-trino-connection)
-4. [Install DJ (Data JSON) Framework Extension](#4-install-dj-framework-extension)
+4. [Install DJ (Data JSON) Framework Extension](#4-install-dj-data-json-framework-extension)
 5. [First Launch](#5-first-launch)
 6. [Configure Extension Settings](#6-configure-extension-settings)
 7. [Optional: Lightdash Integration](#7-optional-lightdash-integration)
@@ -96,6 +96,8 @@ export TRINO_SCHEMA=<your-schema>
 2. **Go to Extensions** (Cmd/Ctrl + Shift + X)
 3. **Search for "DJ"** or "Data JSON"
 4. **Install the extension**
+
+Or install directly from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=workday.dj).
 
 > Note: Want to build from source? See the [DEVELOPMENT_SETUP.md](../DEVELOPMENT_SETUP.md) for development setup.
 

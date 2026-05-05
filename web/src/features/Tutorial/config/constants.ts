@@ -1,8 +1,8 @@
 // Tutorial constants and configuration
 import type { AllowedButtons } from 'driver.js';
 
-export const TUTORIAL_STORAGE_KEY = 'dj-framework-tutorial-seen';
-export const TUTORIAL_PROGRESS_KEY = 'dj-framework-tutorial-progress';
+export const TUTORIAL_STORAGE_KEY = 'dj-tutorial-seen';
+export const TUTORIAL_PROGRESS_KEY = 'dj-tutorial-progress';
 
 // Base configuration shared by tutorial modes
 const BASE_CONFIG = {

@@ -6,7 +6,7 @@ description: >-
   including joins, CTEs, rollup, subqueries, or aggregations.
 compatibility: DJ (Data JSON) Framework extension workspace with .dj/schemas/ and .agents/dj/AGENTS.md
 metadata:
-  dj-framework-skill: '1.0'
+  dj-skill: '1.0'
 ---
 
 # Create DJ model

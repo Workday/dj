@@ -1,5 +1,6 @@
 # DJ (Data JSON) Framework
 
+[![VS Marketplace](https://img.shields.io/badge/VS%20Marketplace-Install-blue?logo=visualstudiocode)](https://marketplace.visualstudio.com/items?itemName=workday.dj)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![GitHub Release](https://img.shields.io/github/v/release/Workday/dj)](https://github.com/Workday/dj/releases)
 [![dbt](https://img.shields.io/badge/dbt-Core-orange.svg)](https://www.getdbt.com/)
@@ -115,14 +116,20 @@ dbt parse # this generates the manifest.json file
 
 ### 4. Install the Extension
 
-1. Download the latest `.vsix` file from the [GitHub Releases page](https://github.com/Workday/dj/releases)
-2. Install the extension in VS Code:
-   - Open VS Code
-   - Press `Cmd+Shift+P` (Mac) or `Ctrl+Shift+P` (Windows/Linux)
-   - Type "Extensions: Install from VSIX..."
-   - Select the downloaded `.vsix` file
+**From the VS Code Marketplace (recommended):**
 
-Note: Want to build the DJ (Data JSON) Framework extension from source? See the [DEVELOPMENT_SETUP.md](DEVELOPMENT_SETUP.md) for development setup.
+1. Open VS Code and go to the Extensions view (`Cmd/Ctrl + Shift + X`)
+2. Search for "DJ" or "Data JSON"
+3. Click **Install** on **DJ (Data JSON) Framework** by Workday
+
+Or install directly from the [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=workday.dj).
+
+**From a VSIX (fallback):**
+
+1. Download the latest `.vsix` file from the [GitHub Releases page](https://github.com/Workday/dj/releases)
+2. In VS Code, press `Cmd+Shift+P` (Mac) or `Ctrl+Shift+P` (Windows/Linux), run `Extensions: Install from VSIX...`, and select the downloaded file
+
+> Want to build the DJ (Data JSON) Framework extension from source? See the [DEVELOPMENT_SETUP.md](DEVELOPMENT_SETUP.md) for development setup.
 
 ### 5. Configure VS Code Settings
 
