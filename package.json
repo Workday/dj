@@ -1,7 +1,7 @@
 {
   "name": "dj",
   "author": "Workday",
-  "displayName": "DJ (Data JSON) Framework",
+  "displayName": "DJ (Data JSON)",
   "description": "An extension for managing dbt projects using Workday's Data JSON (DJ) Framework",
   "icon": "assets/images/dj-logo.png",
   "license": "Apache-2.0",
