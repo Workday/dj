@@ -1,5 +1,10 @@
 # Change Log
 
+## 1.3.8
+
+- Renamed VS Code Marketplace extension ID from `workday.dj-framework` to `workday.dj`.
+- Added Visual Studio Marketplace badges and Marketplace install instructions to the README; Marketplace is now the recommended install path with the GitHub Releases VSIX as a fallback.
+
 ## 1.3.7
 
 ### Naming alignment

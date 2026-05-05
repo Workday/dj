@@ -63,7 +63,7 @@ npm install
 2. Install the generated VSIX file:
 
    ```bash
-   code --install-extension dj-framework-*.vsix
+   code --install-extension dj-*.vsix
    ```
 
 ### Development Scripts
