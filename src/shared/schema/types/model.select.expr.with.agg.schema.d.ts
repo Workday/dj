@@ -15,6 +15,7 @@ export type SchemaModelSelectExprWithAgg = {
   description?: SchemaColumnDescription;
   expr: SchemaColumnExpr;
   lightdash?: SchemaColumnLightdash;
+  meta?: SchemaColumnMeta;
   name: SchemaColumnName;
   override_suffix_agg?: boolean;
   data_tests?: SchemaColumnDataTests;
@@ -64,13 +65,13 @@ export type SchemaColumnDescription = string;
  */
 export type SchemaColumnExpr = string;
 /**
- * Schema for lightdash AI hints
- */
-export type SchemaLightdashAIHint = string | string[];
-/**
  * Whether this column should be treated as case-sensitive
  */
 export type SchemaLightdashCaseSensitive = boolean;
+/**
+ * Schema for lightdash AI hints
+ */
+export type SchemaLightdashAIHint = string | string[];
 /**
  * Validate model tags
  */
@@ -158,6 +159,7 @@ export type SchemaColumnDataTests = (
 )[];
 
 export interface SchemaColumnLightdash {
+  case_sensitive?: SchemaLightdashCaseSensitive;
   dimension?: SchemaLightdashDimension;
   /**
    * @minItems 1
@@ -344,4 +346,10 @@ export interface SchemaLightdashMetricMerge {
    * The custom sql expression to generate the metric
    */
   sql?: string;
+}
+/**
+ * Validates schema for column-level meta on a select item. Accepts free-form custom keys (e.g. pii, compliance, owner). The framework reserves two categories of keys: (1) POPULATED-RESERVED keys (type, origin, dimension, metrics, case_sensitive) are written from structured sibling fields on the select item (type, lightdash.*) and will silently overwrite a user-authored value of the same name at YAML emit time -- author them via the canonical sibling fields instead. (2) SQL-INTERNAL RESERVED keys (agg, aggs, expr, prefix, exclude_from_group_by, interval, override_suffix_agg, metrics_merge) are used by the framework as internal state for SQL generation and column inheritance; they are stripped from the emitted YAML. Authoring them under meta has no effect on generated SQL -- the framework only reads them from the top-level sibling on the select item (select[i].agg / .expr / .prefix / .lightdash.metrics_merge / etc.). Collisions in either category are surfaced as Warning-severity diagnostics in the Problems tab. Free-form keys are inherited through downstream passthrough selects via the standard column-meta merge pipeline; expr-based selects do not inherit from upstream.
+ */
+export interface SchemaColumnMeta {
+  [k: string]: unknown | undefined;
 }

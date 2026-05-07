@@ -14,6 +14,7 @@ import {
   PARTITION_HOURLY,
   PARTITION_MONTHLY,
 } from '@services/framework/constants';
+import { COLUMN_META_SQL_INTERNAL_RESERVED_KEYS } from '@services/framework/utils/meta-lint';
 import { lightdashConvertDimensionType } from '@services/lightdash/utils';
 import type { DJ } from '@shared';
 import {
@@ -88,6 +89,7 @@ import {
   frameworkGetNodeColumns,
   frameworkGetPartitionColumnNames,
   frameworkResolveAgg,
+  frameworkResolveExcludeFlag,
   frameworkShouldAutoInjectCteFrameworkDims,
   frameworkShouldAutoInjectCtePortalSourceCount,
   frameworkSuffixAgg,
@@ -657,15 +659,15 @@ export function frameworkModelSelect({
     appendSql(sqlLines.join(' union all '));
   } else {
     for (const c of columns) {
-      const metaAgg = ('agg' in c.meta && c.meta.agg) || null;
+      const internalExpr = c.internal?.expr;
+      const internalPrefix = c.internal?.prefix;
+      const metaAgg = c.internal?.agg || null;
       const rollupAgg =
-        'rollup' in modelJson.from && c.meta.type === 'fct' && !c.meta.expr
+        'rollup' in modelJson.from && c.meta.type === 'fct' && !internalExpr
           ? frameworkSuffixAgg(c.name)
           : null;
       const newAgg = metaAgg || rollupAgg;
-      const overrideSuffixAgg = !!(
-        'override_suffix_agg' in c.meta && c.meta.override_suffix_agg
-      );
+      const overrideSuffixAgg = !!c.internal?.override_suffix_agg;
       const resolved = newAgg
         ? frameworkResolveAgg({
             agg: newAgg,
@@ -673,10 +675,11 @@ export function frameworkModelSelect({
             overrideSuffixAgg,
           })
         : { inputSuffixAgg: null, outputName: c.name };
-      const shouldAlias = !!c.meta.expr || !!newAgg;
-      const prefix = !c.meta.expr && c.meta.prefix ? `${c.meta.prefix}.` : '';
+      const shouldAlias = !!internalExpr || !!newAgg;
+      const prefix =
+        !internalExpr && internalPrefix ? `${internalPrefix}.` : '';
 
-      let line = c.meta.expr || `${prefix}${c.name}`;
+      let line = internalExpr || `${prefix}${c.name}`;
       if (newAgg) {
         line = frameworkBuildAggSql({
           agg: newAgg,
@@ -867,7 +870,7 @@ export function frameworkModelGroupBy({
     'group_by' in modelJson ? normalizeGroupBy(modelJson.group_by) : undefined;
 
   const hasAggFact =
-    facts.some((f) => !!f.meta.agg || !!f.meta.aggs) ||
+    facts.some((f) => !!f.internal?.agg || !!f.internal?.aggs) ||
     !!('lookback' in modelJson.from && modelJson.from.lookback);
   const shouldGroupBy =
     hasAggFact ||
@@ -882,26 +885,30 @@ export function frameworkModelGroupBy({
   const sqlGroupBy: string[] = [];
   if ('rollup' in modelJson.from) {
     for (const d of dimensions) {
-      if (d.meta.expr) {
-        sqlGroupBy.push(d.meta.expr);
+      if (d.internal?.expr) {
+        sqlGroupBy.push(d.internal.expr);
       } else {
-        sqlGroupBy.push(d.meta.prefix ? `${d.meta.prefix}.${d.name}` : d.name);
+        sqlGroupBy.push(
+          d.internal?.prefix ? `${d.internal.prefix}.${d.name}` : d.name,
+        );
       }
     }
   } else if (hasAggFact) {
     for (const c of columns) {
       if (
-        ('agg' in c.meta && c.meta.agg) ||
+        c.internal?.agg ||
         (c.meta.type === 'fct' && frameworkSuffixAgg(c.name)) ||
         c.meta.type === 'fct' ||
-        ('exclude_from_group_by' in c.meta && c.meta.exclude_from_group_by)
+        c.internal?.exclude_from_group_by
       ) {
         continue;
       }
-      if (c.meta.expr) {
-        sqlGroupBy.push(c.meta.expr);
+      if (c.internal?.expr) {
+        sqlGroupBy.push(c.internal.expr);
       } else {
-        sqlGroupBy.push(c.meta.prefix ? `${c.meta.prefix}.${c.name}` : c.name);
+        sqlGroupBy.push(
+          c.internal?.prefix ? `${c.internal.prefix}.${c.name}` : c.name,
+        );
       }
     }
   }
@@ -919,12 +926,12 @@ export function frameworkModelGroupBy({
         sqlGroupBy.push(g.expr);
       } else if ('type' in g && g.type === 'dims') {
         for (const d of dimensions) {
-          if (d.meta.exclude_from_group_by) {
+          if (d.internal?.exclude_from_group_by) {
             continue;
           }
           const line =
-            d.meta.expr ||
-            (d.meta.prefix ? `${d.meta.prefix}.${d.name}` : d.name);
+            d.internal?.expr ||
+            (d.internal?.prefix ? `${d.internal.prefix}.${d.name}` : d.name);
           if (sqlGroupBy.includes(line)) {
             continue;
           }
@@ -1017,8 +1024,11 @@ export function frameworkBuildFilters({
   includeFullMonthOverride?: boolean;
 }): string[] {
   const sqlLines: string[] = [];
-  // If exclude_date_filter set to true, we return no framework date filters
-  if ('exclude_date_filter' in modelJson && modelJson.exclude_date_filter) {
+  // If exclude_date_filter is set (or implied by `exclude_framework_artifacts:
+  // "all"` at the model level), we return no framework date filters. CTE
+  // call sites short-circuit before reaching this with their own resolver
+  // call so per-CTE overrides participate too.
+  if (frameworkResolveExcludeFlag('date_filter', null, modelJson)) {
     return sqlLines;
   }
   //
@@ -1245,11 +1255,99 @@ export function expandBulkSelectColumns({
 }
 
 /**
+ * Rewrites the `selectParts` produced by `frameworkGenerateCteSql` when the
+ * CTE declares `from.rollup`. Mirrors the model-level rollup pattern in
+ * `frameworkModelSelect` (datetime → `date_trunc(...) as datetime`, fct
+ * columns wrapped with their suffix-agg) but operates on the
+ * `{ name, sql }[]` shape used by the CTE emitter.
+ *
+ * Rules:
+ *
+ * 1. The `datetime` part is ALWAYS rewritten to use the rollup grain --
+ *    this overrides any bare `datetime` from auto-inject/bulk expansion
+ *    AND any inconsistent `{ name: 'datetime', interval }` select item that
+ *    declared a different grain than `from.rollup.interval`.
+ * 2. Fct columns whose current SQL is a bare reference (`name` or
+ *    `alias.name`) get wrapped with their suffix-agg via
+ *    `frameworkBuildAggSql`. Parts that already contain `(` or ` as ` are
+ *    treated as user-controlled (explicit `agg`, `aggs`, or `expr`) and
+ *    are left untouched.
+ * 3. Fct status is read from the CTE's own output registry so bulk-expanded
+ *    columns inherit the type information from the upstream registry.
+ */
+function applyCteRollupSelectRewrites({
+  cte,
+  cteOutputColumns,
+  cteRegistry,
+  project,
+  rollup,
+  selectParts,
+}: {
+  cte: FrameworkCTE;
+  cteOutputColumns: FrameworkColumn[];
+  cteRegistry: CteColumnRegistry;
+  project: DbtProject;
+  rollup: { interval: FrameworkInterval };
+  selectParts: { name: string; sql: string }[];
+}): void {
+  const sourceInterval = frameworkGetCteDatetimeSourceInterval({
+    cteRegistry,
+    from: cte.from,
+    project,
+  });
+  const datetimeOutCol = cteOutputColumns.find((c) => c.name === 'datetime');
+  // Refinement 3: forward Lightdash dimension overrides authored on the CTE
+  // datetime (post-rollup-transform) into the emitted SQL via `userDimension`.
+  // Without this, `frameworkBuildDatetimeColumn` would emit defaults even when
+  // the user has customized the dimension's label, time_intervals, or hidden
+  // status on the CTE itself.
+  const built = frameworkBuildDatetimeColumn({
+    interval: rollup.interval,
+    sourceInterval,
+    userDimension: datetimeOutCol?.meta?.dimension,
+  });
+
+  for (const part of selectParts) {
+    if (part.name === 'datetime') {
+      part.sql = built.expr ? `${built.expr} as datetime` : 'datetime';
+      continue;
+    }
+    if (part.sql.includes('(') || part.sql.includes(' as ')) {
+      continue;
+    }
+    const outCol = cteOutputColumns.find((c) => c.name === part.name);
+    if (!outCol || outCol.meta?.type !== 'fct') {
+      continue;
+    }
+    const agg = frameworkSuffixAgg(part.name);
+    if (!agg) {
+      continue;
+    }
+    const overrideSuffixAgg = !!outCol.internal?.override_suffix_agg;
+    const resolved = frameworkResolveAgg({
+      agg,
+      name: part.name,
+      overrideSuffixAgg,
+    });
+    part.sql = `${frameworkBuildAggSql({
+      agg,
+      baseExpr: part.sql,
+      inputSuffixAgg: resolved.inputSuffixAgg,
+    })} as ${resolved.outputName}`;
+  }
+}
+
+/**
  * Generates the SQL body for an individual CTE definition.
  * Handles three FROM patterns: union (CTE-to-CTE or model-to-model),
  * CTE-to-CTE chaining, and standard model/source references.
  * Aggregation directives (agg/aggs) are applied here so the CTE's
  * output columns are already aggregated -- consumers should not re-aggregate.
+ *
+ * When the CTE declares `from.rollup`, the datetime select gets rewritten
+ * to `date_trunc(...) as datetime`, fct columns are wrapped with their
+ * suffix-agg, and the GROUP BY defaults to `'dims'` when not explicitly
+ * authored. See `applyCteRollupSelectRewrites`.
  */
 export function frameworkGenerateCteSql({
   cte,
@@ -1270,11 +1368,11 @@ export function frameworkGenerateCteSql({
 }): string {
   const from = cte.from;
 
-  const shouldExcludeDateFilter =
-    ('exclude_date_filter' in cte && cte.exclude_date_filter) ||
-    (modelJson &&
-      'exclude_date_filter' in modelJson &&
-      modelJson.exclude_date_filter);
+  const shouldExcludeDateFilter = frameworkResolveExcludeFlag(
+    'date_filter',
+    cte,
+    modelJson ?? null,
+  );
 
   // Per-CTE overrides for the daily-grain date filter and the include-full-month
   // shape. `undefined` falls through to the model-level value inside
@@ -1455,14 +1553,16 @@ export function frameworkGenerateCteSql({
     }
 
     // Mirror the main-model datetime + partition auto-injection for CTEs
-    // whose FROM is a plain model ref. Registry (frameworkInferCteColumns)
-    // and emitted SQL must stay in lock-step; both call
-    // `frameworkShouldAutoInjectCteFrameworkDims`. Emitted as bare passthrough
-    // refs -- the sorter below still pushes partitions to the bottom.
+    // whose FROM is a plain model OR plain CTE ref. Registry
+    // (frameworkInferCteColumns) and emitted SQL must stay in lock-step;
+    // both call `frameworkShouldAutoInjectCteFrameworkDims`. Emitted as
+    // bare passthrough refs -- the sorter below still pushes partitions
+    // to the bottom.
     if (!hasStar) {
       const autoDims = frameworkShouldAutoInjectCteFrameworkDims({
         cte,
         alreadyPresentNames: selectParts.map((p) => p.name),
+        cteRegistry,
         modelJson,
         project,
       });
@@ -1474,13 +1574,14 @@ export function frameworkGenerateCteSql({
     }
 
     // Mirror the main-model `portal_source_count` auto-injection for CTEs
-    // whose FROM is a plain model ref. Registry (frameworkInferCteColumns)
-    // and emitted SQL must stay in lock-step; both call
-    // `frameworkShouldAutoInjectCtePortalSourceCount`.
+    // whose FROM is a plain model OR plain CTE ref. Registry
+    // (frameworkInferCteColumns) and emitted SQL must stay in lock-step;
+    // both call `frameworkShouldAutoInjectCtePortalSourceCount`.
     if (!hasStar) {
       const autoPsc = frameworkShouldAutoInjectCtePortalSourceCount({
         cte,
         alreadyPresentNames: selectParts.map((p) => p.name),
+        cteRegistry,
         modelJson,
         project,
       });
@@ -1503,6 +1604,43 @@ export function frameworkGenerateCteSql({
           });
         }
       }
+    }
+
+    // Rollup post-process. Two responsibilities:
+    //
+    // 1. Star-expansion: a bulk `all_from_*` / `dims_from_*` / `fcts_from_*`
+    //    select with no `include` / `exclude` filters returns `null` from
+    //    `expandBulkSelectColumns`, leaving us with `select *`. That's
+    //    incompatible with rollup -- the emitted SQL would not contain the
+    //    `date_trunc(...)` truncation or the suffix-agg wrapping needed at
+    //    the new grain. Replace `*` with explicit column refs from the
+    //    rolled-up registry so the rewrite pass below has something to work
+    //    on.
+    // 2. Rewrite datetime to `date_trunc(...) as datetime` and wrap any
+    //    bare fct references with their suffix-agg. Runs after both
+    //    auto-inject sites so `datetime`/`portal_source_count` injected
+    //    there get normalized alongside user-authored selects and bulk
+    //    expansions. See `applyCteRollupSelectRewrites`.
+    if ('rollup' in from && from.rollup) {
+      const cteOutputColumns = cteRegistry.get(cte.name) ?? [];
+      if (hasStar) {
+        hasStar = false;
+        const presentNames = new Set(selectParts.map((p) => p.name));
+        for (const col of cteOutputColumns) {
+          if (presentNames.has(col.name)) {
+            continue;
+          }
+          selectParts.push({ name: col.name, sql: col.name });
+        }
+      }
+      applyCteRollupSelectRewrites({
+        cte,
+        cteOutputColumns,
+        cteRegistry,
+        project,
+        rollup: from.rollup,
+        selectParts,
+      });
     }
 
     if (hasStar && selectParts.length === 0) {
@@ -1620,7 +1758,15 @@ export function frameworkGenerateCteSql({
   }
 
   // GROUP BY
-  const normalizedCteGroupBy = normalizeGroupBy(cte.group_by);
+  // Rollup implies aggregation across the new grain. When the user has not
+  // authored an explicit `group_by` on the CTE, default to `'dims'` so the
+  // SQL emitter produces `GROUP BY <all dim exprs>`. Mirrors the main-model
+  // rollup pattern (`shouldGroupBy` in `frameworkModelGroupBy`).
+  const cteGroupBy =
+    'rollup' in from && from.rollup && cte.group_by === undefined
+      ? 'dims'
+      : cte.group_by;
+  const normalizedCteGroupBy = normalizeGroupBy(cteGroupBy);
   if (normalizedCteGroupBy) {
     const selectExprMap = new Map<string, string>();
     if (cte.select) {
@@ -1641,15 +1787,15 @@ export function frameworkGenerateCteSql({
         const cols = cteRegistry.get(cte.name) || [];
         const dimCols = cols
           .filter(
-            (c) => c.meta?.type !== 'fct' && !c.meta?.exclude_from_group_by,
+            (c) => c.meta?.type !== 'fct' && !c.internal?.exclude_from_group_by,
           )
-          // Fall back to `c.meta.expr` (e.g. `date_trunc('hour', datetime)`
+          // Fall back to `c.internal.expr` (e.g. `date_trunc('hour', datetime)`
           // produced by frameworkBuildDatetimeColumn) before the bare name.
           // Trino's GROUP BY resolves identifiers against input columns, not
           // SELECT aliases (see trino#16533), so emitting the bare alias for
           // a derived expression would over-group to the raw input column's
           // granularity. Matches the main-model builder.
-          .map((c) => selectExprMap.get(c.name) || c.meta?.expr || c.name);
+          .map((c) => selectExprMap.get(c.name) || c.internal?.expr || c.name);
         gbParts.push(...dimCols);
       }
     }
@@ -2243,7 +2389,10 @@ export function frameworkModelProperties({
     private: false,
     contract: { enforced: false },
     config: {},
-    meta: { metrics: modelMetrics },
+    meta: {
+      ...('meta' in modelJson && modelJson.meta ? modelJson.meta : {}),
+      metrics: modelMetrics,
+    },
     columns: [],
   };
 
@@ -2453,6 +2602,53 @@ export function frameworkModelProperties({
       {},
     );
 
+    // Column meta emit strategy (free-form meta support):
+    //
+    // After the `FrameworkColumn` split, all SQL-generation state lives
+    // on `c.internal.*` and is never emitted. Values on `c.meta` fall
+    // into three buckets:
+    //   a. Populated-reserved keys (type / origin / dimension / metrics /
+    //      case_sensitive) -- framework-written, will be re-layered below.
+    //   b. SQL-internal reserved key names (agg / expr / prefix / ...) --
+    //      the user placed them under `meta` by mistake. They have no
+    //      effect on SQL (the framework reads SQL state from
+    //      `c.internal.*`, which is populated from top-level select-item
+    //      siblings). We strip them so they don't silently leak to the
+    //      emitted YAML; the reserved-key lint (meta-lint.ts) separately
+    //      surfaces the authoring mistake as a Warning diagnostic.
+    //   c. Free-form user keys -- passed through verbatim.
+    //
+    // Strategy:
+    //   1. Spread-destructure to drop (a) and (b) from the free-form bag.
+    //   2. Layer the framework-populated reserved keys back on top so the
+    //      framework silently wins on collision with any free-form key
+    //      of the same name.
+    //   3. Apply `case_sensitive` AFTER `removeEmpty` so a valid `false`
+    //      value isn't stripped.
+    const rawMeta = (c.meta ?? {}) as Record<string, unknown>;
+    const metaFreeForm: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(rawMeta)) {
+      // Skip populated-reserved keys -- they are re-layered below.
+      if (
+        key === 'type' ||
+        key === 'origin' ||
+        key === 'dimension' ||
+        key === 'metrics' ||
+        key === 'case_sensitive'
+      ) {
+        continue;
+      }
+      // Skip SQL-internal reserved key names -- never emitted.
+      if (
+        (COLUMN_META_SQL_INTERNAL_RESERVED_KEYS as readonly string[]).includes(
+          key,
+        )
+      ) {
+        continue;
+      }
+      metaFreeForm[key] = value;
+    }
+
     // Preserve the explicit case_sensitive value before removeEmpty strips `false`.
     const explicitCaseSensitive = dimension.case_sensitive;
     const cleanedDimension = removeEmpty(dimension);
@@ -2470,13 +2666,23 @@ export function frameworkModelProperties({
       cleanedDimension.case_sensitive = true;
     }
 
-    // Control ordering and only include certain meta properties
     column.meta = removeEmpty({
-      type: column.meta?.type,
-      origin: column.meta?.origin,
+      ...metaFreeForm,
+      type: c.meta?.type,
+      origin: c.meta?.origin,
       dimension: cleanedDimension,
       metrics,
     });
+
+    // Re-inject column-level case_sensitive AFTER removeEmpty so a valid
+    // `false` value (intentionally opting OUT of case sensitivity) isn't
+    // stripped along with other empty/falsy values.
+    if (c.meta.case_sensitive !== undefined) {
+      column.meta = {
+        ...column.meta,
+        case_sensitive: c.meta.case_sensitive,
+      };
+    }
 
     // Remove any remaining empty column properties
     modelPropertiesColumns.push(removeEmpty(column));
@@ -2827,6 +3033,8 @@ export function frameworkMakeModelTemplate(
     partitioned_by,
     exclude_daily_filter,
     exclude_date_filter,
+    exclude_datetime,
+    exclude_framework_artifacts,
     exclude_portal_partition_columns,
     exclude_portal_source_count,
   }: Api<'framework-model-create'>['request'],
@@ -2869,6 +3077,10 @@ export function frameworkMakeModelTemplate(
     // Exclude filter flags
     ...(exclude_daily_filter !== undefined && { exclude_daily_filter }),
     ...(exclude_date_filter !== undefined && { exclude_date_filter }),
+    ...(exclude_datetime !== undefined && { exclude_datetime }),
+    ...(exclude_framework_artifacts !== undefined && {
+      exclude_framework_artifacts,
+    }),
     ...(exclude_portal_partition_columns !== undefined && {
       exclude_portal_partition_columns,
     }),

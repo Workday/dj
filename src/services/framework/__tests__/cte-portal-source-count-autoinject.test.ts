@@ -97,7 +97,7 @@ describe('CTE portal_source_count auto-injection (Gap 3)', () => {
     const psc = cols.find((c) => c.name === 'portal_source_count');
     expect(psc).toBeDefined();
     // No aggregation applied -> no `agg` meta on the injected column.
-    expect(psc?.meta.agg).toBeUndefined();
+    expect(psc?.internal?.agg).toBeUndefined();
   });
 
   test('registry does NOT inject when user already declared portal_source_count under its default name', () => {

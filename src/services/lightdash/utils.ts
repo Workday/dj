@@ -60,7 +60,7 @@ export function lightdashBuildMetrics({
       {}) as LightdashMetric;
     for (const _metric of selected.lightdash.metrics || []) {
       if (typeof _metric === 'string') {
-        const columnAgg = column.meta.agg;
+        const columnAgg = column.internal?.agg;
         const nameAgg: FrameworkColumnAgg | null =
           (new RegExp(`_(${FRAMEWORK_AGGS.join('|')})$`).exec(
             column.name,

@@ -829,6 +829,7 @@ where a = 1
                             description: 'Customer identifier',
                             tags: [],
                             meta: { type: 'dim' as const },
+                            internal: {},
                           },
                           {
                             name: 'order_count',
@@ -836,6 +837,7 @@ where a = 1
                             description: 'Total number of orders',
                             tags: [],
                             meta: { type: 'fct' as const },
+                            internal: {},
                           },
                         ],
                       }),
@@ -911,6 +913,7 @@ where a = 1
                             description: 'Primary key',
                             tags: [],
                             meta: { type: 'dim' as const },
+                            internal: {},
                           },
                           {
                             name: 'name',
@@ -918,6 +921,7 @@ where a = 1
                             description: 'Customer name',
                             tags: [],
                             meta: { type: 'dim' as const },
+                            internal: {},
                           },
                           {
                             name: 'email',
@@ -925,6 +929,7 @@ where a = 1
                             description: 'Customer email',
                             tags: [],
                             meta: { type: 'dim' as const },
+                            internal: {},
                           },
                         ],
                       }),

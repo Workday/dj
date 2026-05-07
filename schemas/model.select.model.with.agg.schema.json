@@ -13,6 +13,7 @@
         "data_type": { "$ref": "column.data_type.schema.json" },
         "description": { "$ref": "column.description.schema.json" },
         "lightdash": { "$ref": "column.lightdash.schema.json" },
+        "meta": { "$ref": "column.meta.schema.json" },
         "model": { "$ref": "model.ref.schema.json" },
         "name": { "$ref": "column.name.schema.json" },
         "override_prefix": { "$ref": "column.name.schema.json" },

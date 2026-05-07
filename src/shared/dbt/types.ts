@@ -1,5 +1,4 @@
 import type {
-  FrameworkColumnAgg,
   FrameworkColumnDataTests,
   FrameworkDataType,
   FrameworkMetricType,
@@ -251,19 +250,25 @@ export type DbtModelPropertiesColumn = {
   tests?: FrameworkColumnDataTests;
 };
 
+/**
+ * Shape of the `meta:` block emitted for each column in the generated dbt
+ * YAML. All fields here are user-visible; SQL-internal framework state
+ * (`agg`, `expr`, `prefix`, `interval`, `exclude_from_group_by`,
+ * `override_suffix_agg`, `aggs`) lives on `FrameworkColumn.internal`
+ * during processing and is never emitted.
+ *
+ * Free-form user-authored keys flow through verbatim (see
+ * `frameworkModelProperties`). We intentionally do NOT declare a string
+ * index signature here -- see the matching note on `FrameworkColumnMeta`.
+ */
 export type DbtModelPropertiesColumnMeta = {
-  // type: FrameworkDataType;
-  // Meta for framework
   type?: 'dim' | 'fct';
   name?: string;
-  agg?: FrameworkColumnAgg;
-  interval?: 'day' | 'hour' | 'month' | 'year';
   label?: string;
   origin?: { id: string };
-  prefix?: string;
-  // Meta for Lightdash
   dimension?: LightdashDimension;
   metrics?: LightdashMetrics;
+  case_sensitive?: boolean;
 };
 
 export type DbtModelPropertiesColumnMetaMetric = {

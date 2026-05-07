@@ -12,12 +12,15 @@ describe('mergeDeep', () => {
           time_intervals: ['DAY', 'HOUR', 'MONTH'],
         },
       },
+      internal: {},
     };
     const input2: FrameworkColumn = {
       name: 'datetime',
       meta: {
         type: 'dim',
         dimension: { time_intervals: ['DAY', 'MONTH'] },
+      },
+      internal: {
         expr: "date_trunc('day', datetime)",
       },
     };
@@ -26,6 +29,8 @@ describe('mergeDeep', () => {
       meta: {
         type: 'dim',
         dimension: { label: 'Datetime', time_intervals: ['DAY', 'MONTH'] },
+      },
+      internal: {
         expr: "date_trunc('day', datetime)",
       },
     };

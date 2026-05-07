@@ -27,6 +27,9 @@
     "tags": {
       "$ref": "model.tags.schema.json"
     },
+    "meta": {
+      "$ref": "model.meta.schema.json"
+    },
     "data_tests": {
       "$ref": "model.data_tests.schema.json"
     },
@@ -37,7 +40,7 @@
       "$ref": "model.materialized.schema.json"
     },
     "incremental_strategy": {
-      "$ref": "model.incremental_strategy.schema.json"
+      "$ref": "model.incremental_strategy.deprecated.schema.json"
     },
     "sql_hooks": {
       "$ref": "model.sql_hooks.schema.json"
@@ -53,6 +56,12 @@
     },
     "exclude_portal_partition_columns": {
       "$ref": "model.exclude_portal_partition_columns.schema.json"
+    },
+    "exclude_datetime": {
+      "$ref": "model.exclude_datetime.schema.json"
+    },
+    "exclude_framework_artifacts": {
+      "$ref": "model.exclude_framework_artifacts.schema.json"
     },
     "exclude_portal_source_count": {
       "$ref": "model.exclude_portal_source_count.schema.json"
@@ -88,6 +97,9 @@
               },
               "lightdash": {
                 "$ref": "column.lightdash.schema.json"
+              },
+              "meta": {
+                "$ref": "column.meta.schema.json"
               },
               "name": {
                 "$ref": "column.name.schema.json"

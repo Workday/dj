@@ -13,6 +13,7 @@
  */
 
 import {
+  collectModelMetaLintWarnings,
   frameworkBuildCteColumnRegistry,
   frameworkGenerateModelOutput,
   frameworkGetModelName,
@@ -23,6 +24,8 @@ import {
   validateDeadOuterLayer,
   validateDjIcebergPartitionOverwrite,
   validateMainModelAggregation,
+  validateMaterializationPartitionsExist,
+  validatePartitionStrategyWithoutPartitions,
 } from '@services/modelValidation';
 import { jsonParse } from '@shared';
 import type { DbtProject } from '@shared/dbt/types';
@@ -207,6 +210,54 @@ export class ModelProcessor {
         }
       }
 
+      // Partition-strategy sanity check: incremental + a partition-based
+      // strategy on a model whose resolved column shape has no partition
+      // column. Warning-only so it doesn't block sync (false positives are
+      // possible when partitioning is wired through a project-level dbt
+      // config the framework cannot observe).
+      const partitionStrategyWarnings =
+        validatePartitionStrategyWithoutPartitions(
+          modelJson,
+          this.config.extensionConfig.materializationDefaultIncrementalStrategy,
+        );
+      if (partitionStrategyWarnings.length > 0) {
+        for (const w of partitionStrategyWarnings) {
+          this.config.logger.warn?.(`${modelName}: ${w.message}`);
+          validationWarnings.push(w);
+        }
+      }
+
+      // Names listed in materialization.partitions that don't appear as
+      // scalar select items get silently dropped from the dbt config by
+      // the SQL generator's filter. Warning anchored at the offending
+      // entry so it points exactly at the typo.
+      const matPartitionsWarnings =
+        validateMaterializationPartitionsExist(modelJson);
+      if (matPartitionsWarnings.length > 0) {
+        for (const w of matPartitionsWarnings) {
+          this.config.logger.warn?.(`${modelName}: ${w.message}`);
+          validationWarnings.push(w);
+        }
+      }
+
+      // Reserved-key lint for model/column meta. Emitted as positioned
+      // Warning-severity diagnostics via a separate callback so they append
+      // to any diagnostics already posted (e.g. CTE warnings above).
+      const metaLintWarnings = collectModelMetaLintWarnings(modelJson);
+      const hasMetaLintWarnings = metaLintWarnings.length > 0;
+      if (hasMetaLintWarnings) {
+        for (const w of metaLintWarnings) {
+          this.config.logger.warn?.(
+            `${modelName}: ${w.instancePath} ${w.message}`,
+          );
+        }
+        this.callbacks.onModelValidationLintWarnings?.(
+          newJsonUri,
+          metaLintWarnings,
+          jsonContent,
+        );
+      }
+
       if (validationWarnings.length > 0) {
         const summary = `Model validation warnings:\n${validationWarnings
           .map((w) => w.message)
@@ -217,7 +268,7 @@ export class ModelProcessor {
           validationWarnings,
           jsonContent,
         );
-      } else {
+      } else if (!hasMetaLintWarnings) {
         this.callbacks.onDiagnosticsClear?.(newJsonUri);
       }
     } catch (err: unknown) {

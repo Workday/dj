@@ -2,7 +2,6 @@
 import type { ApiRequest, ApiResponse } from '@shared/api/types';
 import type {
   LightdashDimension,
-  LightdashMetric,
   LightdashMetrics,
   LightdashTable,
 } from '@shared/lightdash/types';
@@ -54,6 +53,8 @@ export type FrameworkApi =
         partitioned_by?: [string, ...string[]];
         exclude_daily_filter?: boolean;
         exclude_date_filter?: boolean;
+        exclude_datetime?: boolean;
+        exclude_framework_artifacts?: 'all' | 'columns';
         exclude_portal_partition_columns?: boolean;
         exclude_portal_source_count?: boolean;
         from?: {
@@ -365,6 +366,21 @@ export type FrameworkApiHandler = typeof apiHandler;
 
 export type FrameworkColumnAgg = SchemaColumnAgg;
 
+/**
+ * Internal runtime representation of a column flowing between framework
+ * processing stages (select parsing → inheritance → SQL generation → YAML
+ * emission).
+ *
+ * `meta` is the public user-facing bag — it lands verbatim in the emitted
+ * dbt YAML. `internal` is the private framework bag — it drives SQL
+ * generation and column-name / inheritance resolution, and is NEVER
+ * emitted. The split is enforced structurally (separate fields) rather
+ * than via a deny-list at emit time.
+ *
+ * The two buckets move together through `mergeDeep`-based inheritance, so
+ * child columns inherit both user-facing and internal state from their
+ * upstream parent without any extra plumbing.
+ */
 export type FrameworkColumn = {
   name: string;
   data_tests?: FrameworkColumnDataTests;
@@ -372,23 +388,59 @@ export type FrameworkColumn = {
   description?: string;
   tags?: string[];
   meta: FrameworkColumnMeta;
+  internal: FrameworkColumnInternal;
 };
+
+/**
+ * Public column meta — lands verbatim in the emitted dbt YAML's
+ * `columns[].meta`. All fields here are either:
+ *   - **Populated-reserved**: `type`, `origin`, `dimension`, `metrics`,
+ *     `case_sensitive` — the framework writes these from structured
+ *     sibling fields on the select item (`type`, `lightdash.*`). User-
+ *     authored values of the same name under `meta` are silently
+ *     overwritten; the reserved-key lint (see `meta-lint.ts`) surfaces
+ *     the collision as a Warning diagnostic.
+ *   - **Free-form user keys**: any arbitrary key the user authors under
+ *     `select[i].meta`. These flow through `mergeDeep` during inheritance
+ *     and emit to YAML untouched.
+ *
+ * SQL-internal reserved keys (agg, aggs, expr, prefix, etc.) live on
+ * `FrameworkColumn.internal` instead — authoring them under `meta` has no
+ * effect on SQL and is lint-warned.
+ */
 export type FrameworkColumnMeta = {
   type: 'dim' | 'fct';
-  // Only used for datetime column
-  interval?: 'day' | 'hour' | 'month' | 'year';
-  // Should get stripped out when inherited
-  agg?: FrameworkColumnAgg;
-  aggs?: FrameworkColumnAgg[];
-  exclude_from_group_by?: boolean;
-  expr?: string;
+  case_sensitive?: boolean;
   origin?: { id: string };
-  override_suffix_agg?: boolean;
-  prefix?: string;
-  // Meta for Lightdash
   dimension?: LightdashDimension;
   metrics?: LightdashMetrics;
-  metrics_merge?: LightdashMetric;
+  // Free-form user-authored keys flow through here verbatim. We do NOT
+  // declare a string index signature because doing so would break
+  // RecursivePartial<FrameworkColumnMeta> at every existing mergeDeep
+  // call site. The few places that write user-authored keys cast to
+  // `Record<string, unknown>` locally.
+};
+
+/**
+ * Framework-private column state. Never emitted to YAML.
+ *
+ * Each field here has a typed sibling on the user-authored select item
+ * (`select[i].agg`, `.expr`, `.prefix`, `.interval`, etc.). The framework
+ * copies those top-level siblings into `column.internal.*` during
+ * `frameworkProcessSelected` and reads them back during SQL line /
+ * GROUP BY / column-name generation and column inheritance.
+ *
+ * Authoring these keys under `select[i].meta` has no effect on generated
+ * SQL; the reserved-key lint flags those collisions.
+ */
+export type FrameworkColumnInternal = {
+  agg?: FrameworkColumnAgg;
+  aggs?: FrameworkColumnAgg[];
+  expr?: string;
+  prefix?: string;
+  exclude_from_group_by?: boolean;
+  interval?: 'day' | 'hour' | 'month' | 'year';
+  override_suffix_agg?: boolean;
 };
 
 export type FrameworkColumnLightdashMetric = SchemaLightdashMetric;
@@ -427,6 +479,11 @@ export type FrameworkModelMeta = LightdashTable & {
   local_tags?: string[];
   metrics?: LightdashMetrics;
   portal_partition_columns?: string[];
+  // Free-form user-authored keys flow through verbatim at YAML emit time
+  // (see frameworkModelProperties). We intentionally do NOT declare a string
+  // index signature here -- that would break RecursivePartial / mergeDeep at
+  // every existing caller. The handful of places that write user-authored
+  // keys cast to `Record<string, unknown>` locally instead.
 };
 export type FrameworkModelWhere = SchemaModelWhere;
 
@@ -536,6 +593,10 @@ export type FrameworkSourceMeta = {
   where?: {
     expr?: string;
   };
+  // Free-form custom meta keys (e.g. owner, owner_slack, freshness_sla).
+  // dbt treats `meta` as an open object, so users may add arbitrary entries
+  // alongside the typed keys above.
+  [key: string]: unknown;
 };
 export type FrameworkSourceTableMeta = FrameworkSourceMeta & {
   // If there are any meta keys specific to tables, we can add them here

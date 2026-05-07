@@ -143,7 +143,7 @@ describe('frameworkBuildDatetimeColumn', () => {
 
 describe('frameworkApplyCteSelectMeta', () => {
   function makeCol(): FrameworkColumn {
-    return { name: 'col', meta: { type: 'dim' } };
+    return { name: 'col', meta: { type: 'dim' }, internal: {} };
   }
 
   test('copies description, data_type, data_tests', () => {
@@ -184,7 +184,7 @@ describe('frameworkApplyCteSelectMeta', () => {
     frameworkApplyCteSelectMeta({ override_suffix_agg: true }, col, {
       hasAgg: false,
     });
-    expect(col.meta.override_suffix_agg).toBe(true);
+    expect(col.internal.override_suffix_agg).toBe(true);
   });
 
   test('forwards expr and exclude_from_group_by when hasAgg is false', () => {
@@ -194,8 +194,8 @@ describe('frameworkApplyCteSelectMeta', () => {
       col,
       { hasAgg: false },
     );
-    expect(col.meta.expr).toBe('lower(name)');
-    expect(col.meta.exclude_from_group_by).toBe(true);
+    expect(col.internal.expr).toBe('lower(name)');
+    expect(col.internal.exclude_from_group_by).toBe(true);
   });
 
   test('drops expr and exclude_from_group_by when hasAgg is true', () => {
@@ -205,8 +205,8 @@ describe('frameworkApplyCteSelectMeta', () => {
       col,
       { hasAgg: true },
     );
-    expect(col.meta.expr).toBeUndefined();
-    expect(col.meta.exclude_from_group_by).toBeUndefined();
+    expect(col.internal.expr).toBeUndefined();
+    expect(col.internal.exclude_from_group_by).toBeUndefined();
   });
 
   test('empty sel leaves col untouched', () => {

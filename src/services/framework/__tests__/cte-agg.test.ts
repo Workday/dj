@@ -488,7 +488,7 @@ describe('CTE datetime + interval parity with main-model', () => {
 
     expect(sql).toContain("date_trunc('hour', datetime) as datetime");
     const dtCol = registry.get('pre_agg')!.find((c) => c.name === 'datetime')!;
-    expect(dtCol.meta.interval).toBe('hour');
+    expect(dtCol.internal.interval).toBe('hour');
     expect(dtCol.meta.dimension?.time_intervals).toEqual([
       'DAY',
       'DAY_OF_WEEK_NAME',
@@ -830,7 +830,7 @@ describe('CTE scalar-meta forwarding parity with main-model', () => {
     const descCol = registry
       .get('pre_agg')!
       .find((c) => c.name === 'description_text')!;
-    expect(descCol.meta.exclude_from_group_by).toBe(true);
+    expect(descCol.internal.exclude_from_group_by).toBe(true);
   });
 
   test('override_suffix_agg and lightdash.dimension.case_sensitive are forwarded to the registered CTE column', () => {
@@ -854,7 +854,7 @@ describe('CTE scalar-meta forwarding parity with main-model', () => {
     const descCol = registry
       .get('pre_agg')!
       .find((c) => c.name === 'description_text')!;
-    expect(descCol.meta.override_suffix_agg).toBe(true);
+    expect(descCol.internal.override_suffix_agg).toBe(true);
     expect(descCol.meta.dimension?.case_sensitive).toBe(true);
   });
 
@@ -1200,8 +1200,8 @@ describe('CTE named-select metadata inheritance', () => {
       'WEEK',
       'YEAR',
     ]);
-    expect(dt.meta.interval).toBe('hour');
-    expect(dt.meta.expr).toBe("date_trunc('hour', datetime)");
+    expect(dt.internal.interval).toBe('hour');
+    expect(dt.internal.expr).toBe("date_trunc('hour', datetime)");
   });
 
   test('generic named-select inherits upstream data_type, description, and full meta.dimension', () => {
@@ -1250,7 +1250,7 @@ describe('CTE named-select metadata inheritance', () => {
     // upstream that DOES carry a dimension -- those flow through by design,
     // matching the main-model `mergeDeep(fromColumn, selectedColumn)` path.)
     expect(sumCol.meta.dimension).toBeUndefined();
-    expect(sumCol.meta.agg).toBe('sum');
+    expect(sumCol.internal.agg).toBe('sum');
     expect(sumCol.meta.type).toBe('fct');
   });
 
@@ -1332,7 +1332,7 @@ describe('CTE named-select metadata inheritance', () => {
     expect(cntCol.description).toBe('Audit Count');
     expect(cntCol.data_type).toBeUndefined();
     expect(cntCol.meta.type).toBe('fct');
-    expect(cntCol.meta.agg).toBe('count');
+    expect(cntCol.internal.agg).toBe('count');
   });
 
   test('aggs named-select inherits auto-synthesized upstream dimension onto every output column', () => {

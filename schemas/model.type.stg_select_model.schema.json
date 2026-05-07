@@ -12,10 +12,11 @@
     "name": { "$ref": "model.name.schema.json" },
     "description": { "$ref": "model.description.schema.json" },
     "tags": { "$ref": "model.tags.schema.json" },
+    "meta": { "$ref": "model.meta.schema.json" },
     "materialization": { "$ref": "model.materialization.schema.json" },
     "materialized": { "$ref": "model.materialized.schema.json" },
     "incremental_strategy": {
-      "$ref": "model.incremental_strategy.schema.json"
+      "$ref": "model.incremental_strategy.deprecated.schema.json"
     },
     "sql_hooks": { "$ref": "model.sql_hooks.schema.json" },
     "partitioned_by": { "$ref": "model.partitioned_by.schema.json" },
@@ -25,6 +26,12 @@
     "exclude_date_filter": { "$ref": "model.exclude_date_filter.schema.json" },
     "exclude_portal_partition_columns": {
       "$ref": "model.exclude_portal_partition_columns.schema.json"
+    },
+    "exclude_datetime": {
+      "$ref": "model.exclude_datetime.schema.json"
+    },
+    "exclude_framework_artifacts": {
+      "$ref": "model.exclude_framework_artifacts.schema.json"
     },
     "exclude_portal_source_count": {
       "$ref": "model.exclude_portal_source_count.schema.json"

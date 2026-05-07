@@ -13,9 +13,16 @@
     "description": { "$ref": "model.description.schema.json" },
     "lightdash": { "$ref": "model.lightdash.schema.json" },
     "tags": { "$ref": "model.tags.schema.json" },
+    "meta": { "$ref": "model.meta.schema.json" },
     "group_by": { "$ref": "model.group_by.schema.json" },
     "exclude_portal_partition_columns": {
       "$ref": "model.exclude_portal_partition_columns.schema.json"
+    },
+    "exclude_datetime": {
+      "$ref": "model.exclude_datetime.schema.json"
+    },
+    "exclude_framework_artifacts": {
+      "$ref": "model.exclude_framework_artifacts.schema.json"
     },
     "exclude_portal_source_count": {
       "$ref": "model.exclude_portal_source_count.schema.json"

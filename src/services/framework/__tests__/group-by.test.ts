@@ -3,15 +3,23 @@ import { frameworkModelHasAgg } from '@services/framework/utils/column-utils';
 import { frameworkModelGroupBy } from '@services/framework/utils/sql-utils';
 import { GROUP_BY_DIMS, normalizeGroupBy } from '@shared/framework/constants';
 
-// Shared test fixtures
 const dimColumns = [
-  { name: 'region', meta: { type: 'dim' as const, prefix: '' } },
-  { name: 'service', meta: { type: 'dim' as const, prefix: '' } },
+  {
+    name: 'region',
+    meta: { type: 'dim' as const },
+    internal: { prefix: '' },
+  },
+  {
+    name: 'service',
+    meta: { type: 'dim' as const },
+    internal: { prefix: '' },
+  },
 ];
 const fctColumns = [
   {
     name: 'total_revenue',
-    meta: { type: 'fct' as const, agg: 'sum', prefix: '' },
+    meta: { type: 'fct' as const },
+    internal: { agg: 'sum' as const, prefix: '' },
   },
 ];
 const allColumns = [...dimColumns, ...fctColumns] as any;
@@ -91,7 +99,8 @@ describe('frameworkModelGroupBy', () => {
       ...dimColumns,
       {
         name: 'internal_id',
-        meta: { type: 'dim', prefix: '', exclude_from_group_by: true },
+        meta: { type: 'dim' },
+        internal: { prefix: '', exclude_from_group_by: true },
       },
       ...fctColumns,
     ] as any;

@@ -384,6 +384,8 @@ select * from ${modelName}
           origin: {
             id: 'model.project.int__analytics__billing__cost_aggregated',
           },
+        },
+        internal: {
           agg: 'sum',
         },
       },
@@ -393,8 +395,10 @@ select * from ${modelName}
           'On Demand Cost if resource were purchased without any discounts',
         data_type: 'number',
         meta: {
-          expr: 'csp_ondemand_cost',
           type: 'fct',
+        },
+        internal: {
+          expr: 'csp_ondemand_cost',
           agg: 'sum',
         },
       },
@@ -404,8 +408,10 @@ select * from ${modelName}
           'On Demand Cost if resource were purchased without any discounts',
         data_type: 'number',
         meta: {
-          expr: 'csp_ondemand_cost',
           type: 'fct',
+        },
+        internal: {
+          expr: 'csp_ondemand_cost',
           agg: 'min',
         },
       },
@@ -415,8 +421,10 @@ select * from ${modelName}
           'On Demand Cost if resource were purchased without any discounts',
         data_type: 'number',
         meta: {
-          expr: 'csp_ondemand_cost',
           type: 'fct',
+        },
+        internal: {
+          expr: 'csp_ondemand_cost',
           agg: 'max',
         },
       },

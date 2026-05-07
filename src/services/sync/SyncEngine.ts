@@ -190,7 +190,7 @@ export class SyncEngine {
     // Discovery phase: Extract framework-level dependencies from model.json files
     // This ensures accurate dependency levels even for new or changed models
     this.callbacks.onProgress?.('Discovering framework dependencies...');
-    const frameworkDependencies = await this.discoverFrameworkDependencies({
+    let frameworkDependencies = await this.discoverFrameworkDependencies({
       project,
       jsonUris,
     });
@@ -268,6 +268,45 @@ export class SyncEngine {
     this.config.logger.info(
       `SyncEngine: buildOrderedResources returned ${orderedResources.length} resource(s) for rootIds=${roots?.map((r) => r.id).join(', ') ?? 'ALL'}`,
     );
+
+    // When a root sync produces zero ordered resources, the requested root
+    // (and likely its parents) are missing from the manifest. Force a reparse
+    // and retry once before falling back to createResourcesForNewRoots so
+    // generation runs against an up-to-date manifest. Covers cases where new
+    // models arrive without a preceding manifest update (branch switch missed
+    // by the git-log watcher, agent scaffold, file copy, fast successive
+    // checkouts). Skipped when this sync already reparsed the manifest.
+    if (orderedResources.length === 0 && roots?.length && !shouldParse) {
+      this.config.logger.info(
+        'SyncEngine: roots not in manifest, forcing reparse before fallback',
+      );
+      this.callbacks.onProgress?.(
+        'Refreshing ' + project.name + ' manifest...',
+      );
+      try {
+        const reparsed = await params.parseManifest(project);
+        if (reparsed) {
+          manifest = reparsed;
+          project = { ...project, manifest };
+          frameworkDependencies = await this.discoverFrameworkDependencies({
+            project,
+            jsonUris,
+          });
+          orderedResources = buildOrderedResources({
+            project,
+            rootIds: roots?.map((r) => r.id),
+            frameworkDependencies,
+          });
+          this.config.logger.info(
+            `SyncEngine: buildOrderedResources after reparse returned ${orderedResources.length} resource(s)`,
+          );
+        }
+      } catch {
+        this.config.logger.error(
+          'SyncEngine: forced reparse failed, falling through to new-root fallback',
+        );
+      }
+    }
 
     if (orderedResources.length === 0 && roots?.length) {
       // Resolve pathJson for roots that only have an ID.

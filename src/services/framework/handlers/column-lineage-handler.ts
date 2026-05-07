@@ -189,13 +189,13 @@ export class ColumnLineageHandler {
             error: result.error,
           });
         }
-        // Convert source columns to FrameworkColumn format
         const columns: FrameworkColumn[] = (result.columns ?? []).map(
           (col) => ({
             name: col.name,
             data_type: col.data_type as FrameworkColumn['data_type'],
             description: col.description || '',
             meta: { type: col.type ?? 'dim' },
+            internal: {},
           }),
         );
         return apiResponse<typeof payload.type>({

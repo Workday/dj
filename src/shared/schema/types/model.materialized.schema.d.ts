@@ -6,6 +6,6 @@
  */
 
 /**
- * Type of materialization
+ * DEPRECATED: use `materialization` instead. `materialization` accepts the same shorthand strings ("incremental" | "ephemeral") plus the full object form for `format` / `partitions` / `strategy` configuration. Replace `"materialized": "incremental"` with `"materialization": "incremental"`.
  */
 export type SchemaModelMaterialized = 'ephemeral' | 'incremental';

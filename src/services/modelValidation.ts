@@ -5,7 +5,10 @@ import {
   isJinjaExpr,
   isWindowFunctionExpr,
 } from '@services/framework/utils/column-utils';
-import { BULK_CTE_TYPES } from '@shared/framework/constants';
+import {
+  BULK_CTE_TYPES,
+  DEFAULT_INCREMENTAL_STRATEGY,
+} from '@shared/framework/constants';
 import type { FrameworkColumn } from '@shared/framework/types';
 import type { ValidateFunction } from 'ajv';
 import type { ErrorObject } from 'ajv';
@@ -322,6 +325,229 @@ export function validateCteLightdashMetrics(
         instancePath: `/ctes/${i}/select/${j}/lightdash`,
       });
     }
+  }
+
+  return errors;
+}
+
+/**
+ * Resolves the effective `exclude_datetime` value for a single scope (model
+ * or CTE) without inheritance. Used by both the model-level and CTE-level
+ * branches of `validateExcludeDatetimeRollupConflict`.
+ *
+ * Mirrors the within-scope half of `frameworkResolveExcludeFlag`:
+ * the individual `exclude_datetime` flag wins over the combined
+ * `exclude_framework_artifacts` enum at the same scope. Cross-scope
+ * inheritance (CTE > model) is intentionally NOT applied here because the
+ * conflict is reported at the scope that actually authored the strip --
+ * inheriting a model-level `exclude_datetime` into a CTE that itself has
+ * `from.rollup` would still emit the conflict at the model level via the
+ * top-level call.
+ */
+function resolveExcludeDatetimeAtScope(scope: any): {
+  effective: boolean;
+  individualExcludeDatetime: unknown;
+  combined: unknown;
+} {
+  const individualExcludeDatetime = scope?.exclude_datetime;
+  const combined = scope?.exclude_framework_artifacts;
+  const combinedImpliesDatetime = combined === 'all' || combined === 'columns';
+
+  let effective: boolean;
+  if (individualExcludeDatetime !== undefined) {
+    effective = Boolean(individualExcludeDatetime);
+  } else if (combinedImpliesDatetime) {
+    effective = true;
+  } else {
+    effective = false;
+  }
+  return { effective, individualExcludeDatetime, combined };
+}
+
+/**
+ * Validates that the effective `exclude_datetime` opt-out is not combined
+ * with `from.rollup` at the model level. Rollup exists to produce a
+ * `datetime` column at a coarser grain; excluding datetime would defeat the
+ * rollup's whole purpose, and the user almost certainly meant only one of
+ * the two.
+ *
+ * The effective check honors the combined `exclude_framework_artifacts`
+ * enum: `"all"` and `"columns"` both imply `exclude_datetime`, so either
+ * paired with `from.rollup` triggers the error. The user can opt back in
+ * with an explicit `exclude_datetime: false`, which beats the combined
+ * flag at the same scope and silences the error.
+ *
+ * The diagnostic pointer prefers the most specific source -- the explicit
+ * `exclude_datetime` field when set, otherwise the combined
+ * `exclude_framework_artifacts` field -- so the Problems-panel marker
+ * lands on the field the user actually authored.
+ *
+ * CTE-level flags are not checked here. CTEs cannot have `from.rollup`
+ * themselves (schema-enforced) and a model's `from.rollup` operates on
+ * `modelJson.from.model`, not on CTE pipelines -- a CTE that excludes
+ * datetime while the parent model has rollup is structurally coherent
+ * because the CTE's output is independent of the rollup chain. If the
+ * model has both flags set at the model level, the single error here
+ * captures the conflict; CTEs inheriting the model's value don't produce
+ * duplicate diagnostics.
+ */
+export function validateExcludeDatetimeRollupConflict(
+  modelJson: any,
+): ValidationErrorDetail[] {
+  const errors: ValidationErrorDetail[] = [];
+
+  const buildConflict = (
+    pathPrefix: string,
+    scope: any,
+    scopeLabel: string,
+  ): void => {
+    const hasRollup = !!(
+      scope?.from &&
+      typeof scope.from === 'object' &&
+      'rollup' in scope.from &&
+      scope.from.rollup
+    );
+    if (!hasRollup) {
+      return;
+    }
+
+    const { effective, individualExcludeDatetime, combined } =
+      resolveExcludeDatetimeAtScope(scope);
+    if (!effective) {
+      return;
+    }
+
+    const pointer =
+      individualExcludeDatetime === true
+        ? `${pathPrefix}/exclude_datetime`
+        : `${pathPrefix}/exclude_framework_artifacts`;
+    const triggeringFlag =
+      individualExcludeDatetime === true
+        ? '`exclude_datetime`'
+        : `\`exclude_framework_artifacts: "${combined}"\``;
+
+    errors.push({
+      message: `${scopeLabel}: ${triggeringFlag} cannot be combined with from.rollup -- rollup exists to produce a datetime column. Remove one of the two, or set \`exclude_datetime: false\` to opt datetime back in.`,
+      instancePath: pointer,
+    });
+  };
+
+  buildConflict('', modelJson, 'Model');
+
+  if (Array.isArray(modelJson?.ctes)) {
+    for (let i = 0; i < modelJson.ctes.length; i++) {
+      const cte = modelJson.ctes[i];
+      const cteName = cte?.name ?? `[${i}]`;
+      buildConflict(`/ctes/${i}`, cte, `CTE "${cteName}"`);
+    }
+  }
+
+  return errors;
+}
+
+/**
+ * Validates that a CTE declaring `from.rollup` has a source that actually
+ * produces a `datetime` column. Catches the foot-gun where a CTE rolls up
+ * from another CTE that itself stripped datetime via `exclude_datetime` or
+ * `exclude_framework_artifacts`.
+ *
+ * Scope: only the structural `from: { cte }` case is checked because the
+ * upstream shape is fully determined by the model JSON. The
+ * `from: { model }` case is not checked here -- detecting whether a manifest
+ * model exposes `datetime` requires runtime context (project + manifest)
+ * that this validator does not have. A missing-datetime there surfaces as a
+ * `dbt compile` error at run time.
+ */
+export function validateCteRollupSource(
+  modelJson: any,
+): ValidationErrorDetail[] {
+  const errors: ValidationErrorDetail[] = [];
+  if (!Array.isArray(modelJson?.ctes)) {
+    return errors;
+  }
+
+  // Index CTEs by name so the upstream lookup is O(1). Forward-reference
+  // checks already live in `validateCtes`; here we only care about the
+  // shape of the upstream CTE.
+  const cteByName = new Map<string, any>();
+  for (const c of modelJson.ctes) {
+    if (c?.name) {
+      cteByName.set(c.name, c);
+    }
+  }
+
+  for (let i = 0; i < modelJson.ctes.length; i++) {
+    const cte = modelJson.ctes[i];
+    const rollup = cte?.from?.rollup;
+    if (!rollup) {
+      continue;
+    }
+    const upstreamCteName =
+      'cte' in cte.from && cte.from.cte ? cte.from.cte : null;
+    if (!upstreamCteName) {
+      continue;
+    }
+    const upstream = cteByName.get(upstreamCteName);
+    if (!upstream) {
+      continue;
+    }
+    // Upstream CTE that itself rolls up always produces a datetime, so the
+    // `exclude_datetime: false` opt-in is implied.
+    if (upstream?.from?.rollup) {
+      continue;
+    }
+    const upstreamScope = resolveExcludeDatetimeAtScope(upstream);
+    if (upstreamScope.effective) {
+      errors.push({
+        message: `CTE "${cte.name ?? `[${i}]`}" rolls up from CTE "${upstreamCteName}", but the upstream CTE excludes datetime. Rollup requires a datetime column from its source -- set \`exclude_datetime: false\` on "${upstreamCteName}" or drop \`from.rollup\` on this CTE.`,
+        instancePath: `/ctes/${i}/from/rollup`,
+      });
+    }
+  }
+
+  return errors;
+}
+
+/**
+ * Validates that a CTE declaring `from.rollup` provides an explicit `select`.
+ *
+ * Without a `select`, the SQL generator falls through to `select *` and
+ * rollup defaults `group_by` to `'dims'`, producing `GROUP BY <every
+ * upstream column>`. The rollup rewrite (datetime truncation, suffix-agg
+ * wrapping) and registry transform also live inside the explicit-select
+ * branch, so a no-select rollup CTE silently emits broken SQL and breaks
+ * downstream CTEs that read its registry.
+ *
+ * Auto-discovering dims/facts from upstream is not viable here -- typical
+ * upstream marts/staging have many columns, and grouping by all of them is
+ * never the user's intent. This rule mirrors the model-level shape: both
+ * `int_select_model` and `int_join_models` already require `select`
+ * alongside `from.rollup`.
+ */
+export function validateCteRollupRequiresSelect(
+  modelJson: any,
+): ValidationErrorDetail[] {
+  const errors: ValidationErrorDetail[] = [];
+  if (!Array.isArray(modelJson?.ctes)) {
+    return errors;
+  }
+
+  for (let i = 0; i < modelJson.ctes.length; i++) {
+    const cte = modelJson.ctes[i];
+    const hasRollup =
+      cte?.from && typeof cte.from === 'object' && cte.from.rollup;
+    if (!hasRollup) {
+      continue;
+    }
+    const hasSelect = Array.isArray(cte.select) && cte.select.length > 0;
+    if (hasSelect) {
+      continue;
+    }
+    const cteName = typeof cte?.name === 'string' ? cte.name : `[${i}]`;
+    errors.push({
+      message: `CTE "${cteName}": \`from.rollup\` requires an explicit \`select\`. Without it, GROUP BY would include every column from the upstream source. List the dims and facts you want; rollup auto-truncates \`datetime\` and auto-wraps facts with their suffix aggregate, so the select is usually shorter than the manual DATE_TRUNC + sum() shape it replaces.`,
+      instancePath: `/ctes/${i}`,
+    });
   }
 
   return errors;
@@ -827,6 +1053,392 @@ export function validateDjIcebergPartitionOverwrite(
   }
 
   return errors;
+}
+
+const PARTITION_NEEDING_STRATEGIES = new Set([
+  'overwrite_existing_partitions',
+  'dj_iceberg_partition_overwrite',
+]);
+
+const PARTITION_BULK_SELECT_TYPES = new Set([
+  'all_from_model',
+  'all_from_cte',
+  'dims_from_model',
+  'dims_from_cte',
+]);
+
+function isModelMaterializedIncremental(modelJson: any): boolean {
+  if (modelJson?.materialization) {
+    if (typeof modelJson.materialization === 'string') {
+      return modelJson.materialization === 'incremental';
+    }
+    if (typeof modelJson.materialization === 'object') {
+      return modelJson.materialization.type === 'incremental';
+    }
+  }
+  return modelJson?.materialized === 'incremental';
+}
+
+/**
+ * Resolve the incremental strategy the SQL generator will pick, mirroring
+ * the priority chain in `frameworkGenerateModelOutput`:
+ *   `materialization.strategy.type` > legacy `incremental_strategy` >
+ *   `dj.config.materializationDefaultIncrementalStrategy` > shared default.
+ *
+ * Returns the resolved strategy and the JSON Pointer that should anchor the
+ * diagnostic (the strongest user-authored field, or `materialized` /
+ * `materialization` when only the default applies).
+ */
+function resolveIncrementalStrategy(
+  modelJson: any,
+  defaultStrategy: string | undefined,
+): { strategy: string; instancePath: string } {
+  const mat = modelJson?.materialization;
+  if (
+    mat &&
+    typeof mat === 'object' &&
+    mat.strategy &&
+    typeof mat.strategy === 'object' &&
+    typeof mat.strategy.type === 'string'
+  ) {
+    return {
+      strategy: mat.strategy.type,
+      instancePath: '/materialization/strategy/type',
+    };
+  }
+  const legacy = modelJson?.incremental_strategy;
+  if (typeof legacy === 'string') {
+    return { strategy: legacy, instancePath: '/incremental_strategy' };
+  }
+  if (legacy && typeof legacy === 'object' && typeof legacy.type === 'string') {
+    return {
+      strategy: legacy.type,
+      instancePath: '/incremental_strategy/type',
+    };
+  }
+  // Fall back to the workspace setting
+  // (`dj.materialization.defaultIncrementalStrategy`) when the model JSON
+  // declares no strategy. The shared `DEFAULT_INCREMENTAL_STRATEGY`
+  // constant is the last-resort default if the setting itself is unset --
+  // routing through it (instead of a hardcoded literal) keeps this
+  // validator in sync when the constant flips, mirroring every other
+  // fallback site in the codebase.
+  const fallback = defaultStrategy ?? DEFAULT_INCREMENTAL_STRATEGY;
+  // Pin the diagnostic to the strongest user-authored anchor available. If
+  // the user used the legacy string form (`materialized: "incremental"`),
+  // point there; otherwise the structured object root.
+  const instancePath =
+    typeof mat === 'string' || mat == null
+      ? '/materialized'
+      : '/materialization';
+  return { strategy: fallback, instancePath };
+}
+
+/**
+ * Pre-generation heuristic for whether the resolved column shape will
+ * carry any partition column. Mirrors the decision points in
+ * `frameworkBuildColumns` without re-running it:
+ *   - `materialization.partitions: [...]` -> partitions present
+ *   - `select` includes a `portal_partition_*` (scalar or bulk passthrough)
+ *     -> partitions present
+ *   - `from.lookback` -> partitions present (framework forces
+ *     `portal_partition_daily`)
+ *   - `from: { source }` -> partitions present (source date columns auto-injected)
+ *   - `from: { model }` -> partitions present unless the model opts out
+ *     via `exclude_portal_partition_columns` or `exclude_framework_artifacts`
+ *   - `from: { cte }` -> partitions present iff the CTE chain terminates at
+ *     a `from: { model | source }` head with no partition opt-out
+ *     (`exclude_portal_partition_columns` / `exclude_framework_artifacts:
+ *     "all" | "columns"`) along any link, mirroring the chain auto-inject
+ *     in `frameworkShouldAutoInjectCteFrameworkDims`.
+ *   - `from: { union }` -> no auto-injection at the main-model level
+ *
+ * Biases toward "yes" so the warning does not fire on the common
+ * `from: { model }` shape; the negative case fires only when every signal
+ * points at "no partition output."
+ */
+function modelLikelyOutputsPartitionColumn(modelJson: any): boolean {
+  const mat = modelJson?.materialization;
+  if (
+    mat &&
+    typeof mat === 'object' &&
+    Array.isArray(mat.partitions) &&
+    mat.partitions.length > 0
+  ) {
+    return true;
+  }
+
+  const select = Array.isArray(modelJson?.select) ? modelJson.select : [];
+  for (const item of select) {
+    if (!item || typeof item !== 'object') {
+      continue;
+    }
+    if (
+      typeof item.name === 'string' &&
+      item.name.startsWith('portal_partition_')
+    ) {
+      return true;
+    }
+    if (PARTITION_BULK_SELECT_TYPES.has(item.type)) {
+      return true;
+    }
+  }
+
+  const from = modelJson?.from;
+  if (from && typeof from === 'object') {
+    if (from.lookback) {
+      return true;
+    }
+    const excludesPartitions =
+      modelJson.exclude_portal_partition_columns === true ||
+      modelJson.exclude_framework_artifacts === 'all' ||
+      modelJson.exclude_framework_artifacts === 'columns';
+    if (!excludesPartitions) {
+      if ('source' in from) {
+        return true;
+      }
+      if ('model' in from) {
+        return true;
+      }
+      if ('cte' in from && typeof from.cte === 'string' && !('union' in from)) {
+        return cteChainExposesPartitions(modelJson, from.cte);
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Walks the CTE chain backwards from `cteName`, returning true when the
+ * chain terminates at a `from: { model }` or `from: { source }` head with
+ * no partition opt-out breaking any link. Mirrors the runtime auto-inject
+ * (`frameworkShouldAutoInjectCteFrameworkDims`): `portal_partition_*`
+ * cascades through every `from: { cte }` hop by inheriting from the upstream
+ * CTE registry, so the consumer at the end of the chain emits a partition
+ * iff the head is a model/source and no link opts out.
+ *
+ * Short-circuits to "yes" on any link that explicitly selects a
+ * `portal_partition_*` column or a partition-bearing bulk select
+ * (`all_from_*`, `dims_from_*`) -- those guarantee the column lands in the
+ * CTE registry regardless of upstream shape. Cycle-protected, but the
+ * `validateCtes` schema check rejects cycles upstream so this is defensive.
+ */
+function cteChainExposesPartitions(
+  modelJson: any,
+  cteName: string,
+  visited: Set<string> = new Set(),
+): boolean {
+  if (visited.has(cteName)) {
+    return false;
+  }
+  visited.add(cteName);
+  const ctes = Array.isArray(modelJson?.ctes) ? modelJson.ctes : [];
+  const cte = ctes.find((c: any) => c?.name === cteName);
+  if (!cte) {
+    return false;
+  }
+
+  const cteSelect = Array.isArray(cte.select) ? cte.select : [];
+  for (const item of cteSelect) {
+    if (!item || typeof item !== 'object') {
+      continue;
+    }
+    if (
+      typeof item.name === 'string' &&
+      item.name.startsWith('portal_partition_')
+    ) {
+      return true;
+    }
+    if (PARTITION_BULK_SELECT_TYPES.has(item.type)) {
+      return true;
+    }
+  }
+
+  const cteExcludes =
+    cte.exclude_portal_partition_columns === true ||
+    cte.exclude_framework_artifacts === 'all' ||
+    cte.exclude_framework_artifacts === 'columns';
+  if (cteExcludes) {
+    return false;
+  }
+
+  const cteFrom = cte.from;
+  if (!cteFrom || typeof cteFrom !== 'object' || 'union' in cteFrom) {
+    return false;
+  }
+  if ('source' in cteFrom || 'model' in cteFrom) {
+    return true;
+  }
+  if ('cte' in cteFrom && typeof cteFrom.cte === 'string') {
+    return cteChainExposesPartitions(modelJson, cteFrom.cte, visited);
+  }
+  return false;
+}
+
+function describeFromForDiagnostic(modelJson: any): string {
+  const from = modelJson?.from;
+  if (!from || typeof from !== 'object') {
+    return "the model's from clause";
+  }
+  if ('cte' in from) {
+    return `from { cte: "${from.cte}" }`;
+  }
+  if ('union' in from) {
+    return 'from { union: [...] }';
+  }
+  if ('source' in from) {
+    return 'from { source: ... } with auto-inject opted out';
+  }
+  if ('model' in from) {
+    return `from { model: "${from.model}" } with partition auto-inject opted out`;
+  }
+  return "the model's from clause";
+}
+
+/**
+ * Warns when an incremental model uses a partition-based strategy
+ * (`overwrite_existing_partitions` or `dj_iceberg_partition_overwrite`)
+ * but the resolved column shape carries no partition column.
+ *
+ * Both strategies derive their work scope from the new slice's partition
+ * columns: `overwrite_existing_partitions` iterates partition values via a
+ * consumer macro, and `dj_iceberg_partition_overwrite` reads
+ * `properties.partitioning`. Without partitions, dbt-trino either errors
+ * at run time or silently no-ops (full refresh / duplicates).
+ *
+ * Common triggers: `from: { cte | union }` with a non-partition `select`,
+ * or any `from` where `exclude_portal_partition_columns` /
+ * `exclude_framework_artifacts: "all" | "columns"` suppresses auto-injection
+ * and the user did not expose a partition column themselves.
+ *
+ * Warning (not error) so users can still iterate; partitioning may be
+ * wired through a project-level dbt config the framework cannot observe.
+ */
+export function validatePartitionStrategyWithoutPartitions(
+  modelJson: any,
+  defaultStrategy?: string,
+): ValidationErrorDetail[] {
+  const warnings: ValidationErrorDetail[] = [];
+  if (!modelJson || typeof modelJson !== 'object') {
+    return warnings;
+  }
+  if (!isModelMaterializedIncremental(modelJson)) {
+    return warnings;
+  }
+
+  const { strategy, instancePath } = resolveIncrementalStrategy(
+    modelJson,
+    defaultStrategy,
+  );
+  if (!PARTITION_NEEDING_STRATEGIES.has(strategy)) {
+    return warnings;
+  }
+
+  if (modelLikelyOutputsPartitionColumn(modelJson)) {
+    return warnings;
+  }
+
+  warnings.push({
+    message:
+      `Strategy "${strategy}" needs a partition column; this model emits ` +
+      `none (${describeFromForDiagnostic(modelJson)}, no portal_partition_* ` +
+      `in select, no materialization.partitions). At run time the strategy ` +
+      `silently no-ops or fails. Fix: switch to "delete+insert" / "merge" ` +
+      `/ "append"; set materialization.partitions; expose a ` +
+      `portal_partition_*; or use "ephemeral". Ignore if this is what ` +
+      `you intend (e.g. partitioning is wired through a project-level ` +
+      `dbt config).`,
+    instancePath,
+  });
+  return warnings;
+}
+
+// Bulk-select directives that could plausibly expand to include any
+// upstream column name. When any of these is present in `select`, the
+// `materialization.partitions` existence check skips that select item
+// (and therefore the model) rather than risk a false positive.
+const BULK_SELECT_TYPES = new Set([
+  'all_from_model',
+  'all_from_cte',
+  'all_from_source',
+  'dims_from_model',
+  'dims_from_cte',
+  'dims_from_source',
+  'fcts_from_model',
+  'fcts_from_cte',
+  'fcts_from_source',
+]);
+
+/**
+ * Warns when names listed in `materialization.partitions` do not appear
+ * as scalar select items in the model's `select`.
+ *
+ * The SQL generator builds `partitioned_by` / `partitioning` only from
+ * names that exist on the materialized table (see the filter loop in
+ * `frameworkGenerateModelOutput`); names that don't match are silently
+ * dropped from the dbt config, leaving the table unpartitioned. The
+ * incremental strategy then no-ops or runs destructively at run time.
+ *
+ * Conservative: a present bulk select (`all_from_*`, `dims_from_*`,
+ * `fcts_from_*`) could plausibly expand to the named column, so this
+ * validator skips when one is present rather than risk a false positive.
+ * That gap is acceptable -- the SQL generator's filter still prunes
+ * mismatches at sync time; this validator only catches the common
+ * scalar-only authoring mistake.
+ */
+export function validateMaterializationPartitionsExist(
+  modelJson: any,
+): ValidationErrorDetail[] {
+  const warnings: ValidationErrorDetail[] = [];
+  const mat = modelJson?.materialization;
+  if (
+    !mat ||
+    typeof mat !== 'object' ||
+    !Array.isArray(mat.partitions) ||
+    mat.partitions.length === 0
+  ) {
+    return warnings;
+  }
+
+  const select = Array.isArray(modelJson?.select) ? modelJson.select : [];
+  const scalarSelectNames = new Set<string>();
+  let hasBulkSelect = false;
+  for (const item of select) {
+    if (typeof item === 'string') {
+      scalarSelectNames.add(item);
+      continue;
+    }
+    if (!item || typeof item !== 'object') {
+      continue;
+    }
+    if (typeof item.type === 'string' && BULK_SELECT_TYPES.has(item.type)) {
+      hasBulkSelect = true;
+      continue;
+    }
+    if (typeof item.name === 'string') {
+      scalarSelectNames.add(item.name);
+    }
+  }
+
+  if (hasBulkSelect) {
+    return warnings;
+  }
+
+  for (let i = 0; i < mat.partitions.length; i++) {
+    const p = mat.partitions[i];
+    if (typeof p !== 'string') {
+      continue;
+    }
+    if (scalarSelectNames.has(p)) {
+      continue;
+    }
+    warnings.push({
+      message: `Column "${p}" listed in \`materialization.partitions\` is not in the model's \`select\` output. The partition declaration will be silently dropped and the materialized table will not be partitioned on this column.`,
+      instancePath: `/materialization/partitions/${i}`,
+    });
+  }
+
+  return warnings;
 }
 
 const EXISTS_OPERATORS = new Set(['exists', 'not_exists']);

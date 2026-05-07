@@ -26,7 +26,10 @@ import {
   formatValidationErrors,
   getValidatorForType,
   validateCteLightdashMetrics,
+  validateCteRollupRequiresSelect,
+  validateCteRollupSource,
   validateCtes,
+  validateExcludeDatetimeRollupConflict,
   validateSubqueries,
 } from '@services/modelValidation';
 import type { FrameworkModel, FrameworkSource } from '@shared/framework/types';
@@ -205,6 +208,70 @@ export class ValidationService {
         valid: false,
         error: message,
         errors: cteLightdashErrors,
+        pathJson,
+      };
+    }
+
+    // Reject `exclude_datetime: true` combined with `from.rollup` at either
+    // the model scope or any CTE scope. Rollup produces a datetime column;
+    // excluding it defeats the rollup's purpose.
+    const excludeDatetimeErrors =
+      validateExcludeDatetimeRollupConflict(modelJson);
+    if (excludeDatetimeErrors.length > 0) {
+      const message = `Model validation errors:\n${excludeDatetimeErrors
+        .map((e) => e.message)
+        .join('\n')}`;
+      this.logger.error?.(
+        `exclude_datetime / from.rollup conflict for ${pathJson}:`,
+        message,
+      );
+      return {
+        valid: false,
+        error: message,
+        errors: excludeDatetimeErrors,
+        pathJson,
+      };
+    }
+
+    // Reject CTE rollups whose upstream CTE excludes datetime. Without a
+    // datetime column from the source, the rolled-up CTE has nothing to
+    // truncate. Only the structural `from: { cte }` case is checked --
+    // missing datetime on a manifest model surfaces as a runtime SQL error
+    // at `dbt compile` time.
+    const cteRollupSourceErrors = validateCteRollupSource(modelJson);
+    if (cteRollupSourceErrors.length > 0) {
+      const message = `Model validation errors:\n${cteRollupSourceErrors
+        .map((e) => e.message)
+        .join('\n')}`;
+      this.logger.error?.(
+        `CTE rollup source missing datetime for ${pathJson}:`,
+        message,
+      );
+      return {
+        valid: false,
+        error: message,
+        errors: cteRollupSourceErrors,
+        pathJson,
+      };
+    }
+
+    // Reject CTE rollups that omit `select`. Without an explicit select,
+    // the SQL generator emits `select *` and the rollup default
+    // `group_by: dims` expands to every upstream column, producing a
+    // runaway GROUP BY clause and broken SQL.
+    const cteRollupSelectErrors = validateCteRollupRequiresSelect(modelJson);
+    if (cteRollupSelectErrors.length > 0) {
+      const message = `Model validation errors:\n${cteRollupSelectErrors
+        .map((e) => e.message)
+        .join('\n')}`;
+      this.logger.error?.(
+        `CTE rollup missing select for ${pathJson}:`,
+        message,
+      );
+      return {
+        valid: false,
+        error: message,
+        errors: cteRollupSelectErrors,
         pathJson,
       };
     }

@@ -1,0 +1,7 @@
+{
+  "$id": "model.exclude_framework_artifacts.schema.json",
+  "title": "Schema Model Exclude Framework Artifacts",
+  "description": "Bundles the framework-injection opt-outs into one flag. \"columns\" implies exclude_datetime + exclude_portal_partition_columns + exclude_portal_source_count (the auto WHERE date filters still fire). \"all\" additionally implies exclude_date_filter. Individual exclude flags at the same scope override this flag (set exclude_portal_source_count: false to keep that one column even when this is \"all\"). Mutually exclusive with from.rollup when the resolved value implies exclude_datetime (validator errors).",
+  "type": "string",
+  "enum": ["all", "columns"]
+}

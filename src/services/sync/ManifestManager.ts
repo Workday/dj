@@ -2,7 +2,6 @@
  * Manifest Manager Module
  *
  * Handles manifest freshness checking and new resource handling.
- * Extracted from framework.ts for single responsibility and testability.
  *
  * Responsibilities:
  * - Check if manifest is current based on file changes

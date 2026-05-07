@@ -134,7 +134,7 @@ export type SchemaColumnName = string;
 export type SchemaColumnExpr4 = string;
 
 /**
- * Validates schema for source meta (either on the schema or table level)
+ * Validates schema for source meta (either on the schema or table level). Custom free-form keys (e.g. owner, owner_slack, freshness_sla) are permitted alongside the typed keys defined below.
  */
 export interface SchemaSourceMeta {
   etl?: SchemaSourceEtl;
@@ -145,6 +145,7 @@ export interface SchemaSourceMeta {
   portal_source_count?: SchemaSourcePortalSourceCount;
   table_function?: SchemaSourceTableFunction;
   where?: SchemaSourceWhere;
+  [k: string]: unknown | undefined;
 }
 /**
  * Configuration for determining the event date when querying this source

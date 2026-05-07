@@ -114,11 +114,16 @@ export type IncrementalStrategy =
       type: 'dj_iceberg_partition_overwrite';
     };
 /**
- * Type of materialization
+ * DEPRECATED: use `materialization` instead. `materialization` accepts the same shorthand strings ("incremental" | "ephemeral") plus the full object form for `format` / `partitions` / `strategy` configuration. Replace `"materialized": "incremental"` with `"materialization": "incremental"`.
  */
 export type SchemaModelMaterialized = 'ephemeral' | 'incremental';
 /**
- * Override the default partitioned_by configuration for this model
+ * DEPRECATED: use `materialization.strategy` instead. Replace top-level `"incremental_strategy": { "type": "delete+insert" }` with `"materialization": { "type": "incremental", "strategy": { "type": "delete+insert" } }`. Wraps the shared strategy shape (`model.incremental_strategy.schema.json`) so the deprecation hint applies only when the field is authored at the model top level, not when it's nested under `materialization.strategy` (the canonical, non-deprecated location).
+ */
+export type SchemaModelIncrementalStrategyDeprecatedTopLevelField =
+  IncrementalStrategy;
+/**
+ * DEPRECATED: use `materialization.partitions` instead. Replace `"partitioned_by": ["col"]` with `"materialization": { "type": "incremental", "partitions": ["col"] }`.
  *
  * @minItems 1
  */
@@ -134,6 +139,14 @@ export type SchemaModelExcludeDateFilter = boolean;
  * Will prevent the automatic portal partition date columns from getting added
  */
 export type SchemaModelExcludePortalPartitionColumns = boolean;
+/**
+ * Skips auto-injection of the `datetime` column from the upstream model. Independent of `exclude_portal_partition_columns` -- partition columns survive unless that flag is also set. Mutually exclusive with `from.rollup`, which exists to produce a `datetime` column. For pure-dimension or lookup models, set both `exclude_datetime` and `exclude_portal_partition_columns` to true.
+ */
+export type SchemaModelExcludeDatetime = boolean;
+/**
+ * Bundles the framework-injection opt-outs into one flag. "columns" implies exclude_datetime + exclude_portal_partition_columns + exclude_portal_source_count (the auto WHERE date filters still fire). "all" additionally implies exclude_date_filter. Individual exclude flags at the same scope override this flag (set exclude_portal_source_count: false to keep that one column even when this is "all"). Mutually exclusive with from.rollup when the resolved value implies exclude_datetime (validator errors).
+ */
+export type SchemaModelExcludeFrameworkArtifacts = 'all' | 'columns';
 /**
  * Will prevent the automatic portal source count column from getting added
  */
@@ -156,6 +169,7 @@ export type SchemaModelSelectCol =
       exclude_from_group_by?: SchemaColumnExcludeFromGroupBy;
       expr?: SchemaColumnExpr;
       lightdash?: SchemaColumnLightdash;
+      meta?: SchemaColumnMeta;
       name: SchemaColumnName;
       data_tests?: SchemaColumnDataTests;
       type?: 'dim';
@@ -164,6 +178,7 @@ export type SchemaModelSelectCol =
       data_type?: SchemaColumnDataType;
       description?: SchemaColumnDescription;
       lightdash?: SchemaColumnLightdash;
+      meta?: SchemaColumnMeta;
       name: SchemaColumnName;
       data_tests?: SchemaColumnDataTests;
       type: 'fct';
@@ -200,13 +215,13 @@ export type SchemaColumnExcludeFromGroupBy = boolean;
  */
 export type SchemaColumnExpr = string;
 /**
- * Schema for lightdash AI hints
- */
-export type SchemaLightdashAIHint = string | string[];
-/**
  * Whether this column should be treated as case-sensitive
  */
 export type SchemaLightdashCaseSensitive = boolean;
+/**
+ * Schema for lightdash AI hints
+ */
+export type SchemaLightdashAIHint = string | string[];
 /**
  * Validate Lightdash metric name
  */
@@ -288,6 +303,7 @@ export type SchemaModelSelectExpr =
       exclude_from_group_by?: SchemaColumnExcludeFromGroupBy;
       expr: SchemaColumnExpr;
       lightdash?: SchemaColumnLightdash;
+      meta?: SchemaColumnMeta;
       name: SchemaColumnName;
       data_tests?: SchemaColumnDataTests;
       type?: 'dim';
@@ -297,6 +313,7 @@ export type SchemaModelSelectExpr =
       description?: SchemaColumnDescription;
       expr: SchemaColumnExpr;
       lightdash?: SchemaColumnLightdash;
+      meta?: SchemaColumnMeta;
       name: SchemaColumnName;
       data_tests?: SchemaColumnDataTests;
       type: 'fct';
@@ -313,6 +330,7 @@ export type SchemaModelSelectSource =
       data_type?: SchemaColumnDataType;
       description?: SchemaColumnDescription;
       lightdash?: SchemaColumnLightdash;
+      meta?: SchemaColumnMeta;
       name: SchemaColumnName;
       source: SchemaRefSourceId;
       data_tests?: SchemaColumnDataTests;
@@ -368,13 +386,16 @@ export interface SchemaModelTypeStgSelectSource {
   name: SchemaModelName;
   description?: SchemaModelDescription;
   tags?: SchemaModelTags;
+  meta?: SchemaModelMeta;
   materialization?: SchemaModelMaterialization;
   materialized?: SchemaModelMaterialized;
-  incremental_strategy?: IncrementalStrategy;
+  incremental_strategy?: SchemaModelIncrementalStrategyDeprecatedTopLevelField;
   sql_hooks?: ModelSqlHooksSchemaJson;
   partitioned_by?: SchemaModelPartitionedBy;
   exclude_date_filter?: SchemaModelExcludeDateFilter;
   exclude_portal_partition_columns?: SchemaModelExcludePortalPartitionColumns;
+  exclude_datetime?: SchemaModelExcludeDatetime;
+  exclude_framework_artifacts?: SchemaModelExcludeFrameworkArtifacts;
   exclude_portal_source_count?: SchemaModelExcludePortalSourceCount;
   include_full_month?: ModelIncludeFullMonthSchemaJson;
   use_event_dates_for_partition_dates?: ModelUseEventDatesForPartitionDatesSchemaJson;
@@ -403,6 +424,12 @@ export interface SchemaModelTypeStgSelectSource {
   where?: SchemaModelWhere;
 }
 /**
+ * Validates schema for model-level meta. Accepts free-form custom keys (e.g. owner, owner_slack, upstream_process, freshness_sla) authored on the model root. The framework reserves two categories of keys: (1) POPULATED-RESERVED keys (metrics, portal_partition_columns, local_tags, case_sensitive, and any key spread from lightdash.table such as label / group_label / sql_filter / required_filters) are written by the framework from structured sibling fields (lightdash, tags) and will silently overwrite a user-authored value of the same name at YAML emit time -- move the value to its canonical sibling field (lightdash.*, tags) instead. Collisions are also surfaced as Warning-severity diagnostics in the Problems tab. No automatic inheritance between models; each model declares its own meta.
+ */
+export interface SchemaModelMeta {
+  [k: string]: unknown | undefined;
+}
+/**
  * SQL statements to run before or after models
  */
 export interface ModelSqlHooksSchemaJson {
@@ -416,6 +443,7 @@ export interface ModelSqlHooksSchemaJson {
   pre?: string | [string, ...string[]];
 }
 export interface SchemaColumnLightdash {
+  case_sensitive?: SchemaLightdashCaseSensitive;
   dimension?: SchemaLightdashDimension;
   /**
    * @minItems 1
@@ -603,10 +631,17 @@ export interface SchemaLightdashMetricMerge {
    */
   sql?: string;
 }
+/**
+ * Validates schema for column-level meta on a select item. Accepts free-form custom keys (e.g. pii, compliance, owner). The framework reserves two categories of keys: (1) POPULATED-RESERVED keys (type, origin, dimension, metrics, case_sensitive) are written from structured sibling fields on the select item (type, lightdash.*) and will silently overwrite a user-authored value of the same name at YAML emit time -- author them via the canonical sibling fields instead. (2) SQL-INTERNAL RESERVED keys (agg, aggs, expr, prefix, exclude_from_group_by, interval, override_suffix_agg, metrics_merge) are used by the framework as internal state for SQL generation and column inheritance; they are stripped from the emitted YAML. Authoring them under meta has no effect on generated SQL -- the framework only reads them from the top-level sibling on the select item (select[i].agg / .expr / .prefix / .lightdash.metrics_merge / etc.). Collisions in either category are surfaced as Warning-severity diagnostics in the Problems tab. Free-form keys are inherited through downstream passthrough selects via the standard column-meta merge pipeline; expr-based selects do not inherit from upstream.
+ */
+export interface SchemaColumnMeta {
+  [k: string]: unknown | undefined;
+}
 export interface SchemaModelSelectInterval {
   description?: SchemaColumnDescription;
   interval: 'day' | 'hour' | 'month' | 'year';
   lightdash?: SchemaColumnLightdash;
+  meta?: SchemaColumnMeta;
   model?: SchemaModelRef;
   name: 'datetime';
   data_tests?: SchemaColumnDataTests;

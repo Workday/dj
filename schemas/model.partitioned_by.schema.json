@@ -1,7 +1,8 @@
 {
   "$id": "model.partitioned_by.schema.json",
   "title": "Schema Model Partitioned By",
-  "description": "Override the default partitioned_by configuration for this model",
+  "description": "DEPRECATED: use `materialization.partitions` instead. Replace `\"partitioned_by\": [\"col\"]` with `\"materialization\": { \"type\": \"incremental\", \"partitions\": [\"col\"] }`.",
+  "deprecated": true,
   "type": "array",
   "minItems": 1,
   "items": { "$ref": "column.name.schema.json" }

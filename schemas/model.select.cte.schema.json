@@ -16,6 +16,7 @@
         "data_type": { "$ref": "column.data_type.schema.json" },
         "description": { "$ref": "column.description.schema.json" },
         "lightdash": { "$ref": "column.lightdash.schema.json" },
+        "meta": { "$ref": "column.meta.schema.json" },
         "name": { "$ref": "column.name.schema.json" },
         "data_tests": { "$ref": "column.data_tests.schema.json" },
         "type": { "const": "dim" }
@@ -34,6 +35,7 @@
         "data_type": { "$ref": "column.data_type.schema.json" },
         "description": { "$ref": "column.description.schema.json" },
         "lightdash": { "$ref": "column.lightdash.schema.json" },
+        "meta": { "$ref": "column.meta.schema.json" },
         "name": { "$ref": "column.name.schema.json" },
         "data_tests": { "$ref": "column.data_tests.schema.json" },
         "type": { "const": "fct" }

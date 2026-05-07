@@ -4,10 +4,14 @@ import {
   validateCteColumnReferences,
   validateCteGroupBy,
   validateCteLightdashMetrics,
+  validateCteRollupRequiresSelect,
   validateCtes,
   validateDeadOuterLayer,
   validateDjIcebergPartitionOverwrite,
+  validateExcludeDatetimeRollupConflict,
   validateMainModelAggregation,
+  validateMaterializationPartitionsExist,
+  validatePartitionStrategyWithoutPartitions,
 } from '@services/modelValidation';
 
 import { createTestProject } from './helpers';
@@ -696,6 +700,137 @@ describe('validateCteLightdashMetrics (Gap 1)', () => {
   });
 });
 
+describe('validateExcludeDatetimeRollupConflict', () => {
+  test('errors when from.rollup and exclude_datetime are both set', () => {
+    const errors = validateExcludeDatetimeRollupConflict({
+      type: 'int_select_model',
+      from: { model: 'stg_events', rollup: { interval: 'day' } },
+      exclude_datetime: true,
+      select: [{ name: 'region', type: 'dim' }],
+    });
+    expect(errors).toHaveLength(1);
+    expect(errors[0].instancePath).toBe('/exclude_datetime');
+    expect(errors[0].message).toContain('exclude_datetime');
+    expect(errors[0].message).toContain('from.rollup');
+  });
+
+  test('passes when only from.rollup is set', () => {
+    const errors = validateExcludeDatetimeRollupConflict({
+      type: 'int_select_model',
+      from: { model: 'stg_events', rollup: { interval: 'day' } },
+      select: [{ name: 'region', type: 'dim' }],
+    });
+    expect(errors).toEqual([]);
+  });
+
+  test('passes when only exclude_datetime is set (no rollup)', () => {
+    const errors = validateExcludeDatetimeRollupConflict({
+      type: 'int_select_model',
+      from: { model: 'stg_events' },
+      exclude_datetime: true,
+      select: [{ name: 'region', type: 'dim' }],
+    });
+    expect(errors).toEqual([]);
+  });
+
+  // CTE-level exclude_datetime fires only when the SAME CTE also declares
+  // from.rollup. A CTE that excludes datetime while a different scope (the
+  // model, or another CTE) has rollup is structurally coherent -- the
+  // exclude only strips this CTE's own datetime and does not affect the
+  // upstream rollup. Cross-scope CTE rollup conflict is covered in
+  // `cte-rollup.test.ts`.
+  test('does not flag CTE-level exclude_datetime when only the model has rollup', () => {
+    const errors = validateExcludeDatetimeRollupConflict({
+      type: 'int_select_model',
+      from: { model: 'stg_events', rollup: { interval: 'day' } },
+      ctes: [
+        {
+          name: 'pre_agg',
+          from: { model: 'other_model' },
+          select: [{ name: 'region', type: 'dim' }],
+          exclude_datetime: true,
+        },
+      ],
+    });
+    expect(errors).toEqual([]);
+  });
+
+  test('exclude_datetime: false does not trigger the error', () => {
+    const errors = validateExcludeDatetimeRollupConflict({
+      type: 'int_select_model',
+      from: { model: 'stg_events', rollup: { interval: 'day' } },
+      exclude_datetime: false,
+      select: [{ name: 'region', type: 'dim' }],
+    });
+    expect(errors).toEqual([]);
+  });
+
+  test('handles models with no from gracefully', () => {
+    expect(validateExcludeDatetimeRollupConflict({})).toEqual([]);
+    expect(
+      validateExcludeDatetimeRollupConflict({ exclude_datetime: true }),
+    ).toEqual([]);
+  });
+
+  // The combined `exclude_framework_artifacts` enum implies `exclude_datetime`
+  // for both `"all"` and `"columns"`, so either paired with `from.rollup`
+  // triggers the same conflict. The diagnostic pointer follows the field
+  // the user actually authored.
+  test('errors when from.rollup + exclude_framework_artifacts="all"', () => {
+    const errors = validateExcludeDatetimeRollupConflict({
+      type: 'int_select_model',
+      from: { model: 'stg_events', rollup: { interval: 'day' } },
+      exclude_framework_artifacts: 'all',
+      select: [{ name: 'region', type: 'dim' }],
+    });
+    expect(errors).toHaveLength(1);
+    expect(errors[0].instancePath).toBe('/exclude_framework_artifacts');
+    expect(errors[0].message).toContain('exclude_framework_artifacts');
+    expect(errors[0].message).toContain('"all"');
+    expect(errors[0].message).toContain('from.rollup');
+  });
+
+  test('errors when from.rollup + exclude_framework_artifacts="columns"', () => {
+    const errors = validateExcludeDatetimeRollupConflict({
+      type: 'int_select_model',
+      from: { model: 'stg_events', rollup: { interval: 'day' } },
+      exclude_framework_artifacts: 'columns',
+      select: [{ name: 'region', type: 'dim' }],
+    });
+    expect(errors).toHaveLength(1);
+    expect(errors[0].instancePath).toBe('/exclude_framework_artifacts');
+    expect(errors[0].message).toContain('"columns"');
+  });
+
+  // Override: explicit `exclude_datetime: false` opts datetime back in and
+  // silences the conflict, even when the combined flag would otherwise
+  // imply exclusion.
+  test('passes when from.rollup + combined "all" + exclude_datetime: false (override)', () => {
+    const errors = validateExcludeDatetimeRollupConflict({
+      type: 'int_select_model',
+      from: { model: 'stg_events', rollup: { interval: 'day' } },
+      exclude_framework_artifacts: 'all',
+      exclude_datetime: false,
+      select: [{ name: 'region', type: 'dim' }],
+    });
+    expect(errors).toEqual([]);
+  });
+
+  // Both flags set to exclusion: pointer prefers the more specific
+  // individual flag.
+  test('errors with /exclude_datetime pointer when both individual + combined are set', () => {
+    const errors = validateExcludeDatetimeRollupConflict({
+      type: 'int_select_model',
+      from: { model: 'stg_events', rollup: { interval: 'day' } },
+      exclude_framework_artifacts: 'all',
+      exclude_datetime: true,
+      select: [{ name: 'region', type: 'dim' }],
+    });
+    expect(errors).toHaveLength(1);
+    expect(errors[0].instancePath).toBe('/exclude_datetime');
+  });
+});
+
 /**
  * Gap 2: Main-model `fct` columns must be aggregated when the main model has
  * a `group_by`. Covers both named scalar selects and bulk CTE selects
@@ -1195,5 +1330,512 @@ describe('validateDjIcebergPartitionOverwrite', () => {
         undefined,
       ),
     ).toHaveLength(0);
+  });
+});
+
+// `validatePartitionStrategyWithoutPartitions` warns when an incremental
+// model uses a partition-based strategy (`overwrite_existing_partitions` or
+// `dj_iceberg_partition_overwrite`) but the resolved column shape carries
+// no partition column. Both strategies need partitions to drive their work
+// scope, so they no-op or fail at `dbt run` time without one.
+describe('validatePartitionStrategyWithoutPartitions', () => {
+  test('warns: from { cte } + non-partition select + partition-based default strategy', () => {
+    const modelJson = {
+      type: 'int_select_model',
+      materialized: 'incremental',
+      from: { cte: 'cte_a' },
+      select: [
+        { name: 'datetime', type: 'dim', expr: 'month' },
+        { name: 'region', type: 'dim' },
+      ],
+    };
+    const warnings = validatePartitionStrategyWithoutPartitions(
+      modelJson,
+      'overwrite_existing_partitions',
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].message).toContain('overwrite_existing_partitions');
+    expect(warnings[0].message).toContain('cte');
+    // No explicit strategy was set, so the warning anchors on `materialized`.
+    expect(warnings[0].instancePath).toBe('/materialized');
+  });
+
+  test('warns: `exclude_framework_artifacts: "all"` suppresses partition auto-injection on a from-model main model', () => {
+    const modelJson = {
+      type: 'int_select_model',
+      materialization: { type: 'incremental' },
+      from: { model: 'stg_events' },
+      select: [{ name: 'datetime', type: 'dim', expr: 'month' }],
+      exclude_framework_artifacts: 'all',
+    };
+    const warnings = validatePartitionStrategyWithoutPartitions(
+      modelJson,
+      'overwrite_existing_partitions',
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].instancePath).toBe('/materialization');
+  });
+
+  test('warns: explicit `dj_iceberg_partition_overwrite` strategy via `materialization.strategy`', () => {
+    const modelJson = {
+      type: 'int_select_model',
+      materialization: {
+        type: 'incremental',
+        strategy: { type: 'dj_iceberg_partition_overwrite' },
+        format: 'iceberg',
+      },
+      from: { cte: 'cte_a' },
+      select: [{ name: 'a', type: 'dim' }],
+    };
+    const warnings = validatePartitionStrategyWithoutPartitions(
+      modelJson,
+      undefined,
+    );
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].message).toContain('dj_iceberg_partition_overwrite');
+    expect(warnings[0].instancePath).toBe('/materialization/strategy/type');
+  });
+
+  test('suppresses: explicit `materialization.partitions` lists a column', () => {
+    const modelJson = {
+      type: 'int_select_model',
+      materialization: {
+        type: 'incremental',
+        partitions: ['custom_partition'],
+      },
+      from: { cte: 'cte_a' },
+      select: [{ name: 'a', type: 'dim' }],
+    };
+    expect(
+      validatePartitionStrategyWithoutPartitions(
+        modelJson,
+        'overwrite_existing_partitions',
+      ),
+    ).toHaveLength(0);
+  });
+
+  test('suppresses: scalar `select` includes a `portal_partition_*` column', () => {
+    const modelJson = {
+      type: 'int_select_model',
+      materialized: 'incremental',
+      from: { cte: 'cte_a' },
+      select: [
+        { name: 'portal_partition_daily', type: 'dim' },
+        { name: 'a', type: 'dim' },
+      ],
+    };
+    expect(
+      validatePartitionStrategyWithoutPartitions(
+        modelJson,
+        'overwrite_existing_partitions',
+      ),
+    ).toHaveLength(0);
+  });
+
+  test('suppresses: non-partition strategies (`delete+insert`, `merge`, `append`)', () => {
+    for (const strategy of ['delete+insert', 'merge', 'append']) {
+      const modelJson = {
+        type: 'int_select_model',
+        materialization: {
+          type: 'incremental',
+          strategy: { type: strategy },
+        },
+        from: { cte: 'cte_a' },
+        select: [{ name: 'a', type: 'dim' }],
+      };
+      expect(
+        validatePartitionStrategyWithoutPartitions(modelJson, strategy),
+      ).toHaveLength(0);
+    }
+  });
+
+  test('suppresses: `from: { model }` (upstream auto-injection covers partitions)', () => {
+    const modelJson = {
+      type: 'int_select_model',
+      materialized: 'incremental',
+      from: { model: 'stg_events' },
+      select: [{ name: 'a', type: 'dim' }],
+    };
+    expect(
+      validatePartitionStrategyWithoutPartitions(
+        modelJson,
+        'overwrite_existing_partitions',
+      ),
+    ).toHaveLength(0);
+  });
+
+  test('suppresses: lookback model (forces `portal_partition_daily`)', () => {
+    const modelJson = {
+      type: 'int_lookback_model',
+      materialized: 'incremental',
+      from: { model: 'stg_events', lookback: { interval: 'day', count: 30 } },
+      select: [{ name: 'a', type: 'dim' }],
+    };
+    expect(
+      validatePartitionStrategyWithoutPartitions(
+        modelJson,
+        'overwrite_existing_partitions',
+      ),
+    ).toHaveLength(0);
+  });
+
+  test('suppresses: bulk passthrough (`all_from_cte`) may carry partitions', () => {
+    const modelJson = {
+      type: 'int_select_model',
+      materialized: 'incremental',
+      from: { cte: 'cte_a' },
+      select: [{ type: 'all_from_cte', cte: 'cte_a' }],
+    };
+    expect(
+      validatePartitionStrategyWithoutPartitions(
+        modelJson,
+        'overwrite_existing_partitions',
+      ),
+    ).toHaveLength(0);
+  });
+
+  test('suppresses: non-incremental model (defaults to ephemeral)', () => {
+    const modelJson = {
+      type: 'int_select_model',
+      from: { cte: 'cte_a' },
+      select: [{ name: 'a', type: 'dim' }],
+    };
+    expect(
+      validatePartitionStrategyWithoutPartitions(
+        modelJson,
+        'overwrite_existing_partitions',
+      ),
+    ).toHaveLength(0);
+  });
+
+  test('strategy resolution: explicit non-partition strategy on the model beats partition-based default', () => {
+    const modelJson = {
+      type: 'int_select_model',
+      materialized: 'incremental',
+      incremental_strategy: 'delete+insert',
+      from: { cte: 'cte_a' },
+      select: [{ name: 'a', type: 'dim' }],
+    };
+    expect(
+      validatePartitionStrategyWithoutPartitions(
+        modelJson,
+        'overwrite_existing_partitions',
+      ),
+    ).toHaveLength(0);
+  });
+
+  // CTE chain auto-inject: `portal_partition_*` cascades through every
+  // `from: { cte }` hop by inheriting from the upstream CTE registry, the
+  // same way `from: { model }` consumers inherit from the manifest. The
+  // heuristic must walk the chain so the warning does not fire on chains
+  // that genuinely emit a partition column at sync time.
+  describe('CTE chain auto-inject', () => {
+    test('suppresses: chain with single CTE that sources from a model', () => {
+      const modelJson = {
+        type: 'int_select_model',
+        materialized: 'incremental',
+        ctes: [
+          {
+            name: 'rolled',
+            from: { model: 'upstream' },
+            select: [{ name: 'a', type: 'dim' }],
+          },
+        ],
+        from: { cte: 'rolled' },
+        select: [{ name: 'a', type: 'dim' }],
+      };
+      expect(
+        validatePartitionStrategyWithoutPartitions(
+          modelJson,
+          'overwrite_existing_partitions',
+        ),
+      ).toHaveLength(0);
+    });
+
+    test('suppresses: multi-hop chain that terminates at a model head', () => {
+      const modelJson = {
+        type: 'int_select_model',
+        materialized: 'incremental',
+        ctes: [
+          {
+            name: 'first',
+            from: { model: 'upstream' },
+            select: [{ name: 'a', type: 'dim' }],
+          },
+          {
+            name: 'second',
+            from: { cte: 'first' },
+            select: [{ name: 'a', type: 'dim' }],
+          },
+          {
+            name: 'third',
+            from: { cte: 'second' },
+            select: [{ name: 'a', type: 'dim' }],
+          },
+        ],
+        from: { cte: 'third' },
+        select: [{ name: 'a', type: 'dim' }],
+      };
+      expect(
+        validatePartitionStrategyWithoutPartitions(
+          modelJson,
+          'overwrite_existing_partitions',
+        ),
+      ).toHaveLength(0);
+    });
+
+    test('warns: any link in the chain opts out via `exclude_portal_partition_columns`', () => {
+      const modelJson = {
+        type: 'int_select_model',
+        materialized: 'incremental',
+        ctes: [
+          {
+            name: 'first',
+            from: { model: 'upstream' },
+            select: [{ name: 'a', type: 'dim' }],
+          },
+          {
+            name: 'second',
+            from: { cte: 'first' },
+            select: [{ name: 'a', type: 'dim' }],
+            exclude_portal_partition_columns: true,
+          },
+        ],
+        from: { cte: 'second' },
+        select: [{ name: 'a', type: 'dim' }],
+      };
+      const warnings = validatePartitionStrategyWithoutPartitions(
+        modelJson,
+        'overwrite_existing_partitions',
+      );
+      expect(warnings).toHaveLength(1);
+    });
+
+    test('warns: chain link with `exclude_framework_artifacts: "all"` breaks the chain', () => {
+      const modelJson = {
+        type: 'int_select_model',
+        materialized: 'incremental',
+        ctes: [
+          {
+            name: 'first',
+            from: { model: 'upstream' },
+            select: [{ name: 'a', type: 'dim' }],
+            exclude_framework_artifacts: 'all',
+          },
+        ],
+        from: { cte: 'first' },
+        select: [{ name: 'a', type: 'dim' }],
+      };
+      const warnings = validatePartitionStrategyWithoutPartitions(
+        modelJson,
+        'overwrite_existing_partitions',
+      );
+      expect(warnings).toHaveLength(1);
+    });
+
+    test('warns: chain head is `from: { union }` (no auto-inject)', () => {
+      const modelJson = {
+        type: 'int_union_models',
+        materialized: 'incremental',
+        ctes: [
+          {
+            name: 'unioned',
+            from: { union: { models: ['m1', 'm2'] } },
+            select: [{ name: 'a', type: 'dim' }],
+          },
+        ],
+        from: { cte: 'unioned' },
+        select: [{ name: 'a', type: 'dim' }],
+      };
+      const warnings = validatePartitionStrategyWithoutPartitions(
+        modelJson,
+        'overwrite_existing_partitions',
+      );
+      expect(warnings).toHaveLength(1);
+    });
+
+    test('suppresses: a CTE in the chain explicitly selects a `portal_partition_*` column', () => {
+      const modelJson = {
+        type: 'int_select_model',
+        materialized: 'incremental',
+        ctes: [
+          {
+            name: 'with_partition',
+            // The from-shape on its own would not auto-inject, but the
+            // explicit partition select lands the column in the registry
+            // and the chain inherits it from there.
+            from: { union: { models: ['a', 'b'] } },
+            select: [
+              { name: 'a', type: 'dim' },
+              { name: 'portal_partition_monthly', type: 'dim' },
+            ],
+          },
+        ],
+        from: { cte: 'with_partition' },
+        select: [{ name: 'a', type: 'dim' }],
+      };
+      expect(
+        validatePartitionStrategyWithoutPartitions(
+          modelJson,
+          'overwrite_existing_partitions',
+        ),
+      ).toHaveLength(0);
+    });
+  });
+});
+
+// validateCteRollupRequiresSelect: a CTE that declares from.rollup must
+// declare an explicit `select`. Without it, the SQL generator falls
+// through to `select *` and rollup's default `group_by: dims` expands to
+// every upstream column, producing broken SQL and an empty rollup
+// transform on the column registry.
+describe('validateCteRollupRequiresSelect', () => {
+  test('errors when CTE has from.model + rollup but no select', () => {
+    const errors = validateCteRollupRequiresSelect({
+      type: 'int_select_model',
+      ctes: [
+        {
+          name: 'monthly',
+          from: { model: 'stg_events', rollup: { interval: 'month' } },
+        },
+      ],
+      from: { cte: 'monthly' },
+      select: [{ name: 'datetime', type: 'dim' }],
+    });
+    expect(errors).toHaveLength(1);
+    expect(errors[0].instancePath).toBe('/ctes/0');
+    expect(errors[0].message).toContain('"monthly"');
+    expect(errors[0].message).toContain('from.rollup');
+    expect(errors[0].message).toContain('explicit `select`');
+  });
+
+  test('errors when CTE has from.cte + rollup but no select', () => {
+    const errors = validateCteRollupRequiresSelect({
+      type: 'int_select_model',
+      ctes: [
+        {
+          name: 'pre_agg',
+          from: { model: 'stg_events' },
+          select: [
+            { name: 'datetime', type: 'dim' },
+            { name: 'amount_sum', type: 'fct' },
+          ],
+        },
+        {
+          name: 'monthly',
+          from: { cte: 'pre_agg', rollup: { interval: 'month' } },
+        },
+      ],
+      from: { cte: 'monthly' },
+      select: [{ name: 'datetime', type: 'dim' }],
+    });
+    expect(errors).toHaveLength(1);
+    expect(errors[0].instancePath).toBe('/ctes/1');
+    expect(errors[0].message).toContain('"monthly"');
+  });
+
+  test('errors when CTE has rollup but an empty select array', () => {
+    const errors = validateCteRollupRequiresSelect({
+      type: 'int_select_model',
+      ctes: [
+        {
+          name: 'monthly',
+          from: { model: 'stg_events', rollup: { interval: 'month' } },
+          select: [],
+        },
+      ],
+      from: { cte: 'monthly' },
+      select: [{ name: 'datetime', type: 'dim' }],
+    });
+    expect(errors).toHaveLength(1);
+    expect(errors[0].instancePath).toBe('/ctes/0');
+  });
+
+  test('passes when CTE has rollup with a non-empty select', () => {
+    const errors = validateCteRollupRequiresSelect({
+      type: 'int_select_model',
+      ctes: [
+        {
+          name: 'monthly',
+          from: { model: 'stg_events', rollup: { interval: 'month' } },
+          select: [
+            { name: 'datetime', type: 'dim' },
+            { name: 'region', type: 'dim' },
+            { name: 'amount_sum', type: 'fct' },
+          ],
+        },
+      ],
+      from: { cte: 'monthly' },
+      select: [{ name: 'datetime', type: 'dim' }],
+    });
+    expect(errors).toEqual([]);
+  });
+
+  // Existing `select *` behavior for non-rollup CTEs is preserved -- only
+  // CTEs that opt into rollup are forced to declare a select.
+  test('passes when CTE has no rollup and no select (legacy `select *`)', () => {
+    const errors = validateCteRollupRequiresSelect({
+      type: 'int_select_model',
+      ctes: [
+        {
+          name: 'passthrough',
+          from: { model: 'stg_events' },
+        },
+      ],
+      from: { cte: 'passthrough' },
+      select: [{ name: 'datetime', type: 'dim' }],
+    });
+    expect(errors).toEqual([]);
+  });
+});
+
+// validateMaterializationPartitionsExist: catches the typo case where a
+// user lists a column in `materialization.partitions` that is not
+// produced by the model's `select`. The SQL generator silently drops
+// such names from the dbt config, leaving the table unpartitioned.
+describe('validateMaterializationPartitionsExist', () => {
+  test('warns when a partition name is not in the scalar select', () => {
+    const errors = validateMaterializationPartitionsExist({
+      type: 'int_select_model',
+      materialization: { type: 'incremental', partitions: ['month'] },
+      from: { cte: 'category_calculations' },
+      select: [
+        { name: 'datetime', type: 'dim', expr: 'month' },
+        { name: 'region', type: 'dim' },
+      ],
+    });
+    expect(errors).toHaveLength(1);
+    expect(errors[0].instancePath).toBe('/materialization/partitions/0');
+    expect(errors[0].message).toContain('"month"');
+    expect(errors[0].message).toContain('materialization.partitions');
+    expect(errors[0].message).toContain("not in the model's `select`");
+  });
+
+  // Bulk selects could expand to include any upstream column name, so
+  // the validator skips conservatively rather than risk a false positive.
+  test('skips when a bulk select is present (could plausibly include the name)', () => {
+    const errors = validateMaterializationPartitionsExist({
+      type: 'int_select_model',
+      materialization: { type: 'incremental', partitions: ['month'] },
+      from: { model: 'stg_events' },
+      select: [
+        { type: 'all_from_model', model: 'stg_events' },
+        { name: 'derived', type: 'fct', expr: 'count(*)' },
+      ],
+    });
+    expect(errors).toEqual([]);
+  });
+
+  test('passes when every partition name appears as a scalar select', () => {
+    const errors = validateMaterializationPartitionsExist({
+      type: 'int_select_model',
+      materialization: { type: 'incremental', partitions: ['datetime'] },
+      from: { cte: 'category_calculations' },
+      select: [
+        { name: 'datetime', type: 'dim', expr: 'month' },
+        { name: 'region', type: 'dim' },
+      ],
+    });
+    expect(errors).toEqual([]);
   });
 });

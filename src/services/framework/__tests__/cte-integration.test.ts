@@ -273,4 +273,130 @@ describe('CTE Integration / Full Model', () => {
     expect(result.sql).toContain("ref('ext_model_a')");
     expect(result.sql).toContain("ref('ext_model_b')");
   });
+
+  // Main model with `from: { cte }` inherits framework columns from the
+  // upstream CTE registry the same way `from: { model }` consumers inherit
+  // from the manifest. Mirrors the symmetric auto-inject contract documented
+  // on `frameworkShouldAutoInjectCteFrameworkDims` / the main-model branch
+  // in `frameworkBuildColumns`.
+  describe('main model from: { cte } framework auto-inject', () => {
+    function chainedProject() {
+      return createTestProject({
+        nodes: {
+          ['model.project.upstream_facts']: {
+            columns: {
+              region: {
+                name: 'region',
+                data_type: 'varchar',
+                meta: { type: 'dim' },
+              },
+              amount: {
+                name: 'amount',
+                data_type: 'bigint',
+                meta: { type: 'fct' },
+              },
+              datetime: {
+                name: 'datetime',
+                data_type: 'timestamp(6)',
+                meta: { type: 'dim', interval: 'day' },
+              },
+              portal_partition_monthly: {
+                name: 'portal_partition_monthly',
+                data_type: 'varchar',
+                meta: { type: 'dim' },
+              },
+              portal_partition_daily: {
+                name: 'portal_partition_daily',
+                data_type: 'varchar',
+                meta: { type: 'dim' },
+              },
+              portal_source_count: {
+                name: 'portal_source_count',
+                data_type: 'bigint',
+                meta: {
+                  type: 'fct',
+                  dimension: { label: 'Portal Source Count', hidden: true },
+                },
+              },
+            },
+          },
+        },
+      });
+    }
+
+    test('inherits datetime, partitions, and portal_source_count from upstream CTE', () => {
+      const modelJson: FrameworkModel = {
+        type: 'int_select_model',
+        group: 'test',
+        topic: 'cte_chain',
+        name: 'rolled',
+        ctes: [
+          {
+            name: 'rolled_up',
+            from: { model: 'upstream_facts' },
+            select: [
+              { name: 'region', type: 'dim' },
+              { name: 'amount', type: 'fct', agg: 'sum' },
+            ],
+            group_by: 'dims',
+          },
+        ],
+        from: { cte: 'rolled_up' },
+        select: [{ name: 'region', type: 'dim' }],
+      } as any;
+
+      const result = frameworkGenerateModelOutput({
+        dj: createTestDJ(),
+        modelJson,
+        project: chainedProject(),
+      });
+
+      const ymlNames = (result.properties.columns as { name: string }[]).map(
+        (c) => c.name,
+      );
+      expect(ymlNames).toContain('datetime');
+      expect(ymlNames).toContain('portal_partition_monthly');
+      expect(ymlNames).toContain('portal_partition_daily');
+      expect(ymlNames).toContain('portal_source_count');
+    });
+
+    test('model-level exclude_portal_partition_columns strips inherited partitions', () => {
+      const modelJson: FrameworkModel = {
+        type: 'int_select_model',
+        group: 'test',
+        topic: 'cte_chain',
+        name: 'no_partitions',
+        ctes: [
+          {
+            name: 'rolled_up',
+            from: { model: 'upstream_facts' },
+            select: [
+              { name: 'region', type: 'dim' },
+              { name: 'amount', type: 'fct', agg: 'sum' },
+            ],
+            group_by: 'dims',
+          },
+        ],
+        from: { cte: 'rolled_up' },
+        select: [{ name: 'region', type: 'dim' }],
+        exclude_portal_partition_columns: true,
+      } as any;
+
+      const result = frameworkGenerateModelOutput({
+        dj: createTestDJ(),
+        modelJson,
+        project: chainedProject(),
+      });
+
+      const ymlNames = (result.properties.columns as { name: string }[]).map(
+        (c) => c.name,
+      );
+      // Datetime + portal_source_count still survive; partitions are stripped
+      // by the model-level exclude flag.
+      expect(ymlNames).toContain('datetime');
+      expect(ymlNames).toContain('portal_source_count');
+      expect(ymlNames).not.toContain('portal_partition_monthly');
+      expect(ymlNames).not.toContain('portal_partition_daily');
+    });
+  });
 });

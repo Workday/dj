@@ -41,6 +41,17 @@ const INCREMENTAL_STRATEGY_OPTIONS = [
   },
 ] as const;
 
+// Combined-flag dropdown options. Blank value (default) leaves the model on
+// individual flags only. `"columns"` drops the three framework-injected
+// columns (`datetime`, `portal_partition_*`, `portal_source_count`) but
+// still emits the auto WHERE date filter; `"all"` additionally drops the
+// auto `_ext_event_date_filter` macros.
+const EXCLUDE_FRAMEWORK_ARTIFACTS_OPTIONS = [
+  { label: 'Default (no combined exclusion)', value: '' },
+  { label: 'Exclude framework columns', value: 'columns' },
+  { label: 'Exclude all framework artifacts', value: 'all' },
+] as const;
+
 export function AdditionalFields({
   control,
   errors,
@@ -513,6 +524,36 @@ export function AdditionalFields({
           />
         </div>
 
+        {/* Combined-flag dropdown — drops multiple framework artifacts in one
+            switch. The individual checkboxes below override per-column when
+            the user wants to keep one specific artifact. */}
+        <Controller
+          control={control}
+          name="exclude_framework_artifacts"
+          render={({ field }) => (
+            <FieldSelectSingle
+              name={field.name}
+              onBlur={field.onBlur}
+              value={field.value || ''}
+              onChange={(value) => {
+                const next =
+                  value === 'all' || value === 'columns' ? value : undefined;
+                field.onChange(next);
+                setValue('exclude_framework_artifacts', next);
+                setAdditionalField('exclude_framework_artifacts', next);
+              }}
+              label="Exclude Framework Artifacts"
+              options={[...EXCLUDE_FRAMEWORK_ARTIFACTS_OPTIONS]}
+              tooltipText={
+                'Drop framework-generated artifacts in one switch.\n' +
+                '\u2022 Exclude framework columns: drops datetime, portal_partition_*, and portal_source_count. The auto WHERE date filters still fire.\n' +
+                '\u2022 Exclude all framework artifacts: also drops the auto _ext_event_date_filter WHERE clauses.\n' +
+                'Individual exclude flags below override this per column (e.g. set "Exclude Portal Source Count" to false to keep that one column even when this is "all"). Mutually exclusive with from.rollup when the resolved value implies excluding datetime.'
+              }
+            />
+          )}
+        />
+
         {/* Exclude Portal Source Count - available for all models */}
         <Controller
           control={control}
@@ -546,6 +587,25 @@ export function AdditionalFields({
             )}
           />
         )}
+
+        {/* Exclude Datetime - available for all models, surfaced by default
+            so users can opt out of the auto-injected datetime column without
+            also dropping partition columns. Mutually exclusive with
+            from.rollup (validated server-side). */}
+        <Controller
+          control={control}
+          name="exclude_datetime"
+          render={({ field }) => (
+            <Checkbox
+              checked={field.value || false}
+              onChange={createCheckboxHandler(
+                'exclude_datetime',
+                field.onChange,
+              )}
+              label="Exclude Datetime"
+            />
+          )}
+        />
 
         {/* Exclude Date Filter - NOT available for mart models */}
         {SHOW_ADVANCED_FIELDS && !isMartModelType && (

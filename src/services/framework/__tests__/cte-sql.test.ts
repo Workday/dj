@@ -300,4 +300,82 @@ describe('CTE SQL Generation', () => {
     expect(result.sql).not.toContain("ref('cte_base')");
     expect(result.sql).not.toContain("ref('cte_ref')");
   });
+
+  // End-to-end SQL gen for the manual-rollup CTE shape: `from: { cte }`,
+  // `exclude_framework_artifacts: "all"`, and an explicit `datetime`
+  // aliased from a CTE column. The origin-aware strip must preserve the
+  // explicit `datetime` so both the main SELECT and its GROUP BY reference
+  // it (otherwise the aggregate collapses to a single row).
+  test('manual-rollup CTE: explicit `datetime` survives end-to-end SQL gen with `exclude_framework_artifacts: "all"`', () => {
+    const reproProject = createTestProject({
+      nodes: {
+        ['model.project.stg_events']: {
+          columns: {
+            datetime: {
+              name: 'datetime',
+              data_type: 'timestamp(6)',
+              meta: { type: 'dim', interval: 'day' },
+            },
+            amount: {
+              name: 'amount',
+              data_type: 'bigint',
+              meta: { type: 'fct' },
+            },
+            portal_partition_daily: {
+              name: 'portal_partition_daily',
+              data_type: 'varchar',
+              meta: { type: 'dim' },
+            },
+          },
+        },
+      },
+    });
+
+    const modelJson: FrameworkModel = {
+      type: 'int_select_model',
+      group: 'analytics',
+      topic: 'events',
+      name: 'rollup_monthly',
+      materialized: 'incremental',
+      ctes: [
+        {
+          name: 'cte_monthly',
+          from: { model: 'stg_events' },
+          select: [
+            {
+              name: 'month',
+              expr: "DATE_TRUNC('MONTH', portal_partition_daily)",
+              type: 'dim',
+            },
+            { name: 'amount_sum', expr: 'sum(amount)', type: 'fct' },
+          ],
+          group_by: [{ type: 'dims' }],
+        },
+      ],
+      from: { cte: 'cte_monthly' },
+      select: [
+        { name: 'datetime', expr: 'month', type: 'dim' },
+        { name: 'amount_sum', expr: 'sum(amount_sum)', type: 'fct' },
+      ],
+      group_by: [{ type: 'dims' }],
+      exclude_framework_artifacts: 'all',
+    } as any;
+
+    const result = frameworkGenerateModelOutput({
+      dj: createTestDJ(),
+      modelJson,
+      project: reproProject,
+    });
+
+    expect(result.sql).toMatch(/month\s+as\s+datetime/i);
+
+    // Pin assertions to the main-model CTE block so the inner CTE's
+    // `GROUP BY DATE_TRUNC('MONTH', ...)` does not falsely satisfy the
+    // `\bmonth\b` match.
+    const mainBlockMatch = result.sql.match(
+      /int__analytics__events__rollup_monthly AS \(([\s\S]*?)\n\s*\)/,
+    );
+    expect(mainBlockMatch).not.toBeNull();
+    expect(mainBlockMatch![1]).toMatch(/group\s+by[\s\S]*?\bmonth\b/i);
+  });
 });
