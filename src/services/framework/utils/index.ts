@@ -27,6 +27,9 @@ export * from './column-utils';
 // SQL utilities (includes buildConditionsSql, frameworkGenerateCteSql for CTE support)
 export * from './sql-utils';
 
+// Reserved-key lint for model/column meta
+export * from './meta-lint';
+
 // Re-export types that utilities depend on
 export type { DbtProject } from '@shared/dbt/types';
 export type {

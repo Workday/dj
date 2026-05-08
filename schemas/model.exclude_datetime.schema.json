@@ -1,0 +1,6 @@
+{
+  "$id": "model.exclude_datetime.schema.json",
+  "title": "Schema Model Exclude Datetime",
+  "description": "Skips auto-injection of the `datetime` column from the upstream model. Independent of `exclude_portal_partition_columns` -- partition columns survive unless that flag is also set. Mutually exclusive with `from.rollup`, which exists to produce a `datetime` column. For pure-dimension or lookup models, set both `exclude_datetime` and `exclude_portal_partition_columns` to true.",
+  "type": "boolean"
+}

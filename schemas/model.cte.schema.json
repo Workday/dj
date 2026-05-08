@@ -25,6 +25,9 @@
             },
             "join": {
               "$ref": "model.from.join.models.schema.json"
+            },
+            "rollup": {
+              "$ref": "model.from.rollup.schema.json"
             }
           }
         },
@@ -40,6 +43,9 @@
             },
             "join": {
               "$ref": "model.from.join.models.schema.json"
+            },
+            "rollup": {
+              "$ref": "model.from.rollup.schema.json"
             }
           }
         },
@@ -149,6 +155,12 @@
     },
     "exclude_portal_partition_columns": {
       "$ref": "model.exclude_portal_partition_columns.schema.json"
+    },
+    "exclude_datetime": {
+      "$ref": "model.exclude_datetime.schema.json"
+    },
+    "exclude_framework_artifacts": {
+      "$ref": "model.exclude_framework_artifacts.schema.json"
     },
     "exclude_portal_source_count": {
       "$ref": "model.exclude_portal_source_count.schema.json"

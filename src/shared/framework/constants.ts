@@ -15,10 +15,6 @@ import type { DefaultIncrementalStrategy } from './types';
  * reference TS constants. All other fallback sites (config.ts, sql-utils.ts,
  * preferences-handler.ts, the web store, the web mock api) route through
  * this constant, so those two edits are the full surface area.
- *
- * Next release: switch to `'delete+insert'` as the safer cross-storage
- * default. Kept at `'overwrite_existing_partitions'` for now to avoid
- * behavior drift for existing workspaces that don't override the setting.
  */
 export const DEFAULT_INCREMENTAL_STRATEGY: DefaultIncrementalStrategy =
   'overwrite_existing_partitions';

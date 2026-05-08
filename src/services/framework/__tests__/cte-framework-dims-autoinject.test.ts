@@ -286,8 +286,9 @@ describe('CTE datetime + portal_partition_* auto-injection', () => {
   });
 
   // Per-CTE opt-out via `exclude_portal_partition_columns: true` (mirrors the
-  // main-model flag with the same name). `datetime` has no per-CTE opt-out --
-  // the main model has none either, so the two stay symmetric.
+  // main-model flag with the same name). Orthogonal to `exclude_datetime` --
+  // each flag controls its own column set; setting both gives a pure-dim
+  // CTE (no datetime, no partitions).
   describe('exclude_portal_partition_columns', () => {
     test('registry suppresses partitions but keeps datetime', () => {
       const project = projectWithDatetimeAndPartitions('hour');
@@ -405,9 +406,11 @@ describe('CTE datetime + portal_partition_* auto-injection', () => {
       expect(names).toContain('portal_partition_hourly');
     });
 
-    // Flag is inert on chained CTEs because the gate already returns null for
-    // those shapes -- setting it should not throw or change behavior.
-    test('flag is inert on from: { cte } CTEs', () => {
+    // Chained CTEs (`from: { cte }`) inherit framework columns from the
+    // upstream CTE's registry, and the CTE-level flag suppresses the
+    // partition columns at the gate -- per the four-tier precedence chain
+    // on `frameworkResolveExcludeFlag`.
+    test('flag suppresses partition auto-inject on from: { cte } CTEs', () => {
       const project = projectWithDatetimeAndPartitions('hour');
       const base: FrameworkCTE = {
         name: 'base',
@@ -426,7 +429,346 @@ describe('CTE datetime + portal_partition_* auto-injection', () => {
         project,
       });
       const names = registry.get('chained')!.map((c) => c.name);
-      expect(names).toEqual(['region']);
+      expect(names).not.toContain('portal_partition_monthly');
+      expect(names).not.toContain('portal_partition_daily');
+      expect(names).not.toContain('portal_partition_hourly');
+    });
+  });
+
+  // Per-CTE opt-out via `exclude_datetime: true` (mirrors the main-model flag
+  // with the same name). Orthogonal to `exclude_portal_partition_columns` --
+  // each flag is independent, and inheritance follows the same uniform rule:
+  // CTE override > model > false.
+  describe('exclude_datetime', () => {
+    test('registry suppresses datetime but keeps partitions', () => {
+      const project = projectWithDatetimeAndPartitions('hour');
+      const cte: FrameworkCTE = {
+        name: 'pre_agg',
+        from: { model: 'stg_events' },
+        select: [
+          { name: 'region', type: 'dim' },
+          { name: 'amount', type: 'fct', agg: 'sum' },
+        ],
+        group_by: 'dims',
+        exclude_datetime: true,
+      } as any;
+
+      const registry = frameworkBuildCteColumnRegistry({
+        ctes: [cte],
+        project,
+      });
+      const names = registry.get('pre_agg')!.map((c) => c.name);
+
+      expect(names).not.toContain('datetime');
+      expect(names).toContain('portal_partition_monthly');
+      expect(names).toContain('portal_partition_daily');
+      expect(names).toContain('portal_partition_hourly');
+    });
+
+    test('SQL emitter omits datetime but keeps partitions', () => {
+      const project = projectWithDatetimeAndPartitions('hour');
+      const cte: FrameworkCTE = {
+        name: 'pre_agg',
+        from: { model: 'stg_events' },
+        select: [
+          { name: 'region', type: 'dim' },
+          { name: 'amount', type: 'fct', agg: 'sum' },
+        ],
+        group_by: 'dims',
+        exclude_datetime: true,
+      } as any;
+
+      const registry = frameworkBuildCteColumnRegistry({
+        ctes: [cte],
+        project,
+      });
+      const sql = frameworkGenerateCteSql({
+        cte,
+        cteRegistry: registry,
+        project,
+        partitionColumnNames: [
+          'portal_partition_monthly',
+          'portal_partition_daily',
+          'portal_partition_hourly',
+        ],
+      });
+
+      expect(sql).not.toMatch(/\bdatetime\b/);
+      expect(sql).toContain('-- partition columns');
+      expect(sql).toContain('portal_partition_monthly');
+      expect(sql).toContain('portal_partition_daily');
+      expect(sql).toContain('portal_partition_hourly');
+    });
+
+    // Inheritance: when the CTE omits the flag, the gate falls back to the
+    // model-level value. CTE override takes precedence (CTE > model > false).
+    test('inherits from main-model exclude_datetime when CTE omits the flag', () => {
+      const project = projectWithDatetimeAndPartitions('hour');
+      const cte: FrameworkCTE = {
+        name: 'pre_agg',
+        from: { model: 'stg_events' },
+        select: [
+          { name: 'region', type: 'dim' },
+          { name: 'amount', type: 'fct', agg: 'sum' },
+        ],
+        group_by: 'dims',
+      } as any;
+      const modelJson = {
+        type: 'int_select_model',
+        exclude_datetime: true,
+      } as any;
+
+      const registry = frameworkBuildCteColumnRegistry({
+        ctes: [cte],
+        modelJson,
+        project,
+      });
+      const names = registry.get('pre_agg')!.map((c) => c.name);
+
+      expect(names).not.toContain('datetime');
+      expect(names).toContain('portal_partition_monthly');
+      expect(names).toContain('portal_partition_daily');
+      expect(names).toContain('portal_partition_hourly');
+    });
+
+    test('CTE flag overrides model: cte=false beats model=true', () => {
+      const project = projectWithDatetimeAndPartitions('hour');
+      const cte: FrameworkCTE = {
+        name: 'opt_back_in',
+        from: { model: 'stg_events' },
+        select: [{ name: 'region', type: 'dim' }],
+        exclude_datetime: false,
+      } as any;
+      const modelJson = {
+        type: 'int_select_model',
+        exclude_datetime: true,
+      } as any;
+
+      const registry = frameworkBuildCteColumnRegistry({
+        ctes: [cte],
+        modelJson,
+        project,
+      });
+      const names = registry.get('opt_back_in')!.map((c) => c.name);
+
+      expect(names).toContain('datetime');
+    });
+
+    // Pure-dimension CTE: both flags set together strips datetime AND all
+    // partition columns. This is the "lookup table" shape.
+    test('combined with exclude_portal_partition_columns: strips both', () => {
+      const project = projectWithDatetimeAndPartitions('hour');
+      const cte: FrameworkCTE = {
+        name: 'lookup',
+        from: { model: 'stg_events' },
+        select: [
+          { name: 'region', type: 'dim' },
+          { name: 'tenant_name', type: 'dim' },
+        ],
+        exclude_datetime: true,
+        exclude_portal_partition_columns: true,
+      } as any;
+
+      const registry = frameworkBuildCteColumnRegistry({
+        ctes: [cte],
+        project,
+      });
+      const names = registry.get('lookup')!.map((c) => c.name);
+
+      expect(names).not.toContain('datetime');
+      expect(names).not.toContain('portal_partition_monthly');
+      expect(names).not.toContain('portal_partition_daily');
+      expect(names).not.toContain('portal_partition_hourly');
+    });
+  });
+
+  // CTE chains: when a CTE's FROM is another CTE (`from: { cte }`), framework
+  // columns flow through from the upstream registry the same way they flow
+  // through a `from: { model }` boundary. The exclude flags continue to follow
+  // the four-tier precedence chain: CTE individual > CTE combined > model
+  // individual > model combined > false.
+  describe('chain auto-inject (from: { cte })', () => {
+    test('chained CTE inherits datetime + all partitions from upstream registry', () => {
+      const project = projectWithDatetimeAndPartitions('hour');
+      const base: FrameworkCTE = {
+        name: 'base',
+        from: { model: 'stg_events' },
+        select: [{ name: 'region', type: 'dim' }],
+      } as any;
+      const chained: FrameworkCTE = {
+        name: 'chained',
+        from: { cte: 'base' },
+        select: [{ name: 'region', type: 'dim' }],
+      } as any;
+
+      const registry = frameworkBuildCteColumnRegistry({
+        ctes: [base, chained],
+        project,
+      });
+      const names = registry.get('chained')!.map((c) => c.name);
+
+      expect(names).toContain('datetime');
+      expect(names).toContain('portal_partition_monthly');
+      expect(names).toContain('portal_partition_daily');
+      expect(names).toContain('portal_partition_hourly');
+    });
+
+    test('chained CTE with rollup month drops finer-grain partitions', () => {
+      const project = projectWithDatetimeAndPartitions('hour');
+      const base: FrameworkCTE = {
+        name: 'base',
+        from: { model: 'stg_events' },
+        select: [
+          { name: 'region', type: 'dim' },
+          { name: 'amount', type: 'fct', agg: 'sum' },
+        ],
+        group_by: 'dims',
+      } as any;
+      const monthly: FrameworkCTE = {
+        name: 'monthly',
+        from: { cte: 'base', rollup: { interval: 'month' } },
+        select: [{ name: 'region', type: 'dim' }],
+      } as any;
+
+      const registry = frameworkBuildCteColumnRegistry({
+        ctes: [base, monthly],
+        project,
+      });
+      const names = registry.get('monthly')!.map((c) => c.name);
+
+      expect(names).toContain('datetime');
+      expect(names).toContain('portal_partition_monthly');
+      expect(names).not.toContain('portal_partition_daily');
+      expect(names).not.toContain('portal_partition_hourly');
+    });
+
+    test('CTE-level exclude wins over inherited model-level flag', () => {
+      const project = projectWithDatetimeAndPartitions('hour');
+      // Base CTE opts datetime back in (CTE individual beats model combined).
+      // Without this, datetime never enters base's registry and chained
+      // would have nothing to inherit -- the precedence chain runs per CTE.
+      const base: FrameworkCTE = {
+        name: 'base',
+        from: { model: 'stg_events' },
+        select: [{ name: 'region', type: 'dim' }],
+        exclude_datetime: false,
+      } as any;
+      const chained: FrameworkCTE = {
+        name: 'chained',
+        from: { cte: 'base' },
+        select: [{ name: 'region', type: 'dim' }],
+        exclude_datetime: false,
+      } as any;
+      const modelJson = {
+        type: 'int_select_model',
+        exclude_framework_artifacts: 'all',
+      } as any;
+
+      const registry = frameworkBuildCteColumnRegistry({
+        ctes: [base, chained],
+        modelJson,
+        project,
+      });
+      const baseNames = registry.get('base')!.map((c) => c.name);
+      const chainedNames = registry.get('chained')!.map((c) => c.name);
+
+      // Base re-included datetime; chained inherited it through the chain.
+      expect(baseNames).toContain('datetime');
+      expect(chainedNames).toContain('datetime');
+      // Other framework columns remain stripped at both layers.
+      expect(chainedNames).not.toContain('portal_partition_monthly');
+      expect(chainedNames).not.toContain('portal_source_count');
+    });
+
+    test('chained CTE inherits model-level exclude_framework_artifacts: "all"', () => {
+      const project = projectWithDatetimeAndPartitions('hour');
+      const base: FrameworkCTE = {
+        name: 'base',
+        from: { model: 'stg_events' },
+        select: [{ name: 'region', type: 'dim' }],
+      } as any;
+      const chained: FrameworkCTE = {
+        name: 'chained',
+        from: { cte: 'base' },
+        select: [{ name: 'region', type: 'dim' }],
+      } as any;
+      const modelJson = {
+        type: 'int_select_model',
+        exclude_framework_artifacts: 'all',
+      } as any;
+
+      const registry = frameworkBuildCteColumnRegistry({
+        ctes: [base, chained],
+        modelJson,
+        project,
+      });
+      const names = registry.get('chained')!.map((c) => c.name);
+
+      expect(names).not.toContain('datetime');
+      expect(names).not.toContain('portal_partition_monthly');
+      expect(names).not.toContain('portal_partition_daily');
+      expect(names).not.toContain('portal_partition_hourly');
+      expect(names).not.toContain('portal_source_count');
+    });
+
+    test('portal_source_count cascades through the chain', () => {
+      const project = projectWithDatetimeAndPartitions('hour');
+      const base: FrameworkCTE = {
+        name: 'base',
+        from: { model: 'stg_events' },
+        select: [
+          { name: 'region', type: 'dim' },
+          { name: 'amount', type: 'fct', agg: 'sum' },
+        ],
+        group_by: 'dims',
+      } as any;
+      const chained: FrameworkCTE = {
+        name: 'chained',
+        from: { cte: 'base' },
+        select: [{ name: 'region', type: 'dim' }],
+      } as any;
+
+      const registry = frameworkBuildCteColumnRegistry({
+        ctes: [base, chained],
+        project,
+      });
+      const names = registry.get('chained')!.map((c) => c.name);
+
+      expect(names).toContain('portal_source_count');
+    });
+
+    test('SQL emitter mirrors the chained registry', () => {
+      const project = projectWithDatetimeAndPartitions('hour');
+      const base: FrameworkCTE = {
+        name: 'base',
+        from: { model: 'stg_events' },
+        select: [{ name: 'region', type: 'dim' }],
+      } as any;
+      const chained: FrameworkCTE = {
+        name: 'chained',
+        from: { cte: 'base' },
+        select: [{ name: 'region', type: 'dim' }],
+      } as any;
+
+      const registry = frameworkBuildCteColumnRegistry({
+        ctes: [base, chained],
+        project,
+      });
+      const sql = frameworkGenerateCteSql({
+        cte: chained,
+        cteRegistry: registry,
+        project,
+        partitionColumnNames: [
+          'portal_partition_monthly',
+          'portal_partition_daily',
+          'portal_partition_hourly',
+        ],
+      });
+
+      expect(sql).toContain('datetime');
+      expect(sql).toContain('portal_partition_monthly');
+      expect(sql).toContain('portal_partition_daily');
+      expect(sql).toContain('portal_partition_hourly');
     });
   });
 });

@@ -44,8 +44,13 @@ describe('CTE Column Registry', () => {
         description: undefined,
         tags: [],
         meta: { type: 'dim' },
+        internal: {},
       },
-      { name: 'total', meta: { type: 'fct', expr: 'SUM(col_b)' } },
+      {
+        name: 'total',
+        meta: { type: 'fct' },
+        internal: { expr: 'SUM(col_b)' },
+      },
     ]);
 
     const finalCols = registry.get('final');
@@ -131,6 +136,7 @@ describe('CTE column type inheritance', () => {
         description: undefined,
         tags: [],
         meta: { type: 'dim' },
+        internal: {},
       },
       {
         name: 'col_b',
@@ -138,6 +144,7 @@ describe('CTE column type inheritance', () => {
         description: undefined,
         tags: [],
         meta: { type: 'fct' },
+        internal: {},
       },
     ]);
   });

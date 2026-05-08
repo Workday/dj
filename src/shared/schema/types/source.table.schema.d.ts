@@ -141,13 +141,13 @@ export type SchemaColumnExpr4 = string;
  */
 export type SchemaColumnDescription = string;
 /**
- * Schema for lightdash AI hints
- */
-export type SchemaLightdashAIHint = string | string[];
-/**
  * Whether this column should be treated as case-sensitive
  */
 export type SchemaLightdashCaseSensitive = boolean;
+/**
+ * Schema for lightdash AI hints
+ */
+export type SchemaLightdashAIHint = string | string[];
 /**
  * Validate model tags
  */
@@ -226,7 +226,7 @@ export interface SchemaSourceFreshness {
   };
 }
 /**
- * Validates schema for source meta (either on the schema or table level)
+ * Validates schema for source meta (either on the schema or table level). Custom free-form keys (e.g. owner, owner_slack, freshness_sla) are permitted alongside the typed keys defined below.
  */
 export interface SchemaSourceMeta {
   etl?: SchemaSourceEtl;
@@ -237,6 +237,7 @@ export interface SchemaSourceMeta {
   portal_source_count?: SchemaSourcePortalSourceCount;
   table_function?: SchemaSourceTableFunction;
   where?: SchemaSourceWhere;
+  [k: string]: unknown | undefined;
 }
 /**
  * Configuration for determining the event date when querying this source
@@ -321,6 +322,7 @@ export interface SchemaSourceWhere {
   expr: SchemaColumnExpr4;
 }
 export interface SchemaColumnLightdash {
+  case_sensitive?: SchemaLightdashCaseSensitive;
   dimension?: SchemaLightdashDimension;
   /**
    * @minItems 1

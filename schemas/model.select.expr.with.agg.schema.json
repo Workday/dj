@@ -14,6 +14,7 @@
         "description": { "$ref": "column.description.schema.json" },
         "expr": { "$ref": "column.expr.schema.json" },
         "lightdash": { "$ref": "column.lightdash.schema.json" },
+        "meta": { "$ref": "column.meta.schema.json" },
         "name": { "$ref": "column.name.schema.json" },
         "override_suffix_agg": { "type": "boolean" },
         "data_tests": { "$ref": "column.data_tests.schema.json" },

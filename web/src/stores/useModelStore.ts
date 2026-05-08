@@ -117,6 +117,8 @@ export interface AdditionalFieldsSchema {
   partitioned_by?: SchemaModelPartitionedBy;
   exclude_daily_filter?: boolean;
   exclude_date_filter?: boolean;
+  exclude_datetime?: boolean;
+  exclude_framework_artifacts?: 'all' | 'columns';
   exclude_portal_partition_columns?: boolean;
   exclude_portal_source_count?: boolean;
 }
@@ -372,6 +374,8 @@ const initialAdditionalFields: AdditionalFieldsSchema = {
   partitioned_by: undefined,
   exclude_daily_filter: undefined,
   exclude_date_filter: undefined,
+  exclude_datetime: undefined,
+  exclude_framework_artifacts: undefined,
   exclude_portal_partition_columns: undefined,
   exclude_portal_source_count: undefined,
 };
@@ -922,6 +926,8 @@ export const useModelStore = create<ModelStore>()(
         'partitioned_by',
         'exclude_daily_filter',
         'exclude_date_filter',
+        'exclude_datetime',
+        'exclude_framework_artifacts',
         'exclude_portal_partition_columns',
         'exclude_portal_source_count',
       ];
@@ -955,10 +961,20 @@ export const useModelStore = create<ModelStore>()(
           // Validate boolean fields
           if (
             key === 'exclude_portal_partition_columns' ||
-            key === 'exclude_portal_source_count'
+            key === 'exclude_portal_source_count' ||
+            key === 'exclude_datetime'
           ) {
             if (typeof value !== 'boolean') {
               value = false; // Default to false if invalid
+            }
+          }
+
+          // Validate the combined enum: only "all" or "columns" are valid;
+          // anything else (legacy stale store values, malformed manifests) is
+          // dropped so the dropdown re-renders in its blank/default state.
+          if (key === 'exclude_framework_artifacts') {
+            if (value !== 'all' && value !== 'columns') {
+              value = undefined;
             }
           }
 

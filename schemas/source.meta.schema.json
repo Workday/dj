@@ -1,10 +1,10 @@
 {
   "$id": "source.meta.schema.json",
   "title": "Schema Source Meta",
-  "description": "Validates schema for source meta (either on the schema or table level)",
+  "description": "Validates schema for source meta (either on the schema or table level). Custom free-form keys (e.g. owner, owner_slack, freshness_sla) are permitted alongside the typed keys defined below.",
   "allowTrailingCommas": true,
   "type": "object",
-  "additionalProperties": false,
+  "additionalProperties": true,
   "properties": {
     "etl": { "$ref": "source.etl.schema.json" },
     "event_datetime": { "$ref": "source.event_datetime.schema.json" },

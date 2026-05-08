@@ -6,7 +6,7 @@
  */
 
 /**
- * Override the default partitioned_by configuration for this model
+ * DEPRECATED: use `materialization.partitions` instead. Replace `"partitioned_by": ["col"]` with `"materialization": { "type": "incremental", "partitions": ["col"] }`.
  *
  * @minItems 1
  */

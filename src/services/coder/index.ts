@@ -1,4 +1,5 @@
 import { Api } from '@services/api';
+import { classifyWatchedPath } from '@services/coder/classifyWatchedPath';
 import type { CoderFileInfo } from '@services/coder/types';
 import { ColumnLineageService } from '@services/columnLineage';
 import {
@@ -495,33 +496,36 @@ export class Coder {
       return null;
     }
 
-    const fileRegex = '^(?:\\/[^/]+)*\\/([^/]+?)\\.((?:[^/]+\\.)?[^/]+)$';
+    const classified = classifyWatchedPath(filePath, WORKSPACE_ROOT);
 
-    const fileMatch: RegExpExecArray | null = new RegExp(fileRegex).exec(
-      filePath,
-    );
+    // Workspace-root system files (currently just .git/logs/HEAD) are
+    // detected before any extension-based filtering. The HEAD file has no
+    // extension, so an extension regex would otherwise reject it and we
+    // would never set gitPending on checkout/pull.
+    if (classified.kind === 'git-log') {
+      try {
+        const gitLogFile = fs.readFileSync(
+          path.join(WORKSPACE_ROOT, '.git', 'logs', 'HEAD'),
+        );
+        return {
+          type: 'git-log',
+          log: gitLastLog(gitLogFile.toString()),
+        };
+      } catch {
+        return null;
+      }
+    }
 
-    if (fileMatch === null) {
+    if (classified.kind === 'unsupported') {
       return null;
     }
 
     const uri = vscode.Uri.file(filePath);
-    const [, name, extension] = fileMatch;
-    const workspacePath = filePath.replace(WORKSPACE_ROOT, '');
+    const { name, extension, workspacePath } = classified;
 
     this.log.info(
       `🔍 [TRACE] File parsed - name: ${name}, extension: ${extension}, workspacePath: ${workspacePath}`,
     );
-
-    // Save resources by only checking these extensions
-    if (
-      !['json', 'model.json', 'source.json', 'sql', 'yml'].includes(
-        extension,
-      ) &&
-      name !== 'HEAD'
-    ) {
-      return null;
-    }
 
     this.log.info(
       `🔍 [TRACE] Extension ${extension} is supported, checking for dbt project...`,
@@ -644,23 +648,6 @@ export class Coder {
             project,
             properties,
           };
-        }
-      }
-    } else {
-      // If this was found outside a dbt project, we're looking for other system files
-      switch (workspacePath) {
-        case '/.git/logs/HEAD': {
-          try {
-            const gitLogFile = fs.readFileSync(
-              path.join(WORKSPACE_ROOT, '.git', 'logs', 'HEAD'),
-            );
-            return {
-              type: 'git-log',
-              log: gitLastLog(gitLogFile.toString()),
-            };
-          } catch {
-            return null;
-          }
         }
       }
     }

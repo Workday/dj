@@ -25,6 +25,7 @@ import { isEqual } from 'lodash';
 import * as vscode from 'vscode';
 
 import type { FrameworkContext } from '../context';
+import { preserveColumnMetaOnUpdate } from '../utils/update-helpers';
 
 const JSONC_FORMAT_OPTIONS = {
   tabSize: 4,
@@ -173,6 +174,10 @@ export class ModelCrudHandlers {
           mergedBase[k] = v;
         }
       }
+      preserveColumnMetaOnUpdate(
+        existingModelJson as unknown as Record<string, unknown>,
+        mergedBase,
+      );
       updatedModelJson = mergedBase as unknown as typeof modelJson;
     }
 

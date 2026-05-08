@@ -53,9 +53,7 @@ A minimal CTE definition has a `name`, a `from`, and a `select`:
     }
   ],
   "from": { "cte": "pre_agg" },
-  "select": [
-    { "cte": "pre_agg", "type": "all_from_cte" }
-  ]
+  "select": [{ "cte": "pre_agg", "type": "all_from_cte" }]
 }
 ```
 
@@ -166,9 +164,7 @@ they will not propagate, and validation will fail:
       ]
     }
   ],
-  "select": [
-    { "cte": "pre_agg", "type": "all_from_cte" }
-  ]
+  "select": [{ "cte": "pre_agg", "type": "all_from_cte" }]
 }
 ```
 
@@ -213,13 +209,16 @@ hand-writing the suffix into the column `name`.
 Main models that source from another model automatically receive `datetime`,
 `portal_partition_monthly` / `_daily` / `_hourly`, and `portal_source_count`
 from the upstream. The framework applies the same rules inside CTEs whose
-`from` is a plain model reference, so a CTE that pre-aggregates an upstream
-model does not silently drop these columns:
+`from` is a plain model OR plain CTE reference, so a CTE that pre-aggregates
+an upstream model — or any CTE that chains off such a CTE — does not
+silently drop these columns:
 
-- **`datetime` and `portal_partition_*`:** Appended when the upstream model
-  has them and the CTE did not already select them. The `datetime` column is
-  emitted as a bare passthrough (no `date_trunc`) unless the CTE explicitly
-  sets `{ "name": "datetime", "interval": "..." }`.
+- **`datetime` and `portal_partition_*`:** Appended when the upstream
+  exposes them and the CTE did not already select them. The upstream is the
+  manifest schema for `from: { model }` consumers and the in-memory CTE
+  registry for `from: { cte }` consumers. The `datetime` column is emitted
+  as a bare passthrough (no `date_trunc`) unless the CTE explicitly sets
+  `{ "name": "datetime", "interval": "..." }`.
 - **Interval-driven exclusions:** A CTE `datetime` interval of `day` drops
   `portal_partition_hourly`; `month` drops `_hourly` and `_daily`; `year`
   drops all three partitions. The effective interval defaults to the
@@ -229,8 +228,13 @@ model does not silently drop these columns:
   `count` (producing `portal_source_count` via the suffix-collision rule);
   otherwise it is passed through as-is.
 
-Auto-injection is skipped for CTEs whose `from` is another CTE, a source, or
-a union — those shapes must carry the columns through explicitly.
+Main models with `from: { cte }` follow the same rule: the chosen CTE's
+registry is the upstream, so framework columns flow through to the final
+SELECT and YAML the same way they do for `from: { model }` consumers. The
+exclude flags below are the opt-out at every layer.
+
+Auto-injection is still skipped for CTEs whose `from` is a source or a
+union — those shapes must carry the columns through explicitly.
 
 This keeps the CTE's registered columns consistent with what `all_from_cte`
 and `dims_from_cte` see on the main model, ensures downstream passthroughs
@@ -248,8 +252,28 @@ have every CTE honor it, or set it on a single CTE to override just that CTE
 
 The full set:
 
+- `"exclude_framework_artifacts": "all" | "columns"` — combined-flag shortcut
+  that bundles several individual excludes into one switch. `"columns"`
+  implies `exclude_datetime` + `exclude_portal_partition_columns` +
+  `exclude_portal_source_count` (the auto WHERE date filters still fire);
+  `"all"` additionally implies `exclude_date_filter`. Individual flags at
+  the **same scope** override the combined value (set
+  `"exclude_portal_source_count": false` to keep that one column even when
+  the combined flag is `"all"`). Resolution still follows the standard chain
+  with combined-flag fallback at each scope:
+  **CTE individual > CTE combined > model individual > model combined > false**.
+  Mutually exclusive with `from.rollup` when the resolved value implies
+  `exclude_datetime`.
+- `"exclude_datetime": true` — drops `datetime` injection. Orthogonal to
+  `exclude_portal_partition_columns`: setting only this flag yields a CTE
+  with partition columns but no canonical time column (a snapshot shape).
+  Mutually exclusive with `from.rollup` at the model level — rollup exists
+  to produce a `datetime` column, so the validator errors when both are set
+  on the same model.
 - `"exclude_portal_partition_columns": true` — drops `portal_partition_*`
-  injection.
+  injection. For pure-dimension or lookup models that need neither datetime
+  nor partitions, set this together with `exclude_datetime` (or use
+  `exclude_framework_artifacts: "columns"`).
 - `"exclude_portal_source_count": true` — drops `portal_source_count`
   injection.
 - `"exclude_date_filter": true` — drops the auto `_ext_event_date_filter`
@@ -260,17 +284,170 @@ The full set:
 - `"include_full_month": true` — same effect as `exclude_daily_filter` for
   partition pruning; emits the full-month range filter only.
 
-`datetime` itself has no CTE-level opt-out (the main model has none either,
-so the two stay symmetric). If you don't want `datetime` in a CTE's output,
-chain through another CTE (`from: { cte: ... }`) — auto-injection is skipped
-for non-`from: { model }` shapes.
-
-These flags have no effect on CTEs whose `from` is another CTE, a source, or
-a union, since those shapes never auto-inject in the first place.
+The individual flags above are fine-grained alternatives to the combined
+`exclude_framework_artifacts` enum, and double as per-column overrides when
+the combined flag is set. These flags apply uniformly to CTEs whose `from`
+is a plain model or plain CTE reference; they have no effect on CTEs whose
+`from` is a source or a union, since those shapes never auto-inject in the
+first place.
 
 ---
 
-## 6. Dead Outer Layer Warning
+## 6. Rolling Up Inside a CTE
+
+A CTE may declare `from.rollup` to re-aggregate its source to a coarser time
+grain — the same shape the framework supports on `int_select_model` /
+`int_join_models`, but scoped to a single CTE. Use this when only one stage of
+a multi-step pipeline needs the rollup.
+
+```json
+{
+  "type": "int_select_model",
+  "group": "sales",
+  "topic": "orders",
+  "name": "monthly_summary",
+  "ctes": [
+    {
+      "name": "monthly",
+      "from": {
+        "model": "int__sales__orders__daily",
+        "rollup": { "interval": "month" }
+      },
+      "select": [
+        { "name": "category", "type": "dim" },
+        { "name": "revenue_sum", "type": "fct" }
+      ]
+    }
+  ],
+  "from": { "cte": "monthly" },
+  "select": [{ "cte": "monthly", "type": "all_from_cte" }]
+}
+```
+
+What the framework does for rollup CTEs:
+
+- **`datetime` is rewritten** to `date_trunc('<interval>', datetime)` and
+  registered with the new interval. Downstream consumers (other CTEs,
+  `all_from_cte` on the main model) see the rolled-up grain.
+- **Finer-grain `portal_partition_*` columns are dropped** —
+  `rollup: { "interval": "month" }` removes `portal_partition_daily` and
+  `portal_partition_hourly`; `year` removes all three. Coarser partitions
+  stay so the materialized table's `partitioned_by` still resolves.
+- **Fct columns are wrapped with their suffix-agg** — a `revenue_sum`
+  reference becomes `sum(revenue_sum) as revenue_sum` automatically. Use the
+  same name conventions as model-level rollup (`_sum`, `_count`, `_min`,
+  `_max`, `_hll`, `_tdigest`).
+- **`GROUP BY` is synthesized** from all dimension columns when the CTE
+  does not author its own `group_by`. Authoring a `group_by` overrides the
+  default.
+
+Supported source shapes:
+
+- `from: { "model": "<ref>", "rollup": { "interval": "..." } }` — rolls up
+  a manifest-known dbt model directly.
+- `from: { "cte": "<sibling>", "rollup": { "interval": "..." } }` — rolls
+  up a sibling CTE. The upstream CTE must produce a `datetime` column, so
+  it must either roll up itself or not opt out via `exclude_datetime` /
+  `exclude_framework_artifacts`. The validator catches the conflict.
+
+Not supported (schema-rejected):
+
+- `from: { "source": "..." }` with `rollup` — sources do not always carry a
+  canonical `datetime`. Stage them through a preceding `stg_*` model.
+- `from: { ..., "union": { ... }, "rollup": { ... } }` — unions are not yet
+  rollup-aware. Roll up each branch in its own CTE first, then union.
+
+Combining with the exclude flags:
+
+- `exclude_datetime` (and `exclude_framework_artifacts: "all" | "columns"`)
+  is **mutually exclusive** with `from.rollup` at the same scope (model OR
+  CTE). The validator surfaces the conflict before sync runs. Use
+  `exclude_datetime: false` to opt back in if a model-level `"all"` is
+  inherited but the CTE needs to roll up.
+- `exclude_portal_partition_columns` is compatible with rollup but rare —
+  rollup typically wants the coarser partition column for materialization.
+- Chained rollups (CTE A → month, CTE B → year off A) work end-to-end. The
+  `date_trunc` truncation in B is computed against A's already-rolled-up
+  month-grain `datetime`, not against the raw upstream.
+
+### 6.1. Chaining Plain CTEs Off a Rollup CTE
+
+Rollup is only one of the things a CTE can do. A common pattern is to roll
+up once and then chain plain (non-rollup) CTEs on top to reshape, filter,
+or combine the rolled-up rows. Framework columns (`datetime`,
+`portal_partition_*`, `portal_source_count`) flow through CTE chains by
+default — every plain `from: { cte }` hop inherits them from the upstream
+CTE's registry the same way a `from: { model }` consumer inherits from the
+manifest. Use the standard exclude flags
+(`exclude_datetime`, `exclude_portal_partition_columns`,
+`exclude_portal_source_count`, or the combined `exclude_framework_artifacts`)
+on the CTE — or on the main model — to opt out.
+
+When the main model is materialized as `incremental` with a
+partition-overwrite strategy (`overwrite_existing_partitions`,
+`dj_iceberg_partition_overwrite`), the table needs at least one partition
+column. The auto-flow above usually satisfies that requirement; if you
+intentionally exclude partitions through a chain, set
+`materialization.partitions: ["datetime"]` (or another concrete output
+column) on the main model. The framework's
+`partition-strategy-without-partitions` warning fires precisely when
+neither is present. If neither applies because partitioning is wired
+through a project-level dbt config, the warning is safe to ignore.
+
+A complete chain that rolls up, applies a downstream calculation, and
+materializes via the auto-flowed partitions:
+
+```json
+{
+  "type": "int_select_model",
+  "group": "finance",
+  "topic": "savings",
+  "name": "monthly_savings",
+  "ctes": [
+    {
+      "name": "rolled",
+      "from": {
+        "model": "int__finance__billing__daily",
+        "rollup": { "interval": "month" }
+      },
+      "select": [
+        { "name": "category", "type": "dim" },
+        { "name": "amount_sum", "type": "fct" }
+      ]
+    },
+    {
+      "name": "with_savings",
+      "from": { "cte": "rolled" },
+      "select": [
+        { "name": "category", "type": "dim" },
+        { "name": "amount_sum", "expr": "amount_sum", "type": "fct" },
+        {
+          "name": "savings",
+          "expr": "amount_sum * 0.1",
+          "type": "fct"
+        }
+      ]
+    }
+  ],
+  "from": { "cte": "with_savings" },
+  "select": [{ "cte": "with_savings", "type": "all_from_cte" }],
+  "materialization": {
+    "type": "incremental",
+    "strategy": "overwrite_existing_partitions"
+  }
+}
+```
+
+`datetime` and `portal_partition_monthly` flow through the chain
+automatically — the rollup CTE registers them at month grain, the
+downstream CTE inherits them, and the main model picks them up via
+`all_from_cte`. The wrapper SELECT references `datetime` directly; the
+framework does not redundantly re-emit `date_trunc('month', datetime)` on
+top of an already-rolled-up CTE column when the requested grain matches.
+
+---
+
+## 7. Dead Outer Layer Warning
 
 If the main model's `select` is a single `all_from_cte` or `dims_from_cte`
 passthrough of one CTE, with the **same** `group_by` as the CTE and no
@@ -284,7 +461,7 @@ warns in this case. Either:
 
 ---
 
-## 7. Summary Checklist
+## 8. Summary Checklist
 
 - [ ] Lightdash metrics live only on main-model `select` items.
 - [ ] Every main-model `fct` column is aggregated or opted out when a

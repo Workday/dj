@@ -31,6 +31,7 @@ import {
 import type {
   FrameworkColumn,
   FrameworkColumnAgg,
+  FrameworkColumnMeta,
   FrameworkCTE,
   FrameworkDims,
   FrameworkInterval,
@@ -177,6 +178,7 @@ export function frameworkProcessSelected({
     const newColumn: FrameworkColumn = {
       name: selected,
       meta: { type: 'dim' },
+      internal: {},
     };
     if (shouldAdd(newColumn)) {
       newColumns.push(newColumn);
@@ -184,10 +186,21 @@ export function frameworkProcessSelected({
   } else if (!('name' in selected)) {
     // If we don't have a name, we can't process this
   } else {
-    // Building the new column properties that will override the inherited ones
+    // Building the new column properties that will override the inherited ones.
+    // Seed meta with the user-authored free-form keys on the select item so that
+    // downstream framework-derived keys (type, dimension, metrics, origin, etc.)
+    // layer on top and win on collision with reserved names.
+    const userSelectedMeta =
+      'meta' in selected && selected.meta
+        ? (selected.meta as Record<string, unknown>)
+        : null;
     const selectedColumn: FrameworkColumn = {
       name: selected.name,
-      meta: { type: selected.type || 'dim' },
+      meta: {
+        ...(userSelectedMeta ?? {}),
+        type: selected.type || 'dim',
+      } as FrameworkColumnMeta,
+      internal: {},
     };
     if ('data_type' in selected && selected.data_type) {
       selectedColumn.data_type = selected.data_type;
@@ -196,27 +209,34 @@ export function frameworkProcessSelected({
       selectedColumn.description = selected.description;
     }
     if ('exclude_from_group_by' in selected && selected.exclude_from_group_by) {
-      selectedColumn.meta.exclude_from_group_by =
+      selectedColumn.internal.exclude_from_group_by =
         selected.exclude_from_group_by;
     }
     if ('expr' in selected && selected.expr) {
-      selectedColumn.meta.expr = selected.expr;
+      selectedColumn.internal.expr = selected.expr;
     }
     if ('interval' in selected && selected.interval) {
-      selectedColumn.meta.interval = selected.interval;
+      selectedColumn.internal.interval = selected.interval;
     }
     // We'll handle the lightdash metrics separately
     if ('lightdash' in selected && selected.lightdash?.dimension) {
       selectedColumn.meta.dimension = selected.lightdash.dimension;
     }
     if ('override_suffix_agg' in selected && selected.override_suffix_agg) {
-      selectedColumn.meta.override_suffix_agg = !!selected.override_suffix_agg;
+      selectedColumn.internal.override_suffix_agg =
+        !!selected.override_suffix_agg;
     }
     if ('data_tests' in selected && selected.data_tests) {
       selectedColumn.data_tests = selected.data_tests;
     }
+    if (
+      'lightdash' in selected &&
+      selected.lightdash?.case_sensitive !== undefined
+    ) {
+      selectedColumn.meta.case_sensitive = selected.lightdash.case_sensitive;
+    }
     if (prefix) {
-      selectedColumn.meta.prefix = prefix;
+      selectedColumn.internal.prefix = prefix;
     }
 
     // In this scenario, we're creating a new column for each agg
@@ -225,7 +245,7 @@ export function frameworkProcessSelected({
       for (const agg of selected.aggs) {
         const aggColumn: FrameworkColumn = mergeDeep(selectedColumn, {
           data_type: 'number',
-          meta: { agg }, // This agg key will append to the column name
+          internal: { agg }, // agg drives column name suffix + SQL agg wrap
         });
         const metrics = lightdashBuildMetrics({
           column: aggColumn,
@@ -259,25 +279,22 @@ export function frameworkProcessSelected({
         'interval' in selected &&
         selected.interval
       ) {
-        const sourceInterval =
-          fromColumn?.meta && 'interval' in fromColumn.meta
-            ? fromColumn.meta.interval ?? null
-            : null;
+        const sourceInterval = fromColumn?.internal?.interval ?? null;
         const built = frameworkBuildDatetimeColumn({
           interval: selected.interval,
           prefix,
           sourceInterval,
           userDimension: selected.lightdash?.dimension,
         });
-        selectedColumn.meta.interval = built.interval;
+        selectedColumn.internal.interval = built.interval;
         selectedColumn.meta.dimension = built.dimension;
         if (built.expr) {
-          selectedColumn.meta.expr = built.expr;
+          selectedColumn.internal.expr = built.expr;
         }
       } else {
         if ('agg' in selected && selected.agg) {
           selectedColumn.data_type = 'number';
-          selectedColumn.meta.agg = selected.agg;
+          selectedColumn.internal.agg = selected.agg;
         }
 
         const metrics = lightdashBuildMetrics({
@@ -463,18 +480,32 @@ export function frameworkBuildColumns({
                 (modelJson.from as { cte: string }).cte
               ? (modelJson.from as { cte: string }).cte
               : null;
-      // Strip agg metadata from CTE-sourced columns: aggregation was already
-      // applied inside the CTE's SQL. Without stripping, mergeDeep would carry
-      // the agg into the main model and wrap the column in a duplicate sum/count/etc.
+      // Strip CTE-materialized SQL metadata from CTE-sourced columns. `agg`,
+      // `expr`, and `prefix` describe how the column was computed inside the
+      // CTE's own SQL -- the CTE has already emitted that work as a named
+      // output column. Carrying them into the main-model registry causes the
+      // main-model SELECT and GROUP BY (which read `internal.expr` /
+      // `internal.agg` / `internal.prefix`) to redundantly re-emit the same
+      // expression. Concrete case: a CTE rolled up via `from.rollup` writes
+      // `internal.expr = "date_trunc('month', datetime)"`; without this strip,
+      // a downstream main model that selects `datetime` from that CTE would
+      // emit `date_trunc('month', datetime) as datetime` (and the same in
+      // GROUP BY) instead of a bare `datetime` reference. `interval` is kept
+      // because it remains useful metadata at the main-model scope (drives
+      // `_ext_event_date_filter` interval, partition selection, etc.).
       const from =
         fromCte && cteColumnRegistry
           ? (() => {
-              const stripCteAgg = (c: FrameworkColumn): FrameworkColumn => {
-                const { agg: _agg, ...restMeta } = (c.meta || {}) as Record<
-                  string,
-                  unknown
-                >;
-                return { ...c, meta: restMeta as FrameworkColumn['meta'] };
+              const stripCteMaterialized = (
+                c: FrameworkColumn,
+              ): FrameworkColumn => {
+                const {
+                  agg: _agg,
+                  expr: _expr,
+                  prefix: _prefix,
+                  ...restInternal
+                } = c.internal || {};
+                return { ...c, internal: restInternal };
               };
               const combinedExclude = [
                 ...columns.map((c) => c.name),
@@ -486,7 +517,9 @@ export function frameworkBuildColumns({
                 include as (string | FrameworkColumn)[]
               ).map((i) => (typeof i === 'string' ? i : i.name));
               const cols = filterBulkSelectColumns(
-                (cteColumnRegistry.get(fromCte) || []).map(stripCteAgg),
+                (cteColumnRegistry.get(fromCte) || []).map(
+                  stripCteMaterialized,
+                ),
                 BULK_SELECT_TYPES.ALL_FROM_CTE,
                 {
                   exclude: combinedExclude.length ? combinedExclude : undefined,
@@ -584,7 +617,7 @@ export function frameworkBuildColumns({
               continue;
             }
             const allFromModelCols = frameworkInheritColumns(from.columns, {
-              meta: { ...(prefix && { prefix }) },
+              internal: { ...(prefix && { prefix }) },
             });
             for (const col of allFromModelCols) {
               inheritedColumnNames.add(col.name);
@@ -598,7 +631,7 @@ export function frameworkBuildColumns({
               continue;
             }
             const dimsFromModelCols = frameworkInheritColumns(from.dimensions, {
-              meta: { ...(prefix && { prefix }) },
+              internal: { ...(prefix && { prefix }) },
             });
             for (const col of dimsFromModelCols) {
               inheritedColumnNames.add(col.name);
@@ -612,7 +645,7 @@ export function frameworkBuildColumns({
               continue;
             }
             const fctsFromModelCols = frameworkInheritColumns(from.facts, {
-              meta: { ...(prefix && { prefix }) },
+              internal: { ...(prefix && { prefix }) },
             });
             for (const col of fctsFromModelCols) {
               inheritedColumnNames.add(col.name);
@@ -644,6 +677,7 @@ export function frameworkBuildColumns({
   }
 
   let baseModel: string | null = null;
+  let baseCte: string | null = null;
   let basePrefix: string | null = null;
   let baseSource: string | null = null;
 
@@ -664,7 +698,24 @@ export function frameworkBuildColumns({
     if ('join' in modelJson.from && modelJson.type !== 'int_join_column') {
       basePrefix = baseModel;
     }
+  } else if (
+    'from' in modelJson &&
+    'cte' in modelJson.from &&
+    (modelJson.from as { cte?: string }).cte
+  ) {
+    baseCte = (modelJson.from as { cte: string }).cte;
+    if ('join' in modelJson.from && modelJson.type !== 'int_join_column') {
+      basePrefix = baseCte;
+    }
   }
+
+  // Names the user listed explicitly in `select` (scalar `name` or bulk
+  // `include`). Used by the three column-flag strip sites below so the
+  // strip is origin-aware: it removes framework-supplied copies but leaves
+  // user-typed copies alone. Bulk default-keep does not count -- otherwise
+  // model-level excludes would be a no-op on any model using bulk passthrough.
+  const userExplicitColumnNames =
+    frameworkExtractUserExplicitColumnNames(modelJson);
 
   if (baseSource) {
     const sourceDateColumns = frameworkBuildSourceDateColumns({
@@ -678,15 +729,9 @@ export function frameworkBuildColumns({
     if (!datetimeInterval) {
       // If we didn't select a datetime interval column, we'll inherit it from the base model
       const datetimeIntervalColumn = columns.find((c) =>
-        'interval' in c.meta && c.name === 'datetime'
-          ? c.meta.interval || undefined
-          : null,
+        c.name === 'datetime' ? c.internal?.interval || undefined : null,
       );
-      datetimeInterval =
-        (datetimeIntervalColumn &&
-          'interval' in datetimeIntervalColumn.meta &&
-          datetimeIntervalColumn.meta.interval) ||
-        null;
+      datetimeInterval = datetimeIntervalColumn?.internal?.interval || null;
     }
     if (datetimeInterval) {
       exclude.push(
@@ -732,7 +777,7 @@ export function frameworkBuildColumns({
         useCsvFallback: false,
       });
       const frameworkDims = frameworkInheritColumns(fromFrameworkDims.columns, {
-        meta: { ...(basePrefix && { prefix: basePrefix }) },
+        internal: { ...(basePrefix && { prefix: basePrefix }) },
       });
       columns.push(...frameworkDims);
     }
@@ -748,18 +793,94 @@ export function frameworkBuildColumns({
     const frameworkCounts = frameworkInheritColumns(
       fromFrameworkCounts.columns,
       {
-        meta: {
+        internal: {
           ...(basePrefix && { prefix: basePrefix }),
           ...(modelHasAgg && { agg: 'count' }),
         },
       },
     );
     columns.push(...frameworkCounts);
+  } else if (baseCte && cteColumnRegistry) {
+    // Parallel to the baseModel branch above for `from: { cte }` consumers:
+    // auto-inject `datetime`, `portal_partition_*`, and `portal_source_count`
+    // from the upstream CTE's registry. The model-level exclude-flag strip
+    // further below applies uniformly, so opt-out semantics match.
+    const cteCols = cteColumnRegistry.get(baseCte) ?? [];
+    if (!datetimeInterval) {
+      // Prefer interval declared on prior select-derived columns; fall back
+      // to the upstream CTE registry's datetime column (mirrors the manifest
+      // fallback in the baseModel branch).
+      const datetimeIntervalColumn = columns.find((c) =>
+        c.name === 'datetime' ? c.internal?.interval || undefined : null,
+      );
+      datetimeInterval =
+        datetimeIntervalColumn?.internal?.interval ||
+        cteCols.find((c) => c.name === 'datetime')?.internal?.interval ||
+        null;
+    }
+    const excludedByInterval = new Set<string>();
+    switch (datetimeInterval) {
+      case 'day':
+        excludedByInterval.add(PARTITION_HOURLY);
+        break;
+      case 'month':
+        excludedByInterval.add(PARTITION_DAILY);
+        excludedByInterval.add(PARTITION_HOURLY);
+        break;
+      case 'year':
+        excludedByInterval.add(PARTITION_MONTHLY);
+        excludedByInterval.add(PARTITION_HOURLY);
+        excludedByInterval.add(PARTITION_DAILY);
+        break;
+    }
+
+    const wantedFrameworkDims = new Set<string>([
+      'datetime',
+      PARTITION_MONTHLY,
+      PARTITION_DAILY,
+      PARTITION_HOURLY,
+    ]);
+    const alreadyPresent = new Set(columns.map((c) => c.name));
+    const upstreamFrameworkCols = cteCols
+      .filter(
+        (c) =>
+          wantedFrameworkDims.has(c.name) &&
+          !alreadyPresent.has(c.name) &&
+          !excludedByInterval.has(c.name),
+      )
+      // Clone before handing off -- `frameworkInheritColumn` mutates its
+      // input, and these entries are shared with the persisted CTE registry.
+      .map((c) => ({ ...c, internal: { ...c.internal } }));
+    const frameworkDims = frameworkInheritColumns(upstreamFrameworkCols, {
+      internal: { ...(basePrefix && { prefix: basePrefix }) },
+    });
+    columns.push(...frameworkDims);
+
+    if (!alreadyPresent.has('portal_source_count')) {
+      const upstreamPsc = cteCols.find((c) => c.name === 'portal_source_count');
+      if (upstreamPsc) {
+        const cloned = [
+          { ...upstreamPsc, internal: { ...upstreamPsc.internal } },
+        ];
+        const frameworkCounts = frameworkInheritColumns(cloned, {
+          internal: {
+            ...(basePrefix && { prefix: basePrefix }),
+            ...(modelHasAgg && { agg: 'count' }),
+          },
+        });
+        columns.push(...frameworkCounts);
+      }
+    }
   }
 
-  // Remove portal_source_count if it's excluded
-  if (modelJson.exclude_portal_source_count) {
-    columns = columns.filter((c) => c.name !== 'portal_source_count');
+  // Strip auto-injected `portal_source_count` when the model opts out
+  // (individual flag, or `exclude_framework_artifacts` = "all" | "columns").
+  // Columns the user listed explicitly survive (see `userExplicitColumnNames`).
+  if (frameworkResolveExcludeFlag('portal_source_count', null, modelJson)) {
+    columns = columns.filter(
+      (c) =>
+        c.name !== 'portal_source_count' || userExplicitColumnNames.has(c.name),
+    );
   }
 
   // Sort alphabetically with partition columns at the end
@@ -769,9 +890,28 @@ export function frameworkBuildColumns({
   });
   columns = sortColumnsWithPartitionsLast(columns, partitionColumnNames);
 
-  // Strip partition columns entirely when the model opts out
-  if (modelJson.exclude_portal_partition_columns) {
-    columns = columns.filter((c) => !partitionColumnNames.includes(c.name));
+  // Strip auto-injected partition columns when the model opts out.
+  // Origin-aware: same rules as `portal_source_count` above.
+  if (
+    frameworkResolveExcludeFlag('portal_partition_columns', null, modelJson)
+  ) {
+    columns = columns.filter(
+      (c) =>
+        !partitionColumnNames.includes(c.name) ||
+        userExplicitColumnNames.has(c.name),
+    );
+  }
+
+  // Strip the auto-injected `datetime` column when the model opts out.
+  // Orthogonal to `exclude_portal_partition_columns`: partition columns
+  // survive unless that flag is also set. Origin-aware: same rules as
+  // `portal_source_count` above. `from.rollup` + `exclude_datetime` (and
+  // combined-flag values that imply it) is rejected upstream by
+  // ValidationService so the strip never sees that combination.
+  if (frameworkResolveExcludeFlag('datetime', null, modelJson)) {
+    columns = columns.filter(
+      (c) => c.name !== 'datetime' || userExplicitColumnNames.has(c.name),
+    );
   }
 
   if ('lookback' in modelJson.from && modelJson.from.lookback) {
@@ -788,7 +928,8 @@ export function frameworkBuildColumns({
     const portalPartitionDailyColumn: FrameworkColumn = {
       name: PARTITION_DAILY,
       data_type: 'date',
-      meta: { expr: '_ext_event_date', type: 'dim' },
+      meta: { type: 'dim' },
+      internal: { expr: '_ext_event_date' },
     };
     if (portalPartitionDailyIndex >= 0) {
       columns = [
@@ -959,10 +1100,151 @@ export function frameworkGetCteDatetimeSourceInterval({
 }): FrameworkInterval | null {
   const colMap = buildCteSourceColumnMap(from, cteRegistry, project);
   const dt = colMap.get('datetime');
-  if (dt?.meta && 'interval' in dt.meta && dt.meta.interval) {
-    return dt.meta.interval;
+  if (dt?.internal?.interval) {
+    return dt.internal.interval;
   }
   return null;
+}
+
+/**
+ * Returns true when `name` is a `portal_partition_*` column at a finer grain
+ * than the rollup interval. Used by the CTE rollup transform to drop
+ * upstream-inherited partitions that no longer make sense at the rollup
+ * grain (e.g. `portal_partition_daily` is dropped under `rollup: month`).
+ */
+function frameworkIsCtePartitionFinerThanRollup(
+  name: string,
+  interval: FrameworkInterval,
+): boolean {
+  switch (interval) {
+    case 'hour':
+      return false;
+    case 'day':
+      return name === PARTITION_HOURLY;
+    case 'month':
+      return name === PARTITION_HOURLY || name === PARTITION_DAILY;
+    case 'year':
+      return (
+        name === PARTITION_HOURLY ||
+        name === PARTITION_DAILY ||
+        name === PARTITION_MONTHLY
+      );
+  }
+}
+
+/**
+ * Normalizes a CTE column list to the rollup grain. Mirrors the model-level
+ * pattern (`frameworkBuildColumns` rollup setup + partition-exclusion block)
+ * but operates on the already-built CTE column list as a final post-process:
+ *
+ * 1. Replaces any inherited `datetime` column with the rolled-up version
+ *    (new `internal.interval`, `date_trunc(...)` `internal.expr`, refreshed
+ *    `meta.dimension.time_intervals`). User-set meta is preserved via the
+ *    `userDimension` channel, mirroring the named-datetime select branch.
+ * 2. Drops partition columns finer than the rollup grain. The remaining
+ *    coarser-or-equal partitions stay so downstream consumers (and the
+ *    materialized table's `partitioned_by` clause) see a consistent shape.
+ * 3. If no `datetime` column is present after the walk, prepends one. This
+ *    handles the `from: { cte, rollup }` case where the auto-inject helper
+ *    does not fire (it is gated on `from.model`); the rollup transform is
+ *    the sole source of `datetime` in that branch.
+ */
+function frameworkApplyCteRollupTransform(
+  columns: FrameworkColumn[],
+  ctx: {
+    cte: FrameworkCTE;
+    cteRegistry: CteColumnRegistry;
+    project: DbtProject;
+    rollup: { interval: FrameworkInterval };
+  },
+): FrameworkColumn[] {
+  const { cte, cteRegistry, project, rollup } = ctx;
+  const sourceInterval = frameworkGetCteDatetimeSourceInterval({
+    cteRegistry,
+    from: cte.from,
+    project,
+  });
+
+  const result: FrameworkColumn[] = [];
+  let datetimePresent = false;
+  for (const col of columns) {
+    if (col.name === 'datetime') {
+      const built = frameworkBuildDatetimeColumn({
+        interval: rollup.interval,
+        sourceInterval,
+        userDimension: col.meta.dimension,
+      });
+      const internal: FrameworkColumn['internal'] = {
+        ...col.internal,
+        interval: built.interval,
+      };
+      if (built.expr) {
+        internal.expr = built.expr;
+      } else {
+        delete internal.expr;
+      }
+      result.push({
+        ...col,
+        meta: {
+          ...col.meta,
+          type: 'dim',
+          dimension: built.dimension,
+        },
+        internal,
+      });
+      datetimePresent = true;
+      continue;
+    }
+    if (frameworkIsCtePartitionFinerThanRollup(col.name, rollup.interval)) {
+      continue;
+    }
+    result.push(col);
+  }
+
+  if (!datetimePresent) {
+    const sourceColMap = buildCteSourceColumnMap(
+      cte.from,
+      cteRegistry,
+      project,
+    );
+    const sourceDt = sourceColMap.get('datetime');
+    const built = frameworkBuildDatetimeColumn({
+      interval: rollup.interval,
+      sourceInterval,
+      userDimension: sourceDt?.meta?.dimension,
+    });
+    const internal: FrameworkColumn['internal'] = {
+      ...(sourceDt?.internal ?? {}),
+      interval: built.interval,
+    };
+    if (built.expr) {
+      internal.expr = built.expr;
+    } else {
+      delete internal.expr;
+    }
+    const datetimeCol: FrameworkColumn = sourceDt
+      ? {
+          ...sourceDt,
+          name: 'datetime',
+          meta: {
+            ...sourceDt.meta,
+            type: 'dim',
+            dimension: built.dimension,
+          },
+          internal,
+        }
+      : {
+          name: 'datetime',
+          meta: {
+            type: 'dim',
+            dimension: built.dimension,
+          },
+          internal,
+        };
+    result.unshift(datetimeCol);
+  }
+
+  return result;
 }
 
 /**
@@ -971,6 +1253,9 @@ export function frameworkGetCteDatetimeSourceInterval({
  * must be derived from the select definition at generation time.
  * Aggregated columns are stored with their suffixed name (e.g. cost_sum)
  * and agg metadata so downstream SQL generation can reference them correctly.
+ *
+ * When the CTE declares `from.rollup`, a final transform normalizes the
+ * column list to the rollup grain (see `frameworkApplyCteRollupTransform`).
  */
 export function frameworkInferCteColumns({
   cte,
@@ -1042,12 +1327,16 @@ export function frameworkInferCteColumns({
     if (typeof item === 'string') {
       const inherited = sourceColumnMap.get(item);
       if (inherited) {
-        columns.push({ ...inherited });
+        columns.push({ ...inherited, internal: { ...inherited.internal } });
       } else {
         const inheritedType = (sourceTypeMap.get(item) ?? 'dim') as
           | 'dim'
           | 'fct';
-        columns.push({ name: item, meta: { type: inheritedType } });
+        columns.push({
+          name: item,
+          meta: { type: inheritedType },
+          internal: {},
+        });
       }
       continue;
     }
@@ -1066,7 +1355,9 @@ export function frameworkInferCteColumns({
       });
       const ordered =
         include || exclude ? sortColumnsWithPartitionsLast(filtered) : filtered;
-      columns.push(...ordered.map((c) => ({ ...c })));
+      columns.push(
+        ...ordered.map((c) => ({ ...c, internal: { ...c.internal } })),
+      );
       continue;
     }
 
@@ -1099,10 +1390,7 @@ export function frameworkInferCteColumns({
       // Datetime with interval: produce a dim column with time_intervals and
       // optionally an expr for date_trunc (matches main-model behavior).
       if (name === 'datetime' && interval && !agg && !aggs) {
-        const sourceInterval =
-          sourceCol?.meta && 'interval' in sourceCol.meta
-            ? sourceCol.meta.interval ?? null
-            : null;
+        const sourceInterval = sourceCol?.internal?.interval ?? null;
         const built = frameworkBuildDatetimeColumn({
           interval,
           sourceInterval,
@@ -1115,11 +1403,13 @@ export function frameworkInferCteColumns({
           meta: {
             type: 'dim',
             dimension: built.dimension,
+          },
+          internal: {
             interval: built.interval,
           },
         };
         if (built.expr) {
-          selectedColumn.meta.expr = built.expr;
+          selectedColumn.internal.expr = built.expr;
         }
         // Forward description, data_tests, override_suffix_agg,
         // and exclude_from_group_by from `sel`. The interval schema has no
@@ -1149,6 +1439,7 @@ export function frameworkInferCteColumns({
       const selectedColumn: FrameworkColumn = {
         name,
         meta: { type: selType === 'fct' ? 'fct' : 'dim' },
+        internal: {},
       };
       frameworkApplyCteSelectMeta(sel, selectedColumn, {
         hasAgg: !!(agg || aggs),
@@ -1183,12 +1474,13 @@ export function frameworkInferCteColumns({
           const resolved = frameworkResolveAgg({
             agg: a,
             name,
-            overrideSuffixAgg: col.meta.override_suffix_agg,
+            overrideSuffixAgg: !!col.internal?.override_suffix_agg,
           });
           const aggCol: FrameworkColumn = {
             ...col,
             name: resolved.outputName,
-            meta: { ...col.meta, agg: a, type: 'fct' },
+            meta: { ...col.meta, type: 'fct' },
+            internal: { ...col.internal, agg: a },
           };
           columns.push(aggCol);
         }
@@ -1200,10 +1492,10 @@ export function frameworkInferCteColumns({
         const resolved = frameworkResolveAgg({
           agg,
           name,
-          overrideSuffixAgg: col.meta.override_suffix_agg,
+          overrideSuffixAgg: !!col.internal?.override_suffix_agg,
         });
         col.name = resolved.outputName;
-        col.meta.agg = agg;
+        col.internal = { ...col.internal, agg };
       }
       if (modelId && !col.meta.origin?.id) {
         col.meta.origin = { id: modelId };
@@ -1213,55 +1505,73 @@ export function frameworkInferCteColumns({
     }
   }
 
-  // Mirror the main-model datetime + partition auto-injection (see L727-744
-  // in this file) for CTEs whose FROM is a plain model reference. Without
-  // this, a `dims_from_model` bulk select with a small `include` list, or a
-  // pre-aggregation CTE that only enumerates non-partition dims, silently
+  // Mirror the main-model datetime + partition auto-injection for CTEs
+  // whose FROM is a plain model OR plain CTE reference. Without this, a
+  // `dims_from_model` bulk select with a small `include` list -- or a
+  // pre-aggregation CTE that only enumerates non-partition dims -- silently
   // drops `portal_partition_*` (and `datetime`), and downstream materialization
-  // fails because `partitioned_by` can't find the columns.
+  // fails because `partitioned_by` can't find the columns. The helper docstring
+  // covers the from-type dispatch and exclude-flag precedence.
   const autoDims = frameworkShouldAutoInjectCteFrameworkDims({
     cte,
     alreadyPresentNames: columns.map((c) => c.name),
+    cteRegistry,
     modelJson,
     project,
   });
   if (autoDims) {
-    const upstream = frameworkGetNodeColumns({
-      from: { model: autoDims.baseModel },
-      include: autoDims.include,
-      project,
-      useCsvFallback: false,
-    });
+    const upstreamColumns: FrameworkColumn[] =
+      autoDims.source === 'model'
+        ? frameworkGetNodeColumns({
+            from: { model: autoDims.baseModel },
+            include: autoDims.include,
+            project,
+            useCsvFallback: false,
+          }).columns
+        : (() => {
+            const registryCols = cteRegistry.get(autoDims.baseCte) ?? [];
+            const includeSet = new Set<string>(autoDims.include);
+            // Clone before handing off -- `frameworkInheritColumn` mutates
+            // its input, and these entries are shared with downstream CTEs.
+            return registryCols
+              .filter((c) => includeSet.has(c.name))
+              .map((c) => ({ ...c, internal: { ...c.internal } }));
+          })();
     // Framework-managed passthroughs: preserve whatever origin the upstream
     // had (typically none for `datetime` / `portal_partition_*`). Do NOT
     // stamp `modelId` here — that would cascade a spurious `meta.origin.id`
-    // into every downstream YAML and diverge from the main-model auto-inject
-    // behavior (see L727-744 in this file), which also leaves origin alone.
-    const injected = frameworkInheritColumns(upstream.columns, {});
+    // into every downstream YAML and diverge from the `baseModel` auto-inject
+    // branch in `frameworkBuildColumns`, which also leaves origin alone.
+    const injected = frameworkInheritColumns(upstreamColumns, {});
     columns.push(...injected);
   }
 
-  // Mirror the main-model `portal_source_count` auto-injection (see L746-763
-  // in this file) for CTEs whose FROM is a plain model reference. Without
-  // this, a CTE that pre-aggregates a model silently drops the audit column
-  // and downstream `all_from_cte` / `dims_from_cte` passthroughs can't put
-  // it back. The SQL emitter (`frameworkGenerateCteSql`) uses the same
-  // helper so the registry and the emitted SQL stay in lock-step.
+  // Mirror the main-model `portal_source_count` auto-injection for CTEs
+  // whose FROM is a plain model OR plain CTE reference. Without this, a CTE
+  // that pre-aggregates a model (or chains off such a CTE) silently drops
+  // the audit column and downstream `all_from_cte` / `dims_from_cte`
+  // passthroughs can't put it back.
   const autoPsc = frameworkShouldAutoInjectCtePortalSourceCount({
     cte,
     alreadyPresentNames: columns.map((c) => c.name),
+    cteRegistry,
     modelJson,
     project,
   });
   if (autoPsc) {
-    const upstream = frameworkGetNodeColumns({
-      from: { model: autoPsc.baseModel },
-      include: ['portal_source_count'],
-      project,
-      useCsvFallback: false,
-    });
-    const injected = frameworkInheritColumns(upstream.columns, {
-      meta: {
+    const upstreamColumns: FrameworkColumn[] =
+      autoPsc.source === 'model'
+        ? frameworkGetNodeColumns({
+            from: { model: autoPsc.baseModel },
+            include: ['portal_source_count'],
+            project,
+            useCsvFallback: false,
+          }).columns
+        : (cteRegistry.get(autoPsc.baseCte) ?? [])
+            .filter((c) => c.name === 'portal_source_count')
+            .map((c) => ({ ...c, internal: { ...c.internal } }));
+    const injected = frameworkInheritColumns(upstreamColumns, {
+      internal: {
         ...(autoPsc.applyAgg && { agg: 'count' }),
       },
     });
@@ -1270,7 +1580,7 @@ export function frameworkInferCteColumns({
         const resolved = frameworkResolveAgg({
           agg: 'count',
           name: col.name,
-          overrideSuffixAgg: col.meta.override_suffix_agg,
+          overrideSuffixAgg: !!col.internal?.override_suffix_agg,
         });
         col.name = resolved.outputName;
       }
@@ -1281,7 +1591,174 @@ export function frameworkInferCteColumns({
     columns.push(...injected);
   }
 
+  // Rollup post-process: when the CTE declares `from.rollup`, normalize the
+  // column list to the new grain. Done after the auto-inject step so that
+  // upstream-grain `datetime` (and any finer-grain `portal_partition_*`
+  // columns) pulled by select inheritance / auto-inject get rewritten or
+  // dropped consistently.
+  const rollup =
+    'rollup' in cte.from && cte.from.rollup ? cte.from.rollup : null;
+  if (rollup) {
+    return frameworkApplyCteRollupTransform(columns, {
+      cte,
+      cteRegistry,
+      project,
+      rollup,
+    });
+  }
+
   return columns;
+}
+
+/**
+ * Resolves the effective value of a single framework-injection opt-out flag
+ * across the four-tier precedence chain:
+ *
+ *   CTE individual > CTE combined > model individual > model combined > false
+ *
+ * Each scope (CTE, model) carries two channels: an explicit individual flag
+ * (`exclude_datetime`, `exclude_portal_partition_columns`,
+ * `exclude_portal_source_count`, `exclude_date_filter`) and the combined
+ * `exclude_framework_artifacts` enum. The combined enum implies a fixed set
+ * of individual flags:
+ *
+ *   - `"all"`     → datetime, portal_partition_columns, portal_source_count, date_filter
+ *   - `"columns"` → datetime, portal_partition_columns, portal_source_count
+ *
+ * The individual flag at any scope wins over the combined flag at that scope:
+ * `exclude_framework_artifacts: "all"` paired with `exclude_portal_source_count: false`
+ * keeps the count column. CTE scope wins over model scope, so a CTE that sets
+ * `exclude_datetime: false` keeps datetime even when the model set
+ * `exclude_framework_artifacts: "all"`.
+ *
+ * Used by every site that decides whether to drop a framework-injected column
+ * or filter -- the model-level strip in `frameworkBuildColumns`, the CTE gates
+ * (`frameworkShouldAutoInjectCteFrameworkDims`,
+ * `frameworkShouldAutoInjectCtePortalSourceCount`), the WHERE-clause builder
+ * `frameworkBuildFilters`, and the `from.rollup` validator -- so all paths
+ * agree on the same effective value.
+ */
+type ExcludeFlagName =
+  | 'datetime'
+  | 'portal_partition_columns'
+  | 'portal_source_count'
+  | 'date_filter';
+
+const COMBINED_FLAG_IMPLIES: Record<'all' | 'columns', Set<ExcludeFlagName>> = {
+  all: new Set<ExcludeFlagName>([
+    'datetime',
+    'portal_partition_columns',
+    'portal_source_count',
+    'date_filter',
+  ]),
+  columns: new Set<ExcludeFlagName>([
+    'datetime',
+    'portal_partition_columns',
+    'portal_source_count',
+  ]),
+};
+
+type ExcludeFlagSource =
+  | (Partial<Record<`exclude_${ExcludeFlagName}`, boolean | undefined>> & {
+      exclude_framework_artifacts?: 'all' | 'columns';
+    })
+  | null
+  | undefined;
+
+export function frameworkResolveExcludeFlag(
+  flag: ExcludeFlagName,
+  cte: ExcludeFlagSource,
+  modelJson: ExcludeFlagSource,
+): boolean {
+  const individual = (s: ExcludeFlagSource): boolean | undefined =>
+    s?.[`exclude_${flag}`];
+  const combined = (s: ExcludeFlagSource): boolean | undefined => {
+    const v = s?.exclude_framework_artifacts;
+    if (v !== 'all' && v !== 'columns') {
+      return undefined;
+    }
+    return COMBINED_FLAG_IMPLIES[v].has(flag);
+  };
+
+  const cteIndividual = individual(cte);
+  if (cteIndividual !== undefined) {
+    return Boolean(cteIndividual);
+  }
+  const cteCombined = combined(cte);
+  if (cteCombined !== undefined) {
+    return cteCombined;
+  }
+  const modelIndividual = individual(modelJson);
+  if (modelIndividual !== undefined) {
+    return Boolean(modelIndividual);
+  }
+  const modelCombined = combined(modelJson);
+  if (modelCombined !== undefined) {
+    return modelCombined;
+  }
+  return false;
+}
+
+const BULK_SELECT_TYPE_NAMES = new Set<string>([
+  'all_from_model',
+  'dims_from_model',
+  'fcts_from_model',
+  'all_from_source',
+  'all_from_cte',
+  'dims_from_cte',
+  'fcts_from_cte',
+]);
+
+/**
+ * Names the user listed explicitly in `select`. Two cases qualify:
+ *   1. Scalar select items addressed by `name`
+ *      (e.g. `{ "name": "datetime", "expr": "max(datetime)" }`).
+ *   2. Bulk-select `include` arrays (e.g. `{ "type": "all_from_model",
+ *      "include": ["portal_partition_daily"] }`). `include` is opt-in.
+ *
+ * Bulk default-keep (a column the bulk picks up because it isn't in
+ * `exclude`) does NOT qualify -- the user did not name that column.
+ *
+ * Powers origin-aware stripping for `exclude_datetime`,
+ * `exclude_portal_partition_columns`, and `exclude_portal_source_count`
+ * (and the combined-flag values that imply them): framework-supplied
+ * copies are removed, user-typed copies are kept.
+ */
+export function frameworkExtractUserExplicitColumnNames(
+  modelJson: unknown,
+): Set<string> {
+  const names = new Set<string>();
+  const select = (modelJson as { select?: unknown })?.select;
+  if (!Array.isArray(select)) {
+    return names;
+  }
+  for (const item of select) {
+    if (!item || typeof item !== 'object') {
+      continue;
+    }
+    const record = item as {
+      type?: unknown;
+      name?: unknown;
+      include?: unknown;
+    };
+    const isBulk =
+      typeof record.type === 'string' &&
+      BULK_SELECT_TYPE_NAMES.has(record.type);
+    if (isBulk) {
+      if (Array.isArray(record.include)) {
+        for (const candidate of record.include) {
+          if (typeof candidate === 'string') {
+            names.add(candidate);
+          }
+        }
+      }
+      continue;
+    }
+    if (typeof record.name === 'string') {
+      names.add(record.name);
+    }
+  }
+  return names;
 }
 
 /**
@@ -1290,13 +1767,16 @@ export function frameworkInferCteColumns({
  * emitter (`frameworkGenerateCteSql`) so the two stay consistent.
  *
  * Auto-injection fires when:
- * - The CTE's FROM is a plain `{ model }` ref (no union, no cte chaining).
- * - The upstream model actually has `portal_source_count` in its catalog.
+ * - The CTE's FROM is a plain `{ model }` or `{ cte }` ref (no union).
+ * - The upstream actually has `portal_source_count` (manifest schema for
+ *   `{ model }`, registry entry for `{ cte }`).
  * - The CTE's own select / bulk expansions haven't already pulled it in.
- * - The CTE has not opted out via `exclude_portal_source_count: true`,
- *   matching the main-model flag with the same name. The CTE flag overrides
- *   the model-level value; when omitted on the CTE the model-level value is
- *   inherited (CTE override > model > false).
+ * - The CTE has not opted out via `exclude_portal_source_count: true` or via
+ *   `exclude_framework_artifacts` ("all" or "columns" both imply opt-out).
+ *   The flag mirrors the main-model flag with the same name; resolution
+ *   follows the standard CTE > model > false chain through
+ *   `frameworkResolveExcludeFlag`, with the individual flag beating the
+ *   combined flag at each scope.
  *
  * `applyAgg` is true when the CTE aggregates (non-empty `group_by`), mirroring
  * the main-model `frameworkModelHasAgg` rule. The caller is responsible for
@@ -1306,11 +1786,18 @@ export function frameworkInferCteColumns({
 export function frameworkShouldAutoInjectCtePortalSourceCount({
   cte,
   alreadyPresentNames,
+  cteRegistry,
   modelJson,
   project,
 }: {
   cte: FrameworkCTE;
   alreadyPresentNames: string[];
+  /**
+   * Required for `from: { cte }` sources -- looked up to confirm the
+   * upstream CTE actually exposes `portal_source_count`. Optional for
+   * `from: { model }` sources (the manifest is consulted directly).
+   */
+  cteRegistry?: CteColumnRegistry;
   /**
    * When provided, the model's own `exclude_portal_source_count` is used as
    * a fallback when the CTE does not declare the flag. CTE-only call sites
@@ -1319,40 +1806,57 @@ export function frameworkShouldAutoInjectCtePortalSourceCount({
    */
   modelJson?: FrameworkModel;
   project: DbtProject;
-}): { baseModel: string; applyAgg: boolean } | null {
-  const effectiveExclude =
-    cte.exclude_portal_source_count ??
-    (modelJson && 'exclude_portal_source_count' in modelJson
-      ? modelJson.exclude_portal_source_count
-      : undefined);
-  if (effectiveExclude) {
-    return null;
-  }
-  if (!('model' in cte.from) || !cte.from.model) {
+}):
+  | { source: 'model'; baseModel: string; applyAgg: boolean }
+  | { source: 'cte'; baseCte: string; applyAgg: boolean }
+  | null {
+  if (
+    frameworkResolveExcludeFlag('portal_source_count', cte, modelJson ?? null)
+  ) {
     return null;
   }
   if ('union' in cte.from) {
+    return null;
+  }
+  const baseModel =
+    'model' in cte.from && cte.from.model ? cte.from.model : null;
+  const baseCte = 'cte' in cte.from && cte.from.cte ? cte.from.cte : null;
+  if (!baseModel && !baseCte) {
     return null;
   }
   if (alreadyPresentNames.includes('portal_source_count')) {
     return null;
   }
 
-  const upstream = frameworkGetNodeColumns({
-    from: { model: cte.from.model },
-    include: ['portal_source_count'],
-    project,
-    useCsvFallback: false,
-  });
-  if (upstream.columns.length === 0) {
+  const upstreamHasPsc = baseModel
+    ? frameworkGetNodeColumns({
+        from: { model: baseModel },
+        include: ['portal_source_count'],
+        project,
+        useCsvFallback: false,
+      }).columns.length > 0
+    : (cteRegistry?.get(baseCte!) ?? []).some(
+        (c) => c.name === 'portal_source_count',
+      );
+  if (!upstreamHasPsc) {
     return null;
   }
 
-  const applyAgg = !!(typeof cte.group_by === 'string'
-    ? cte.group_by.length > 0
-    : Array.isArray(cte.group_by) && cte.group_by.length > 0);
+  // Rollup implies aggregation across the new grain even when `group_by`
+  // is not explicitly declared (the SQL emitter synthesizes the GROUP BY
+  // from dimensions). Treat it the same as an explicit non-empty group_by
+  // so `portal_source_count` is wrapped with `count(...)` instead of being
+  // selected raw, matching the suffix-agg behavior of the named-select path.
+  const hasRollup = 'rollup' in cte.from && !!cte.from.rollup;
+  const hasGroupBy =
+    typeof cte.group_by === 'string'
+      ? cte.group_by.length > 0
+      : Array.isArray(cte.group_by) && cte.group_by.length > 0;
+  const applyAgg = hasRollup || hasGroupBy;
 
-  return { baseModel: cte.from.model, applyAgg };
+  return baseModel
+    ? { source: 'model', baseModel, applyAgg }
+    : { source: 'cte', baseCte: baseCte!, applyAgg };
 }
 
 /**
@@ -1360,62 +1864,100 @@ export function frameworkShouldAutoInjectCtePortalSourceCount({
  * used by both the CTE column registry (`frameworkInferCteColumns`) and the
  * CTE SQL emitter (`frameworkGenerateCteSql`) so the two stay consistent.
  *
- * Mirrors the main-model behavior in `frameworkModelColumns` (see L727-744 in
- * this file): when a CTE sources from a plain `{ model }` ref, datetime and
- * the partition columns are considered framework-managed and are appended
- * automatically even if the user's select (or `dims_from_model` include list)
- * did not mention them. Without this, a CTE that pre-aggregates upstream
- * columns silently drops the partitions, and the downstream model fails at
- * materialization because `partitioned_by` can't find them.
+ * Mirrors the `baseModel` auto-inject branch in `frameworkBuildColumns`:
+ * when a CTE sources from a plain `{ model }` or `{ cte }` ref, datetime
+ * and the partition columns are considered framework-managed and are
+ * appended automatically even if the user's select (or
+ * `dims_from_model` / `dims_from_cte` include list) did not mention them.
+ * Without this, a CTE that pre-aggregates upstream columns silently drops
+ * the partitions, and the downstream model fails at materialization because
+ * `partitioned_by` can't find them.
  *
  * Auto-injection fires when:
- * - The CTE's FROM is a plain `{ model }` ref (no union, no cte chaining).
- * - The upstream model actually has the candidate column in its catalog.
+ * - The CTE's FROM is a plain `{ model }` or `{ cte }` ref (no union).
+ * - The upstream actually has the candidate column (manifest schema for
+ *   `{ model }`, registry entry for `{ cte }`).
  * - The CTE's own select hasn't already pulled the column in.
  * - The candidate is not excluded by the effective datetime interval
  *   (day → hourly dropped; month → daily+hourly dropped; year → all three).
  * - The CTE has not opted out via `exclude_portal_partition_columns: true`
- *   (suppresses all `portal_partition_*`), matching the main-model flag with
- *   the same name. The CTE flag overrides the model-level value; when omitted
- *   on the CTE the model-level value is inherited (CTE override > model >
- *   false). `datetime` itself has no per-CTE opt-out; the main model has none
- *   either, so the two stay symmetric.
+ *   (suppresses all `portal_partition_*`) or `exclude_datetime: true`
+ *   (suppresses just `datetime`). Both flags match the main-model flags with
+ *   the same names. CTE flag overrides the model-level value; when omitted on
+ *   the CTE the model-level value is inherited (CTE override > model > false).
+ *   The two flags are orthogonal -- set both for pure-dimension/lookup models.
+ *   `exclude_datetime` is mutually exclusive with `from.rollup` at any scope
+ *   (model OR CTE), validated by `validateExcludeDatetimeRollupConflict`.
  *
- * The effective datetime interval is determined from either an explicit
- * `{ name: 'datetime', interval: X }` entry in the CTE select, or by
- * falling back to the upstream column's own `meta.interval`.
+ * The effective datetime interval is determined in priority order:
+ *
+ *   1. The CTE's own `from.rollup.interval` -- rollup declares a new grain
+ *      and wins over both the user select and the upstream interval.
+ *   2. An explicit `{ name: 'datetime', interval: X }` entry in the CTE
+ *      select (only relevant when no rollup is declared).
+ *   3. The upstream column's own `internal.interval` -- read from the
+ *      manifest for `{ model }` sources, from `cteRegistry` for `{ cte }`
+ *      sources.
  */
 export function frameworkShouldAutoInjectCteFrameworkDims({
   cte,
   alreadyPresentNames,
+  cteRegistry,
   modelJson,
   project,
 }: {
   cte: FrameworkCTE;
   alreadyPresentNames: string[];
   /**
-   * When provided, the model's own `exclude_portal_partition_columns` is used
-   * as a fallback when the CTE does not declare the flag. CTE-only call sites
-   * (tests, lineage previews) may omit this; behavior reduces to "no model
-   * inheritance" in that case.
+   * Required for `from: { cte }` sources -- looked up to find what the
+   * upstream CTE actually exposes (`datetime` / `portal_partition_*`).
+   * Optional for `from: { model }` sources (the manifest is consulted
+   * directly). Test fixtures without a registry get the safe default of
+   * "no auto-inject" for `from: { cte }` cases.
+   */
+  cteRegistry?: CteColumnRegistry;
+  /**
+   * When provided, the model's own `exclude_portal_partition_columns` and
+   * `exclude_datetime` are used as fallbacks when the CTE does not declare
+   * the flags. CTE-only call sites (tests, lineage previews) may omit this;
+   * behavior reduces to "no model inheritance" in that case.
    */
   modelJson?: FrameworkModel;
   project: DbtProject;
-}): {
-  baseModel: string;
-  include: ('datetime' | FrameworkPartitionName)[];
-} | null {
-  if (!('model' in cte.from) || !cte.from.model) {
-    return null;
-  }
+}):
+  | {
+      source: 'model';
+      baseModel: string;
+      include: ('datetime' | FrameworkPartitionName)[];
+    }
+  | {
+      source: 'cte';
+      baseCte: string;
+      include: ('datetime' | FrameworkPartitionName)[];
+    }
+  | null {
   if ('union' in cte.from) {
     return null;
   }
 
-  const baseModel = cte.from.model;
+  const baseModel =
+    'model' in cte.from && cte.from.model ? cte.from.model : null;
+  const baseCte = 'cte' in cte.from && cte.from.cte ? cte.from.cte : null;
+  if (!baseModel && !baseCte) {
+    return null;
+  }
 
   let datetimeInterval: FrameworkInterval | null = null;
-  if (Array.isArray(cte.select)) {
+  // CTE-level `from.rollup` declares the new output grain; it wins over both
+  // an explicit `{ name: 'datetime', interval }` select item and the upstream
+  // source's own interval. The rollup grain controls partition exclusion here
+  // (drop hourly under day, drop daily+hourly under month, drop all three
+  // under year), and the rollup transform in `frameworkInferCteColumns`
+  // rewrites the inherited `datetime` column to match.
+  if ('rollup' in cte.from && cte.from.rollup) {
+    datetimeInterval = cte.from.rollup.interval;
+  }
+  if (!datetimeInterval && Array.isArray(cte.select)) {
     for (const item of cte.select) {
       if (
         typeof item === 'object' &&
@@ -1431,19 +1973,22 @@ export function frameworkShouldAutoInjectCteFrameworkDims({
       }
     }
   }
+  // Resolve the upstream column list once and use it for both the interval
+  // fallback and the final intersection check. For `{ model }` sources this
+  // pulls from the manifest; for `{ cte }` sources it pulls from the
+  // in-progress registry (the upstream CTE was processed earlier in the
+  // declaration order).
+  const upstreamColumns: FrameworkColumn[] = baseModel
+    ? frameworkGetNodeColumns({
+        from: { model: baseModel },
+        project,
+        useCsvFallback: false,
+      }).columns
+    : cteRegistry?.get(baseCte!) ?? [];
   if (!datetimeInterval) {
-    const upstreamDt = frameworkGetNodeColumns({
-      from: { model: baseModel },
-      include: ['datetime'],
-      project,
-      useCsvFallback: false,
-    }).columns[0];
-    if (
-      upstreamDt?.meta &&
-      'interval' in upstreamDt.meta &&
-      upstreamDt.meta.interval
-    ) {
-      datetimeInterval = upstreamDt.meta.interval;
+    const upstreamDt = upstreamColumns.find((c) => c.name === 'datetime');
+    if (upstreamDt?.internal?.interval) {
+      datetimeInterval = upstreamDt.internal.interval;
     }
   }
 
@@ -1463,19 +2008,28 @@ export function frameworkShouldAutoInjectCteFrameworkDims({
       break;
   }
 
-  // Per-CTE opt-out: `exclude_portal_partition_columns` suppresses the
-  // partition columns, mirroring the main-model flag with the same name.
-  // CTE override > model > false: a CTE that omits the flag inherits the
-  // model-level value, so users can set it once on the model and have all
-  // CTEs honor it without per-CTE repetition. There is no `exclude_datetime`
-  // on either schema -- if you don't want `datetime` in a CTE, source from
-  // another CTE or use a lookback model.
-  const effectiveExcludePartitions =
-    cte.exclude_portal_partition_columns ??
-    (modelJson && 'exclude_portal_partition_columns' in modelJson
-      ? modelJson.exclude_portal_partition_columns
-      : undefined);
-  const candidates: ('datetime' | FrameworkPartitionName)[] = ['datetime'];
+  // Per-CTE opt-outs: `exclude_portal_partition_columns` suppresses the
+  // partition columns and `exclude_datetime` suppresses the `datetime`
+  // column. Both mirror main-model flags with the same names and resolve
+  // through `frameworkResolveExcludeFlag`, which honors the combined
+  // `exclude_framework_artifacts` enum and the four-tier precedence chain
+  // (CTE individual > CTE combined > model individual > model combined).
+  // The flags are orthogonal -- set both to drop both, matching the main-
+  // model behavior.
+  const effectiveExcludePartitions = frameworkResolveExcludeFlag(
+    'portal_partition_columns',
+    cte,
+    modelJson ?? null,
+  );
+  const effectiveExcludeDatetime = frameworkResolveExcludeFlag(
+    'datetime',
+    cte,
+    modelJson ?? null,
+  );
+  const candidates: ('datetime' | FrameworkPartitionName)[] = [];
+  if (!effectiveExcludeDatetime) {
+    candidates.push('datetime');
+  }
   if (!effectiveExcludePartitions) {
     candidates.push(PARTITION_MONTHLY, PARTITION_DAILY, PARTITION_HOURLY);
   }
@@ -1487,19 +2041,15 @@ export function frameworkShouldAutoInjectCteFrameworkDims({
     return null;
   }
 
-  const upstream = frameworkGetNodeColumns({
-    from: { model: baseModel },
-    include: missing,
-    project,
-    useCsvFallback: false,
-  });
-  const upstreamNames = new Set(upstream.columns.map((c) => c.name));
+  const upstreamNames = new Set(upstreamColumns.map((c) => c.name));
   const include = missing.filter((c) => upstreamNames.has(c));
   if (include.length === 0) {
     return null;
   }
 
-  return { baseModel, include };
+  return baseModel
+    ? { source: 'model', baseModel, include }
+    : { source: 'cte', baseCte: baseCte!, include };
 }
 
 /**
@@ -1574,9 +2124,9 @@ export function frameworkBuildSourceDateColumns({
         description: 'Event Datetime Column',
         meta: {
           type: 'dim',
-          expr: `cast(${eventDatetimeExpr} as timestamp(6))`,
           dimension: { label: 'Datetime', type: 'timestamp' },
         },
+        internal: { expr: `cast(${eventDatetimeExpr} as timestamp(6))` },
       });
     }
     if (!columns.find((c) => c.name === PARTITION_DAILY)) {
@@ -1586,8 +2136,10 @@ export function frameworkBuildSourceDateColumns({
         description: 'Daily Partition Column',
         meta: {
           type: 'dim',
-          expr: `date_trunc('day', cast(${eventDatetimeExpr} as date))`,
           dimension: { label: 'Portal Partition Daily' },
+        },
+        internal: {
+          expr: `date_trunc('day', cast(${eventDatetimeExpr} as date))`,
         },
       });
     }
@@ -1598,8 +2150,10 @@ export function frameworkBuildSourceDateColumns({
         description: 'Hourly Partition Column',
         meta: {
           type: 'dim',
-          expr: `date_trunc('hour', cast(${eventDatetimeExpr} as timestamp(6)))`,
           dimension: { label: 'Portal Partition Hourly' },
+        },
+        internal: {
+          expr: `date_trunc('hour', cast(${eventDatetimeExpr} as timestamp(6)))`,
         },
       });
     }
@@ -1610,8 +2164,10 @@ export function frameworkBuildSourceDateColumns({
         description: 'Monthly Partition Column',
         meta: {
           type: 'dim',
-          expr: `date_trunc('month', cast(${eventDatetimeExpr} as date))`,
           dimension: { label: 'Portal Partition Monthly' },
+        },
+        internal: {
+          expr: `date_trunc('month', cast(${eventDatetimeExpr} as date))`,
         },
       });
     }
@@ -1624,7 +2180,6 @@ export function frameworkBuildSourceDateColumns({
       data_type: 'bigint',
       meta: {
         type: 'fct',
-        expr: '1',
         dimension: { label: 'Portal Source Count', hidden: true },
         metrics: {
           metric_portal_source_count: {
@@ -1633,6 +2188,7 @@ export function frameworkBuildSourceDateColumns({
           },
         },
       },
+      internal: { expr: '1' },
     });
   }
 
@@ -1685,7 +2241,7 @@ export function frameworkResolveAgg({
  * - `expr`: `date_trunc('<interval>', [prefix.]datetime)` when truncation is
  *   required, or `null` when `sourceInterval === interval`. Callers emit
  *   bare `datetime` in the `null` case.
- * - `interval`: the chosen interval, to be stored on `col.meta.interval`.
+ * - `interval`: the chosen interval, to be stored on `col.internal.interval`.
  * - `dimension`: the Lightdash dimension payload with `time_intervals`
  *   synthesized from the chosen interval and merged with any user overrides.
  *
@@ -1781,16 +2337,21 @@ export function frameworkApplyCteSelectMeta(
     col.meta.dimension = ld.dimension as FrameworkColumn['meta']['dimension'];
   }
 
+  // Ensure col.internal exists for SQL-internal field assignments below.
+  if (!col.internal) {
+    col.internal = {};
+  }
+
   if ('override_suffix_agg' in sel && sel.override_suffix_agg) {
-    col.meta.override_suffix_agg = !!sel.override_suffix_agg;
+    col.internal.override_suffix_agg = !!sel.override_suffix_agg;
   }
 
   if (!opts.hasAgg) {
     if ('expr' in sel && sel.expr) {
-      col.meta.expr = sel.expr as string;
+      col.internal.expr = sel.expr as string;
     }
     if ('exclude_from_group_by' in sel && sel.exclude_from_group_by) {
-      col.meta.exclude_from_group_by = true;
+      col.internal.exclude_from_group_by = true;
     }
   }
 }
@@ -1803,11 +2364,11 @@ export function frameworkApplyCteSelectMeta(
  * @see utils.ts:1050-1058
  */
 export function frameworkColumnSelect(column: FrameworkColumn): string {
-  if (column.meta.expr) {
-    return `${column.meta.expr} as ${column.name}`;
+  if (column.internal?.expr) {
+    return `${column.internal.expr} as ${column.name}`;
   }
-  if (column.meta.prefix) {
-    return `${column.meta.prefix}.${column.name} as ${column.name}`;
+  if (column.internal?.prefix) {
+    return `${column.internal.prefix}.${column.name} as ${column.name}`;
   }
   return sqlCleanLine(column.name);
 }
@@ -1824,11 +2385,11 @@ export function frameworkColumnName({
   column: FrameworkColumn;
   modelJson: FrameworkModel;
 }): string {
-  const metaAgg = ('agg' in column.meta && column.meta.agg) || null;
+  const metaAgg = column.internal?.agg || null;
   const rollupAgg =
     ('rollup' in modelJson.from &&
       column.meta.type === 'fct' &&
-      !column.meta.expr &&
+      !column.internal?.expr &&
       frameworkSuffixAgg(column.name)) ||
     null;
   const newAgg = metaAgg || rollupAgg;
@@ -1838,8 +2399,7 @@ export function frameworkColumnName({
   return frameworkResolveAgg({
     agg: newAgg,
     name: column.name,
-    overrideSuffixAgg:
-      'override_suffix_agg' in column.meta && column.meta.override_suffix_agg,
+    overrideSuffixAgg: !!column.internal?.override_suffix_agg,
   }).outputName;
 }
 
@@ -1876,6 +2436,39 @@ export function frameworkGetSeedColumnsFromCSV(csvPath: string): string[] {
   } catch {
     return [];
   }
+}
+
+/**
+ * Normalize a source column's manifest meta into the shape used by model
+ * columns internally (and emitted in model YAML).
+ *
+ * Source YAML stores Lightdash config nested under `meta.lightdash.*`, while
+ * model YAML stores it flat as `meta.dimension` / `meta.case_sensitive`
+ * (see `frameworkSourceProperties` vs `frameworkModelProperties` in
+ * `sql-utils.ts`). When a downstream model inherits a source column, we
+ * promote the nested keys up so the rest of the pipeline (inheritance,
+ * `mergeDeep`, YAML emit) can treat source- and model-origin columns
+ * uniformly. Existing flat keys on the meta always win over promoted ones.
+ */
+function normalizeSourceColumnMeta(
+  meta: Record<string, unknown> | undefined | null,
+): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...(meta ?? {}) };
+  const lightdash = (meta?.lightdash ?? null) as {
+    dimension?: unknown;
+    case_sensitive?: unknown;
+  } | null;
+  if (lightdash?.dimension && next.dimension === undefined) {
+    next.dimension = lightdash.dimension;
+  }
+  if (
+    lightdash?.case_sensitive !== undefined &&
+    next.case_sensitive === undefined
+  ) {
+    next.case_sensitive = lightdash.case_sensitive;
+  }
+  delete next.lightdash;
+  return next;
 }
 
 /**
@@ -1935,10 +2528,12 @@ export function frameworkGetNodeColumns({
           description: '',
           tags: [],
           meta: { type: 'dim' },
+          internal: {},
         });
       }
     }
   } else {
+    const isSource = 'source' in from;
     for (const [name, c] of Object.entries(node?.columns ?? {})) {
       if (exclude.length && exclude.includes(name)) {
         continue;
@@ -1949,13 +2544,47 @@ export function frameworkGetNodeColumns({
       if (!c?.meta?.type) {
         c.meta = { ...c.meta, type: 'dim' };
       }
-      const { agg: _agg, aggs: _aggs, prefix: _prefix, ...meta } = c.meta;
+      const rawMeta = isSource
+        ? (normalizeSourceColumnMeta(
+            c.meta as unknown as Record<string, unknown>,
+          ) as typeof c.meta)
+        : c.meta;
+      // Defensively strip SQL-internal keys (`agg`, `aggs`, `prefix`,
+      // `expr`, `interval`, `exclude_from_group_by`, `override_suffix_agg`)
+      // from upstream YAML in case any legacy `.yml` files still carry
+      // them under `meta`. New framework writes these to `.internal`
+      // during processing only; the upstream's SQL-generation state
+      // should never flow into a downstream model's inherited meta.
+      // `interval` is the one exception that must round-trip via the
+      // upstream catalog so downstream models can detect when a CTE/
+      // model is already at the requested datetime granularity (drives
+      // the `date_trunc` skip in `frameworkBuildDatetimeColumn`).
+      const {
+        agg: _agg,
+        aggs: _aggs,
+        prefix: _prefix,
+        expr: _expr,
+        interval,
+        exclude_from_group_by: _excludeFromGroupBy,
+        override_suffix_agg: _overrideSuffixAgg,
+        ...meta
+      } = rawMeta as Record<string, unknown>;
+      const internal: FrameworkColumn['internal'] = {};
+      if (
+        interval === 'day' ||
+        interval === 'hour' ||
+        interval === 'month' ||
+        interval === 'year'
+      ) {
+        internal.interval = interval;
+      }
       columns.push({
         name,
         data_type: c.data_type,
         description: c.description,
         tags: c.tags || [],
-        meta,
+        meta: meta as FrameworkColumn['meta'],
+        internal,
       });
     }
   }
@@ -2088,12 +2717,28 @@ export function frameworkGetModelPartitions({
 /**
  * Inherit column properties
  *
+ * When a downstream model inherits a column from an upstream model (via
+ * `all_from_model`, `dims_from_model`, `fcts_from_model`, CTE bulk
+ * selects, auto-inherited partition/count columns, etc.), we clear the
+ * entire `internal` bag on the upstream column before layering the
+ * downstream's new `internal` state (e.g. a join prefix, or `agg:count`
+ * for portal_source_count). This is critical: the upstream's SQL
+ * generation state (`agg`, `expr`, `prefix`, `override_suffix_agg`,
+ * `exclude_from_group_by`, `aggs`) describes how the UPSTREAM produced
+ * the column -- downstream should only see the resulting column name and
+ * re-wrap it with its own internal state.
+ *
+ * `meta` (user-facing: dimension, metrics, case_sensitive, origin, plus
+ * any free-form user keys) IS inherited through `mergeDeep` semantics so
+ * Lightdash dimension config and custom metrics flow downstream.
+ *
  * @see utils.ts:1904-1937
  */
 export function frameworkInheritColumn(
   col: FrameworkColumn,
-  merge?: Partial<Omit<FrameworkColumn, 'meta'>> & {
+  merge?: Partial<Omit<FrameworkColumn, 'meta' | 'internal'>> & {
     meta?: Partial<FrameworkColumn['meta']>;
+    internal?: Partial<FrameworkColumn['internal']>;
     tags?: string[];
   },
 ): FrameworkColumn {
@@ -2101,27 +2746,17 @@ export function frameworkInheritColumn(
   col.data_type = merge?.data_type || col.data_type;
   col.description = merge?.description || col.description;
   col.tags = _.union(col.tags, merge?.tags);
-  // We never inherit these properties
-  if ('agg' in col.meta) {
-    delete col.meta.agg;
-  }
-  if ('aggs' in col.meta) {
-    delete col.meta.aggs;
-  }
+  // Don't propagate this legacy key (description was never a meta field,
+  // but defensive strip kept for safety against older YAML).
   if ('description' in col.meta) {
-    delete col.meta.description;
-  } // Don't need to inherit on the meta
-  if ('exclude_from_group_by' in col.meta) {
-    delete col.meta.exclude_from_group_by;
+    delete (col.meta as Record<string, unknown>).description;
   }
-  if ('expr' in col.meta) {
-    delete col.meta.expr;
-  }
-  if ('prefix' in col.meta) {
-    delete col.meta.prefix;
-  }
-  //
   col.meta = { ...col.meta, ...merge?.meta };
+  // `internal` is framework-private per-model SQL-gen state and is never
+  // inherited from upstream. Replace wholesale with merged-in values
+  // (typically a new prefix for a join, or `agg: 'count'` for
+  // portal_source_count in aggregating downstream models).
+  col.internal = { ...(merge?.internal ?? {}) };
   return col;
 }
 
@@ -2132,8 +2767,9 @@ export function frameworkInheritColumn(
  */
 export function frameworkInheritColumns(
   cols: FrameworkColumn[],
-  merge?: Partial<Omit<FrameworkColumn, 'meta'>> & {
+  merge?: Partial<Omit<FrameworkColumn, 'meta' | 'internal'>> & {
     meta?: Partial<FrameworkColumn['meta']>;
+    internal?: Partial<FrameworkColumn['internal']>;
   },
 ): FrameworkColumn[] {
   return cols.map((col) => frameworkInheritColumn(col, merge));

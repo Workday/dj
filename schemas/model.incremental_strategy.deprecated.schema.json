@@ -1,0 +1,7 @@
+{
+  "$id": "model.incremental_strategy.deprecated.schema.json",
+  "title": "Schema Model Incremental Strategy (Deprecated Top-Level Field)",
+  "description": "DEPRECATED: use `materialization.strategy` instead. Replace top-level `\"incremental_strategy\": { \"type\": \"delete+insert\" }` with `\"materialization\": { \"type\": \"incremental\", \"strategy\": { \"type\": \"delete+insert\" } }`. Wraps the shared strategy shape (`model.incremental_strategy.schema.json`) so the deprecation hint applies only when the field is authored at the model top level, not when it's nested under `materialization.strategy` (the canonical, non-deprecated location).",
+  "deprecated": true,
+  "allOf": [{ "$ref": "model.incremental_strategy.schema.json" }]
+}

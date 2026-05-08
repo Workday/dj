@@ -1639,6 +1639,19 @@ export class Framework implements ApiEnabledService<'framework'> {
         this.diagnosticModelJson.set(uri, diagnostics);
       },
 
+      // Reserved-key lint warnings for model/column meta. Appended to any
+      // diagnostics already posted for this URI (e.g. CTE warnings above)
+      // so multiple lint categories coexist on the same file.
+      onModelValidationLintWarnings: (uri, warnings, jsonContent) => {
+        const existing = Array.from(this.diagnosticModelJson.get(uri) ?? []);
+        const positioned = buildPositionedDiagnostics(
+          warnings,
+          jsonContent,
+          vscode.DiagnosticSeverity.Warning,
+        );
+        this.diagnosticModelJson.set(uri, [...existing, ...positioned]);
+      },
+
       // Handle generation errors
       onGenerationError: (uri, modelName, error) => {
         const message = ERROR_MESSAGES.INVALID_MODEL_SQL(error.message);
@@ -1844,16 +1857,37 @@ function resolveValidationDiagnostics(
       ),
     ];
   }
+  // Pass the channel default through so warning-channel callers
+  // (`onModelValidationWarning`) render details without an explicit
+  // `severity` override as Warning rather than Error. Per-detail
+  // `severity: 'error'` overrides still win inside
+  // `buildPositionedDiagnostics` so a warning batch can carry a hard error
+  // (e.g. `validateDjIcebergPartitionOverwrite`) on the same URI.
+  return buildPositionedDiagnostics(errors, jsonContent, severity);
+}
 
+/**
+ * Build `vscode.Diagnostic[]` from structured `ValidationErrorDetail[]` with
+ * JSON-pointer positions resolved against the provided source text.
+ *
+ * Shared by the error path (`resolveValidationDiagnostics`) and the lint
+ * warning path (`onModelValidationLintWarnings`) so positioning behaves
+ * identically for both.
+ */
+function buildPositionedDiagnostics(
+  details: ValidationErrorDetail[],
+  jsonContent: string,
+  severity: vscode.DiagnosticSeverity,
+): vscode.Diagnostic[] {
   const tree = parseTree(jsonContent, undefined, {
     allowTrailingComma: true,
   });
 
-  return errors.map((err) => {
+  return details.map((detail) => {
     let range = new vscode.Range(0, 0, 0, 0);
 
     if (tree) {
-      const segments = instancePathToSegments(err.instancePath);
+      const segments = instancePathToSegments(detail.instancePath);
       const node = findNodeAtLocation(tree, segments);
 
       if (node) {
@@ -1879,11 +1913,11 @@ function resolveValidationDiagnostics(
     // mix of errors and warnings (e.g. validateDjIcebergPartitionOverwrite
     // emits an Error alongside other post-generation warnings).
     const resolvedSeverity =
-      err.severity === 'error'
+      detail.severity === 'error'
         ? vscode.DiagnosticSeverity.Error
-        : err.severity === 'warning'
+        : detail.severity === 'warning'
           ? vscode.DiagnosticSeverity.Warning
           : severity;
-    return new vscode.Diagnostic(range, err.message, resolvedSeverity);
+    return new vscode.Diagnostic(range, detail.message, resolvedSeverity);
   });
 }

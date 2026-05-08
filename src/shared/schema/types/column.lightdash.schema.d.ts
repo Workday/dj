@@ -6,13 +6,13 @@
  */
 
 /**
- * Schema for lightdash AI hints
- */
-export type SchemaLightdashAIHint = string | string[];
-/**
  * Whether this column should be treated as case-sensitive
  */
 export type SchemaLightdashCaseSensitive = boolean;
+/**
+ * Schema for lightdash AI hints
+ */
+export type SchemaLightdashAIHint = string | string[];
 /**
  * Validate model tags
  */
@@ -29,6 +29,7 @@ export type SchemaModelTags = (
 export type SchemaLightdashMetricName = string;
 
 export interface SchemaColumnLightdash {
+  case_sensitive?: SchemaLightdashCaseSensitive;
   dimension?: SchemaLightdashDimension;
   /**
    * @minItems 1

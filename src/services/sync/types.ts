@@ -136,6 +136,21 @@ export interface SyncCallbacks {
     jsonContent?: string,
   ) => void;
 
+  /**
+   * Called for structured non-blocking lint warnings (e.g. reserved-key
+   * collisions in model/column `meta`). Unlike `onModelValidationWarning`,
+   * each entry carries a JSON-pointer `instancePath` so the caller can
+   * position the diagnostic at the offending node in the source file.
+   * Callers are expected to render these at Warning severity and append
+   * them to any diagnostics already posted for the file (instead of
+   * replacing, which would stomp on co-existing error diagnostics).
+   */
+  onModelValidationLintWarnings?: (
+    uri: vscode.Uri,
+    warnings: ValidationErrorDetail[],
+    jsonContent: string,
+  ) => void;
+
   /** Called when SQL/YML generation fails */
   onGenerationError?: (
     uri: vscode.Uri,
