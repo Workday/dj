@@ -1,4 +1,5 @@
 import {
+  ArrowLeftIcon,
   ArrowPathIcon,
   CheckCircleIcon,
   ClockIcon,
@@ -43,7 +44,11 @@ function formatTimestamp(date: Date): string {
   });
 }
 
-export default function QueryPreview() {
+interface QueryPreviewProps {
+  onClose?: () => void;
+}
+
+export default function QueryPreview({ onClose }: QueryPreviewProps) {
   const { api } = useApp();
   const { vscode } = useEnvironment();
   const [results, setResults] = useState<QueryResultsData | null>(null);
@@ -238,6 +243,15 @@ export default function QueryPreview() {
       <div className="flex-shrink-0 px-3 py-2 border-b border-neutral bg-card">
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0 flex-1">
+            {onClose && (
+              <button
+                onClick={onClose}
+                className="p-1 rounded hover:bg-surface transition-colors flex-shrink-0"
+                title="Back to Data Explorer"
+              >
+                <ArrowLeftIcon className="w-4 h-4 text-surface-contrast" />
+              </button>
+            )}
             <DocumentTextIcon className="w-4 h-4 text-surface-contrast flex-shrink-0" />
             <span className="font-mono font-semibold text-sm text-foreground">
               Adhoc Query
@@ -283,9 +297,13 @@ export default function QueryPreview() {
             )}
             {(hasContent || showHistory) && (
               <button
-                onClick={handleClearResults}
+                onClick={onClose ?? handleClearResults}
                 className="p-1.5 rounded hover:bg-surface transition-colors"
-                title="Clear results"
+                title={
+                  onClose
+                    ? 'Close and return to Data Explorer'
+                    : 'Clear results'
+                }
               >
                 <XMarkIcon className="w-4 h-4 text-surface-contrast" />
               </button>
@@ -381,8 +399,17 @@ export default function QueryPreview() {
               </div>
             )}
 
-            {/* Results Table */}
-            {results ? (
+            {/* Loading State (priority over empty state to prevent flash) */}
+            {isExecuting && !results ? (
+              <div className="flex-1 flex items-center justify-center">
+                <div className="text-center">
+                  <Spinner size={32} />
+                  <p className="mt-4 text-sm text-surface-contrast">
+                    Executing query against Trino...
+                  </p>
+                </div>
+              </div>
+            ) : results ? (
               <div className="flex-1 overflow-hidden">
                 <QueryResults
                   results={results}
@@ -391,7 +418,7 @@ export default function QueryPreview() {
                   onRerun={(limit) => void handleExecuteQuery(limit)}
                 />
               </div>
-            ) : !isExecuting && !error ? (
+            ) : !error ? (
               /* Empty State */
               <div className="flex-1 flex items-center justify-center">
                 <div className="text-center max-w-md px-4">
@@ -425,18 +452,6 @@ export default function QueryPreview() {
                 </div>
               </div>
             ) : null}
-
-            {/* Loading State */}
-            {isExecuting && !results && (
-              <div className="flex-1 flex items-center justify-center">
-                <div className="text-center">
-                  <Spinner size={32} />
-                  <p className="mt-4 text-sm text-surface-contrast">
-                    Executing query against Trino...
-                  </p>
-                </div>
-              </div>
-            )}
           </>
         )}
       </div>

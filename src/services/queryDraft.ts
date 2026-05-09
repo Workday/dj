@@ -233,19 +233,17 @@ Please analyze the query structure and create the appropriate .model.json file f
       return;
     }
 
-    // Focus the Query Results panel
-    await vscode.commands.executeCommand('dj.view.queryPreview.focus');
-
-    // Send executing state to the webview
-    this.coder.queryPreview.sendMessage({ type: 'query-executing' });
+    // Focus the Data Explorer panel and switch to adhoc query view
+    await vscode.commands.executeCommand('dj.view.modelLineage.focus');
+    this.coder.dataExplorer.sendMessage({ type: 'show-adhoc-query' });
+    this.coder.dataExplorer.sendMessage({ type: 'query-executing' });
 
     try {
       const startTime = Date.now();
       const result = await this.executeQuery(sql, 500);
       const executionTime = Date.now() - startTime;
 
-      // Send results to the Query Results panel
-      this.coder.queryPreview.sendMessage({
+      this.coder.dataExplorer.sendMessage({
         type: 'query-results',
         columns: result.columns,
         rows: result.rows,
@@ -261,8 +259,7 @@ Please analyze the query structure and create the appropriate .model.json file f
       const errorMessage =
         error instanceof Error ? error.message : 'Failed to execute query';
 
-      // Send error to the Query Results panel
-      this.coder.queryPreview.sendMessage({
+      this.coder.dataExplorer.sendMessage({
         type: 'query-results',
         error: errorMessage,
       });

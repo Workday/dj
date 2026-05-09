@@ -359,7 +359,6 @@ export class Coder {
       trackProgress('Activating query draft features');
       this.log.info('Starting Query Draft activation...');
       this.registerQueryDraftCommands();
-      this.queryPreview.registerProviders(this.context);
       void this.queryDraft.detectAiAssistants();
       this.log.info('Query Draft activation completed');
 

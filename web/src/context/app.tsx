@@ -15,7 +15,6 @@ import { LightdashPreviewManager } from '@web/pages/LightdashPreviewManager';
 import { ModelCreate } from '@web/pages/ModelCreate';
 import { ModelRun } from '@web/pages/ModelRun';
 import { ModelTest } from '@web/pages/ModelTest';
-import QueryPreview from '@web/pages/QueryPreview';
 import { QueryView } from '@web/pages/QueryView';
 import { SourceCreate } from '@web/pages/SourceCreate';
 import { useCallback, useMemo, useState } from 'react';
@@ -109,14 +108,7 @@ const routeConfigs: WebRoute[] = [
   },
 ];
 
-const additionalRouteConfigs: WebRoute[] = [
-  {
-    element: <QueryPreview />,
-    label: 'Query Preview',
-    path: '/query/preview',
-    regex: /^\/query\/preview$/,
-  },
-];
+const additionalRouteConfigs: WebRoute[] = [];
 
 const apiChannels: {
   [id: string]: {

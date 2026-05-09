@@ -5,8 +5,10 @@ import {
   ArrowsPointingOutIcon,
   CodeBracketIcon,
   CogIcon,
+  DocumentChartBarIcon,
   ExclamationCircleIcon,
   PlayIcon,
+  PlusIcon,
   TableCellsIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline';
@@ -27,7 +29,11 @@ import ProjectOverview from './ProjectOverview';
 type RightPanelTab = 'query' | 'columns';
 type QueryViewMode = 'data' | 'sql';
 
-export default function ModelLineage() {
+interface ModelLineageProps {
+  onShowAdhocQuery?: () => void;
+}
+
+export default function ModelLineage({ onShowAdhocQuery }: ModelLineageProps) {
   const { api } = useApp();
   const { vscode } = useEnvironment();
   const {
@@ -664,6 +670,30 @@ export default function ModelLineage() {
             </div>
           </div>
           <div className="flex items-center gap-1">
+            {/* New Query Button */}
+            <button
+              onClick={() =>
+                vscode?.postMessage({
+                  type: 'execute-command',
+                  command: 'dj.command.queryDraftCreate',
+                })
+              }
+              className="flex items-center gap-1 px-2 py-1 rounded hover:bg-surface transition-colors text-xs text-surface-contrast"
+              title="Create a new query draft file"
+            >
+              <PlusIcon className="w-3.5 h-3.5" />
+              New Query
+            </button>
+            {/* Adhoc Query View */}
+            {onShowAdhocQuery && (
+              <button
+                onClick={onShowAdhocQuery}
+                className="p-1.5 rounded hover:bg-surface transition-colors"
+                title="Open Adhoc Query view"
+              >
+                <DocumentChartBarIcon className="w-4 h-4 text-surface-contrast" />
+              </button>
+            )}
             {/* Split Mode Toggle */}
             <button
               onClick={handleToggleSplitMode}

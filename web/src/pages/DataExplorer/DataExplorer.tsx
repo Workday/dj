@@ -1,11 +1,24 @@
-import ModelLineage from '../ModelLineage';
+import { useEffect, useState } from 'react';
 
-/**
- * DataExplorer wrapper component
- * Currently routes to ModelLineage, future will include ColumnLineage
- */
+import ModelLineage from '../ModelLineage';
+import QueryPreview from '../QueryPreview';
+
 export default function DataExplorer() {
-  // For now, render ModelLineage directly
-  // Future: Add tabs or navigation for ModelLineage / ColumnLineage
-  return <ModelLineage />;
+  const [showAdhocQuery, setShowAdhocQuery] = useState(false);
+
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data.type === 'show-adhoc-query') {
+        setShowAdhocQuery(true);
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
+
+  if (showAdhocQuery) {
+    return <QueryPreview onClose={() => setShowAdhocQuery(false)} />;
+  }
+
+  return <ModelLineage onShowAdhocQuery={() => setShowAdhocQuery(true)} />;
 }
