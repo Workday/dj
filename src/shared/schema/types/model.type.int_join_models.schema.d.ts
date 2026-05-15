@@ -908,7 +908,7 @@ export interface SchemaLightdashTable {
   label?: string;
   required_attributes?: SchemaLightdashRequiredAttributes;
   required_filters?: SchemaLightdashRequiredFilters;
-  sql_filter?: string;
+  sql_filter?: string | null;
   sql_where?: string;
 }
 /**

@@ -4,11 +4,13 @@ import { apiResponse } from '@shared/api/utils';
 import type { DbtProjectManifest } from '@shared/dbt/types';
 import { DEFAULT_INCREMENTAL_STRATEGY } from '@shared/framework/constants';
 import type { FrameworkModel } from '@shared/framework/types';
+import type { LightdashYamlNode } from '@shared/lightdash/types';
 import { TrinoProvider } from '@web/context/trino';
 import { useEnvironment } from '@web/context/useEnvironment';
 import { ColumnLineage } from '@web/pages/ColumnLineage';
 import DataExplorer from '@web/pages/DataExplorer';
 import { Home } from '@web/pages/Home';
+import { LightdashDashboardsAsCode } from '@web/pages/LightdashDashboardsAsCode';
 import { LightdashPreviewManager } from '@web/pages/LightdashPreviewManager';
 import { ModelCreate } from '@web/pages/ModelCreate';
 import { ModelRun } from '@web/pages/ModelRun';
@@ -93,6 +95,12 @@ const routeConfigs: WebRoute[] = [
     regex: /^\/lightdash\/preview-manager$/,
   },
   {
+    element: <LightdashDashboardsAsCode />,
+    label: 'Lightdash Dashboards as Code',
+    path: '/lightdash/dashboards-as-code',
+    regex: /^\/lightdash\/dashboards-as-code$/,
+  },
+  {
     element: <ColumnLineage />,
     label: 'Column Lineage',
     path: '/lineage/column',
@@ -106,6 +114,89 @@ const apiChannels: {
     reject: (err: unknown) => void;
   };
 } = {};
+
+/**
+ * Shared mock file tree used by the Lightdash Dashboards-as-Code mocks so the
+ * Explorer keeps showing files after a simulated download/upload.
+ */
+const MOCK_LIGHTDASH_TREE: LightdashYamlNode[] = [
+  {
+    name: 'charts',
+    type: 'dir',
+    path: 'lightdash/charts',
+    children: [
+      {
+        name: 'sales_by_region.yml',
+        type: 'file',
+        path: 'lightdash/charts/sales_by_region.yml',
+      },
+      {
+        name: 'top_customers.yml',
+        type: 'file',
+        path: 'lightdash/charts/top_customers.yml',
+      },
+    ],
+  },
+  {
+    name: 'dashboards',
+    type: 'dir',
+    path: 'lightdash/dashboards',
+    children: [
+      {
+        name: 'executive_overview.yml',
+        type: 'file',
+        path: 'lightdash/dashboards/executive_overview.yml',
+      },
+    ],
+  },
+];
+
+/**
+ * Mutable mock tree state so the dev server can model the
+ * delete-files / list-files / download cycle realistically: clearing local
+ * files empties the tree, downloading repopulates it.
+ */
+let mockTreeState: LightdashYamlNode[] = MOCK_LIGHTDASH_TREE;
+
+/**
+ * Streams a sequence of fake CLI log entries via `window` message events
+ * (mirroring how the real extension host pushes `lightdash-yaml-log`
+ * messages) and resolves once the last entry has been dispatched.
+ */
+function streamMockLightdashYamlLogs(
+  entries: {
+    message: string;
+    level?: 'info' | 'success' | 'warning' | 'error';
+  }[],
+  stepMs = 120,
+): Promise<void> {
+  return new Promise((resolve) => {
+    let elapsed = 0;
+    entries.forEach((entry, idx) => {
+      elapsed += stepMs;
+      setTimeout(() => {
+        window.dispatchEvent(
+          new MessageEvent('message', {
+            data: {
+              type: 'lightdash-yaml-log',
+              log: {
+                level: entry.level ?? 'info',
+                message: entry.message,
+                timestamp: new Date().toISOString(),
+              },
+            },
+          }),
+        );
+        if (idx === entries.length - 1) {
+          resolve();
+        }
+      }, elapsed);
+    });
+    if (entries.length === 0) {
+      resolve();
+    }
+  });
+}
 
 export function AppProvider() {
   const { environment, route, vscode } = useEnvironment();
@@ -310,6 +401,148 @@ export function AppProvider() {
                     apiResponse<typeof payloadType>({ success: true }),
                   );
                 }
+                case 'lightdash-yaml-list-files': {
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      success: true,
+                      path: 'lightdash',
+                      absolutePath: '/mock/workspace/lightdash',
+                      tree: mockTreeState,
+                    }),
+                  );
+                }
+                case 'lightdash-yaml-read-file': {
+                  const filePath = (payload.request as { path: string }).path;
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      success: true,
+                      content: `# ${filePath}\nversion: 1\nslug: ${filePath
+                        .split('/')
+                        .pop()
+                        ?.replace(/\.ya?ml$/, '')}\n`,
+                      absolutePath: `/mock/workspace/${filePath}`,
+                    }),
+                  );
+                }
+                case 'lightdash-yaml-edit-file': {
+                  return resolve(
+                    apiResponse<typeof payloadType>({ success: true }),
+                  );
+                }
+                case 'lightdash-yaml-download': {
+                  const req = payload.request as {
+                    scope?: 'all' | 'specific';
+                    dashboardIds?: string[];
+                    chartIds?: string[];
+                  };
+                  const args = ['download', '-p', 'lightdash'];
+                  for (const id of req.dashboardIds ?? []) {
+                    args.push('-d', id);
+                  }
+                  for (const id of req.chartIds ?? []) {
+                    args.push('-c', id);
+                  }
+                  // Stream first, resolve only after the last log fires —
+                  // matching the real extension flow where the CLI completes
+                  // before the API response, so `activeLogChannel` stays set
+                  // long enough for the streamed logs to land.
+                  void streamMockLightdashYamlLogs([
+                    { message: `$ lightdash ${args.join(' ')}` },
+                    {
+                      message:
+                        req.scope === 'specific'
+                          ? `Downloading ${(req.dashboardIds?.length ?? 0) + (req.chartIds?.length ?? 0)} resource(s)…`
+                          : 'Downloading entire project…',
+                    },
+                    {
+                      level: 'success',
+                      message: 'Downloaded 3 charts and 1 dashboard.',
+                    },
+                  ]).then(() => {
+                    // A mock download always restores the canonical tree so
+                    // the Explorer re-populates after a clear.
+                    mockTreeState = MOCK_LIGHTDASH_TREE;
+                    resolve(
+                      apiResponse<typeof payloadType>({
+                        success: true,
+                        tree: mockTreeState,
+                        absolutePath: '/mock/workspace/lightdash',
+                      }),
+                    );
+                  });
+                  return;
+                }
+                case 'lightdash-yaml-upload': {
+                  const req = payload.request as {
+                    chartSlugs?: string[];
+                    dashboardSlugs?: string[];
+                    force?: boolean;
+                    includeCharts?: boolean;
+                  };
+                  const args = ['upload', '-p', 'lightdash'];
+                  for (const slug of req.dashboardSlugs ?? []) {
+                    args.push('-d', slug);
+                  }
+                  for (const slug of req.chartSlugs ?? []) {
+                    args.push('-c', slug);
+                  }
+                  if (req.includeCharts) {
+                    args.push('--include-charts');
+                  }
+                  if (req.force) {
+                    args.push('--force');
+                  }
+                  const uploaded = [
+                    ...(req.dashboardSlugs ?? []),
+                    ...(req.chartSlugs ?? []),
+                  ];
+                  void streamMockLightdashYamlLogs([
+                    { message: `$ lightdash ${args.join(' ')}` },
+                    {
+                      message:
+                        uploaded.length === 0
+                          ? 'Uploading entire project…'
+                          : `Uploading ${uploaded.length} resource(s)…`,
+                    },
+                    {
+                      level: 'success',
+                      message: `Uploaded ${uploaded.length === 0 ? 'entire project' : `${uploaded.length} file(s)`}.`,
+                    },
+                  ]).then(() =>
+                    resolve(
+                      apiResponse<typeof payloadType>({
+                        success: true,
+                        uploadedFiles: uploaded,
+                      }),
+                    ),
+                  );
+                  return;
+                }
+                case 'lightdash-yaml-delete-files': {
+                  // Clear the mocked working directory so the next list-files
+                  // returns "No files yet." until a download repopulates it.
+                  mockTreeState = [];
+                  return resolve(
+                    apiResponse<typeof payloadType>({ success: true }),
+                  );
+                }
+                case 'lightdash-yaml-get-default-path': {
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      path: 'lightdash',
+                      absolutePath: '/mock/workspace/lightdash',
+                    }),
+                  );
+                }
+                case 'lightdash-yaml-set-default-path': {
+                  const newPath = (payload.request as { path: string }).path;
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      success: true,
+                      absolutePath: `/mock/workspace/${newPath}`,
+                    }),
+                  );
+                }
                 case 'data-explorer-get-model-lineage': {
                   return resolve(
                     apiResponse<typeof payloadType>({
@@ -500,6 +733,53 @@ SELECT * FROM final`,
                 case 'data-explorer-open-model-file': {
                   return resolve(
                     apiResponse<typeof payloadType>({ success: true }),
+                  );
+                }
+                case 'data-explorer-get-project-overview': {
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      projectName: 'mock_project',
+                      groups: [
+                        {
+                          layer: 'staging',
+                          label: 'Staging Models',
+                          items: [
+                            {
+                              id: 'model.mock_project.stg__customers',
+                              name: 'stg__customers',
+                              type: 'model',
+                              testCount: 3,
+                            },
+                          ],
+                        },
+                        {
+                          layer: 'intermediate',
+                          label: 'Intermediate Models',
+                          items: [
+                            {
+                              id: 'model.mock_project.int__customer_orders',
+                              name: 'int__customer_orders',
+                              type: 'model',
+                              materialized: 'ephemeral',
+                              testCount: 1,
+                            },
+                          ],
+                        },
+                        {
+                          layer: 'mart',
+                          label: 'Mart Models',
+                          items: [
+                            {
+                              id: 'model.mock_project.mart__customers',
+                              name: 'mart__customers',
+                              type: 'model',
+                              materialized: 'incremental',
+                              testCount: 5,
+                            },
+                          ],
+                        },
+                      ],
+                    }),
                   );
                 }
                 case 'data-explorer-open-with-model': {

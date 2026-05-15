@@ -23,6 +23,7 @@ const colors = {
 const bgColors = {
   'message-info': 'var(--color-message-info)',
   'message-error': 'var(--color-message-error)',
+  'message-warning': 'var(--color-message-warning)',
   'message-success': 'var(--color-message-success)',
   'switch-on': 'var(--color-switch-on)',
   'switch-off': 'var(--color-switch-off)',
@@ -34,6 +35,7 @@ const bgColors = {
 const textColors = {
   'message-info-contrast': 'var(--color-message-info-contrast)',
   'message-error-contrast': 'var(--color-message-error-contrast)',
+  'message-warning-contrast': 'var(--color-message-warning-contrast)',
   'message-success-contrast': 'var(--color-message-success-contrast)',
   'tag-contrast': 'var(--color-tag-contrast)',
 };
@@ -41,6 +43,7 @@ const textColors = {
 const borderColors = {
   'message-info': 'var(--color-message-info-border)',
   'message-error': 'var(--color-message-error-border)',
+  'message-warning': 'var(--color-message-warning-border)',
   'message-success': 'var(--color-message-success-border)',
   neutral: 'var(--color-border)',
   'neutral-contrast': 'var(--color-border-contrast)',

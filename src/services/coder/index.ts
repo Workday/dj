@@ -678,6 +678,7 @@ export class Coder {
           this.framework.dbt.treeItemModelCreate,
           this.framework.dbt.treeItemSourceCreate,
           this.lightdash.treeItemLightdashPreview,
+          this.lightdash.treeItemLightdashDashboardsAsCode,
           this.framework.dbt.treeItemModelRun,
           this.framework.dbt.treeItemModelCompile,
         ]);
@@ -1445,6 +1446,7 @@ export class Coder {
         this.framework.dbt.treeItemModelCreate,
         this.framework.dbt.treeItemSourceCreate,
         this.lightdash.treeItemLightdashPreview,
+        this.lightdash.treeItemLightdashDashboardsAsCode,
         this.framework.dbt.treeItemModelRun,
         this.framework.dbt.treeItemModelCompile,
       ]);

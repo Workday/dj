@@ -655,6 +655,52 @@ Named column from a CTE:
 }
 ```
 
+## Lightdash Dashboards as Code
+
+The DJ extension also exposes Lightdash's [Dashboards as Code](https://docs.lightdash.com/guides/developer/dashboards-as-code) workflow via the `DJ: Lightdash — Dashboards as Code` command. This is **separate from** the model-level `lightdash` config above (which generates `meta.dimensions` / `meta.metrics` blocks in the dbt-managed YAML). Dashboards-as-Code lets you author the actual saved charts and dashboards (the things visible in the Lightdash UI) as version-control-friendly YAML files.
+
+### Layout
+
+By default, the extension's `lightdash download` writes:
+
+```text
+<workspace_root>/lightdash/
+├── charts/
+│   └── <chart-slug>.yml
+└── dashboards/
+    └── <dashboard-slug>.yml
+```
+
+The base path is configurable via the `dj.lightdash.dashboardsAsCodePath` extension setting. The slug in the filename is also the slug used by the Lightdash CLI's `-c` / `-d` flags.
+
+### When to edit these files
+
+These YAML files are **inputs to `lightdash upload`**. Edit them when the user wants to tweak a chart's filters, axis labels, dashboard tiles, etc. without clicking through the Lightdash UI. Typical workflow:
+
+1. User runs the Download tab (entire project or specific charts/dashboards).
+2. You edit `<workspace_root>/lightdash/charts/<slug>.yml` or `…/dashboards/<slug>.yml`.
+3. User runs the Upload tab (selection-driven by default — only edited files get pushed).
+
+### YAML shape
+
+Both file types are validated by official Lightdash JSON schemas (the extension auto-registers them with the Red Hat YAML extension). Top-level keys:
+
+- **Chart** (`charts/*.yml`): `version`, `slug`, `name`, `description?`, `chartConfig`, `tableConfig`, `metricQuery` (`exploreName`, `dimensions`, `metrics`, `filters`, `sorts`, `limit`, `tableCalculations`, `additionalMetrics`), `dashboardSlug?`, `spaceSlug?`, `tags?`.
+- **Dashboard** (`dashboards/*.yml`): `version`, `slug`, `name`, `description?`, `tabs?`, `tiles[]` (each tile has `type`, `properties`, layout `x/y/w/h`), `filters?`, `spaceSlug?`, `tags?`.
+
+Read the file's `# yaml-language-server: $schema=…` header (or the auto-installed `yaml.schemas` binding) for the authoritative shape — do not invent fields.
+
+### Editing rules
+
+- **Do not change `slug`.** The slug is the primary key the upload uses to match local files to remote charts/dashboards. Renaming the slug creates a new resource on upload.
+- **Do not change `version`.** It pins the schema; bumping it by hand will break the upload.
+- **Preserve unfamiliar keys.** The schemas evolve; keep any field you do not recognize as-is so downloads stay round-trippable.
+- **Reference existing dbt models, not raw tables.** `metricQuery.exploreName` and `metrics`/`dimensions` reference the model's Lightdash `table` / dimension / metric names — confirm they exist by reading the model's `.model.json` `lightdash` block. If a metric the user wants does not exist on the model, add it to the `.model.json` (regenerates the dbt YAML) before referencing it from the chart YAML.
+- **Dashboard tiles must reference real chart slugs.** A dashboard tile's `properties.savedChartSlug` (or equivalent) must match a chart slug that exists either locally under `charts/` or already on Lightdash.
+- **Use the extension's webview to invoke the CLI.** Do not shell out to `lightdash download` / `lightdash upload` directly — the webview handles auth, working directory, and YAML schema sync.
+
+---
+
 ## Custom Meta (Free-form)
 
 Both `.model.json` and `.source.json` accept **free-form user-defined keys** on their `meta` blocks. Use this to attach arbitrary metadata (ownership, compliance tags, process info, SLAs, etc.) that you want to surface in the generated `.yml` and consume downstream (dbt docs, Lightdash, custom tooling).

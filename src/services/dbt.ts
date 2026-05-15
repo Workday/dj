@@ -2218,6 +2218,7 @@ ${macro.macro_sql}`;
       this.treeItemModelCreate,
       this.treeItemSourceCreate,
       this.coder.lightdash.treeItemLightdashPreview,
+      this.coder.lightdash.treeItemLightdashDashboardsAsCode,
       this.treeItemModelRun,
       this.treeItemModelTest,
       this.treeItemModelCompile,

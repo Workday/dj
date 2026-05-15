@@ -12,8 +12,25 @@ import { apiResponse } from '@shared/api/utils';
  */
 type ApiCallback = (payload: unknown) => Promise<ApiResponse>;
 import { COMMAND_ID, VIEW_ID } from '@services/constants';
+import {
+  deleteYamlFiles,
+  executeLightdashDownload,
+  executeLightdashUpload,
+  getDashboardsAsCodeAbsolutePath,
+  getDashboardsAsCodeRelativePath,
+  isYamlExtensionInstalled,
+  listLightdashFiles,
+  openYamlInEditor,
+  promptInstallYamlExtension,
+  readYamlFile,
+  syncYamlSchemasSetting,
+} from '@services/lightdash/dashboardsAsCode';
 import { getHtml } from '@services/webview/utils';
-import type { LightdashModel, LightdashPreview } from '@shared/lightdash/types';
+import type {
+  LightdashModel,
+  LightdashPreview,
+  LightdashYamlLog,
+} from '@shared/lightdash/types';
 import type { TreeItem } from 'admin';
 import { ThemeIcon, WORKSPACE_ROOT } from 'admin';
 import { spawn } from 'child_process';
@@ -31,7 +48,17 @@ export class Lightdash implements ApiEnabledService<'lightdash'> {
     label: 'Lightdash Preview',
   };
 
+  readonly treeItemLightdashDashboardsAsCode: TreeItem = {
+    command: {
+      command: COMMAND_ID.LIGHTDASH_DASHBOARDS_AS_CODE,
+      title: 'Lightdash Dashboards as Code',
+    },
+    iconPath: new ThemeIcon('file-code'),
+    label: 'Lightdash Dashboards as Code',
+  };
+
   private currentWebviewPanel?: vscode.WebviewPanel;
+  private dashboardsAsCodePanel?: vscode.WebviewPanel;
 
   constructor(
     private readonly dbt: Dbt,
@@ -184,6 +211,166 @@ export class Lightdash implements ApiEnabledService<'lightdash'> {
       case 'lightdash-add-log': {
         // This is handled via webview postMessage
         return apiResponse<typeof payload.type>({ success: true });
+      }
+      case 'lightdash-yaml-list-files': {
+        try {
+          const requestedPath = payload.request.path?.trim();
+          const absolutePath = requestedPath
+            ? path.isAbsolute(requestedPath)
+              ? requestedPath
+              : path.join(WORKSPACE_ROOT, requestedPath)
+            : getDashboardsAsCodeAbsolutePath();
+          const relPath = path
+            .relative(WORKSPACE_ROOT, absolutePath)
+            .split(path.sep)
+            .join('/');
+          const tree = listLightdashFiles(absolutePath);
+          return apiResponse<typeof payload.type>({
+            success: true,
+            path: relPath || getDashboardsAsCodeRelativePath(),
+            absolutePath,
+            tree,
+          });
+        } catch (err: unknown) {
+          this.log.error('Error listing Lightdash YAML files:', err);
+          return apiResponse<typeof payload.type>({
+            success: false,
+            error: err instanceof Error ? err.message : 'Unknown error',
+          });
+        }
+      }
+      case 'lightdash-yaml-read-file': {
+        try {
+          const { content, absolutePath } = readYamlFile(payload.request.path);
+          return apiResponse<typeof payload.type>({
+            success: true,
+            content,
+            absolutePath,
+          });
+        } catch (err: unknown) {
+          this.log.error('Error reading Lightdash YAML file:', err);
+          return apiResponse<typeof payload.type>({
+            success: false,
+            error: err instanceof Error ? err.message : 'Unknown error',
+          });
+        }
+      }
+      case 'lightdash-yaml-edit-file': {
+        try {
+          await openYamlInEditor(payload.request.path);
+          return apiResponse<typeof payload.type>({ success: true });
+        } catch (err: unknown) {
+          this.log.error('Error opening Lightdash YAML file:', err);
+          return apiResponse<typeof payload.type>({
+            success: false,
+            error: err instanceof Error ? err.message : 'Unknown error',
+          });
+        }
+      }
+      case 'lightdash-yaml-download': {
+        // Logs are streamed live to the webview via `lightdash-yaml-log`
+        // window messages; the API response intentionally omits them so
+        // the output panel doesn't get a duplicate replay.
+        const onLog = (log: LightdashYamlLog) => {
+          this.dashboardsAsCodePanel?.webview.postMessage({
+            type: 'lightdash-yaml-log',
+            log,
+          });
+        };
+        try {
+          const result = await executeLightdashDownload(
+            payload.request,
+            this.log,
+            onLog,
+          );
+          // After every successful download, refresh the yaml.schemas binding
+          // so the JSON schema autocomplete keeps tracking the configured path
+          // (no-op if `path` matches the default and bindings exist).
+          if (result.success) {
+            await syncYamlSchemasSetting(this.log);
+          }
+          return apiResponse<typeof payload.type>({
+            success: result.success,
+            tree: result.tree,
+            absolutePath: result.absolutePath,
+            error: result.error,
+          });
+        } catch (err: unknown) {
+          this.log.error('Error executing lightdash download:', err);
+          return apiResponse<typeof payload.type>({
+            success: false,
+            error: err instanceof Error ? err.message : 'Unknown error',
+          });
+        }
+      }
+      case 'lightdash-yaml-upload': {
+        const onLog = (log: LightdashYamlLog) => {
+          this.dashboardsAsCodePanel?.webview.postMessage({
+            type: 'lightdash-yaml-log',
+            log,
+          });
+        };
+        try {
+          const result = await executeLightdashUpload(
+            payload.request,
+            this.log,
+            onLog,
+          );
+          return apiResponse<typeof payload.type>({
+            success: result.success,
+            uploadedFiles: result.uploadedFiles,
+            error: result.error,
+          });
+        } catch (err: unknown) {
+          this.log.error('Error executing lightdash upload:', err);
+          return apiResponse<typeof payload.type>({
+            success: false,
+            error: err instanceof Error ? err.message : 'Unknown error',
+          });
+        }
+      }
+      case 'lightdash-yaml-delete-files': {
+        try {
+          deleteYamlFiles(payload.request.paths);
+          return apiResponse<typeof payload.type>({ success: true });
+        } catch (err: unknown) {
+          this.log.error('Error deleting Lightdash YAML files:', err);
+          return apiResponse<typeof payload.type>({
+            success: false,
+            error: err instanceof Error ? err.message : 'Unknown error',
+          });
+        }
+      }
+      case 'lightdash-yaml-get-default-path': {
+        return apiResponse<typeof payload.type>({
+          path: getDashboardsAsCodeRelativePath(),
+          absolutePath: getDashboardsAsCodeAbsolutePath(),
+        });
+      }
+      case 'lightdash-yaml-set-default-path': {
+        try {
+          const newPath = payload.request.path.trim();
+          await vscode.workspace
+            .getConfiguration('dj')
+            .update(
+              'lightdash.dashboardsAsCodePath',
+              newPath || undefined,
+              vscode.ConfigurationTarget.Workspace,
+            );
+          // Refresh the yaml.schemas binding so autocomplete tracks the
+          // new path immediately.
+          await syncYamlSchemasSetting(this.log);
+          return apiResponse<typeof payload.type>({
+            success: true,
+            absolutePath: getDashboardsAsCodeAbsolutePath(),
+          });
+        } catch (err: unknown) {
+          this.log.error('Error updating dashboardsAsCodePath setting:', err);
+          return apiResponse<typeof payload.type>({
+            success: false,
+            error: err instanceof Error ? err.message : 'Unknown error',
+          });
+        }
       }
       default: {
         // TypeScript exhaustiveness check
@@ -623,8 +810,28 @@ export class Lightdash implements ApiEnabledService<'lightdash'> {
   }
 
   activate(context: vscode.ExtensionContext): void {
-    // Register commands
     this.registerCommands(context);
+
+    // Sync schemas on activation. No-ops silently if the YAML extension
+    // isn't installed yet.
+    void syncYamlSchemasSetting(this.log);
+
+    context.subscriptions.push(
+      vscode.workspace.onDidChangeConfiguration(async (event) => {
+        if (event.affectsConfiguration('dj.lightdash.dashboardsAsCodePath')) {
+          await syncYamlSchemasSetting(this.log);
+        }
+      }),
+    );
+
+    // Auto-sync schemas if the user installs the YAML extension later.
+    context.subscriptions.push(
+      vscode.extensions.onDidChange(() => {
+        if (isYamlExtensionInstalled()) {
+          void syncYamlSchemasSetting(this.log);
+        }
+      }),
+    );
   }
 
   /**
@@ -729,6 +936,80 @@ export class Lightdash implements ApiEnabledService<'lightdash'> {
           );
         }
       }),
+    );
+
+    context.subscriptions.push(
+      vscode.commands.registerCommand(
+        COMMAND_ID.LIGHTDASH_DASHBOARDS_AS_CODE,
+        () => {
+          try {
+            this.log.info('Lightdash Dashboards as Code command triggered');
+
+            void promptInstallYamlExtension(context, this.log);
+
+            if (this.dashboardsAsCodePanel) {
+              this.dashboardsAsCodePanel.reveal(vscode.ViewColumn.One);
+              return;
+            }
+
+            const panel = vscode.window.createWebviewPanel(
+              VIEW_ID.LIGHTDASH_DASHBOARDS_AS_CODE,
+              'Lightdash · Dashboards as Code',
+              vscode.ViewColumn.One,
+              {
+                enableScripts: true,
+                retainContextWhenHidden: true,
+              },
+            );
+
+            this.dashboardsAsCodePanel = panel;
+
+            panel.onDidDispose(() => {
+              this.dashboardsAsCodePanel = undefined;
+            });
+
+            panel.webview.html = getHtml({
+              extensionUri: context.extensionUri,
+              route: '/lightdash/dashboards-as-code',
+              webview: panel.webview,
+            });
+
+            panel.webview.onDidReceiveMessage(
+              async (message: any) => {
+                if (message.type === 'copy-to-clipboard') {
+                  await vscode.env.clipboard.writeText(message.text);
+                  vscode.window.showInformationMessage('Copied to clipboard');
+                  return;
+                }
+
+                if (message._channelId) {
+                  try {
+                    const { _channelId, ...payload } = message;
+                    const response = await this.apiCallback(payload);
+                    panel.webview.postMessage({ _channelId, response });
+                  } catch (error: unknown) {
+                    this.log.error('Dashboards-as-Code API error:', error);
+                    panel.webview.postMessage({
+                      _channelId: message._channelId,
+                      error:
+                        error instanceof Error
+                          ? error.message
+                          : 'Unknown error',
+                    });
+                  }
+                }
+              },
+              undefined,
+              context.subscriptions,
+            );
+          } catch (err: unknown) {
+            this.log.error('ERROR OPENING DASHBOARDS-AS-CODE PANEL: ', err);
+            vscode.window.showErrorMessage(
+              'Failed to open Lightdash Dashboards as Code',
+            );
+          }
+        },
+      ),
     );
   }
 

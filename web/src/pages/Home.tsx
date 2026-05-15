@@ -33,6 +33,11 @@ export function Home() {
             Lightdash Preview Manager
           </a>
         </li>
+        <li className="border-b border-gray-200 p-2">
+          <a href="/lightdash/dashboards-as-code" className="text-blue-500">
+            Lightdash Dashboards as Code
+          </a>
+        </li>
         <li className="p-2">
           <a href="/query/view/1234" className="text-blue-500">
             Query View

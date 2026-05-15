@@ -9,7 +9,13 @@ import type {
   DbtProjectManifestSource,
 } from '@shared/dbt/types';
 import { getDbtModelId } from '@shared/dbt/utils';
-import type { LineageData, LineageNode } from '@shared/modellineage/types';
+import type {
+  LineageData,
+  LineageNode,
+  ProjectOverviewData,
+  ProjectOverviewGroup,
+  ProjectOverviewItem,
+} from '@shared/modellineage/types';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -91,11 +97,21 @@ export class ModelLineage {
 
         case 'data-explorer-open-model-file': {
           try {
-            const { modelName, projectName } = payload.request;
-            await this.openModelFile(modelName, projectName);
+            const { modelName, projectName, nodeType } = payload.request as {
+              modelName: string;
+              projectName: string;
+              nodeType?: string;
+            };
+            if (nodeType === 'source') {
+              await this.openSourceFile(modelName, projectName);
+            } else if (nodeType === 'seed') {
+              await this.openSeedFile(modelName, projectName);
+            } else {
+              await this.openModelFile(modelName, projectName);
+            }
             return apiResponse<typeof payload.type>({ success: true });
           } catch (error: unknown) {
-            this.coder.log.error('Error opening model file:', error);
+            this.coder.log.error('Error opening file:', error);
             throw error;
           }
         }
@@ -156,6 +172,16 @@ export class ModelLineage {
               sql: null,
               compiledPath: undefined,
             });
+          }
+        }
+
+        case 'data-explorer-get-project-overview': {
+          try {
+            const overview = this.getProjectOverview();
+            return apiResponse<typeof payload.type>(overview);
+          } catch (error: unknown) {
+            this.coder.log.error('Error fetching project overview:', error);
+            return apiResponse<typeof payload.type>(null);
           }
         }
 
@@ -332,6 +358,113 @@ export class ModelLineage {
       }
     }
     return count;
+  }
+
+  /**
+   * Build a project overview with all models/sources grouped by layer
+   */
+  private getProjectOverview(): ProjectOverviewData | null {
+    // Use the first project
+    let projectName: string | undefined;
+    let project: DbtProject | undefined;
+
+    for (const [name, proj] of this.coder.framework.dbt.projects) {
+      projectName = name;
+      project = proj;
+      break;
+    }
+
+    if (!project || !projectName) {
+      return null;
+    }
+
+    const manifest = project.manifest;
+    if (!manifest) {
+      return null;
+    }
+
+    const staging: ProjectOverviewItem[] = [];
+    const intermediate: ProjectOverviewItem[] = [];
+    const mart: ProjectOverviewItem[] = [];
+
+    // Process models
+    for (const [modelId, node] of Object.entries(manifest.nodes || {})) {
+      if (!modelId.startsWith(`model.${projectName}.`)) {
+        continue;
+      }
+      if (node?.resource_type !== 'model') {
+        continue;
+      }
+
+      const modelName = node.name ?? modelId.split('.').pop() ?? modelId;
+      const [layerPrefix] = modelName.split('__');
+
+      // @ts-expect-error - config may have materialized field
+      const rawMaterialized = node.config?.materialized;
+      let materialized: 'ephemeral' | 'incremental' | undefined;
+      if (
+        rawMaterialized === 'ephemeral' ||
+        rawMaterialized === 'incremental'
+      ) {
+        materialized = rawMaterialized;
+      }
+
+      const testCount = this.countTestsForNode(modelId, project);
+
+      const item: ProjectOverviewItem = {
+        id: modelId,
+        name: modelName,
+        type: 'model',
+        description: node.description ?? '',
+        materialized,
+        testCount,
+      };
+
+      switch (layerPrefix) {
+        case 'stg':
+          staging.push(item);
+          break;
+        case 'int':
+          intermediate.push(item);
+          break;
+        case 'mart':
+          mart.push(item);
+          break;
+        default:
+          // Models without standard prefix go to staging as fallback
+          staging.push(item);
+          break;
+      }
+    }
+
+    const sortByName = (a: ProjectOverviewItem, b: ProjectOverviewItem) =>
+      a.name.localeCompare(b.name);
+
+    staging.sort(sortByName);
+    intermediate.sort(sortByName);
+    mart.sort(sortByName);
+
+    const groups: ProjectOverviewGroup[] = [];
+
+    if (staging.length > 0) {
+      groups.push({
+        layer: 'staging',
+        label: 'Staging Models',
+        items: staging,
+      });
+    }
+    if (intermediate.length > 0) {
+      groups.push({
+        layer: 'intermediate',
+        label: 'Intermediate Models',
+        items: intermediate,
+      });
+    }
+    if (mart.length > 0) {
+      groups.push({ layer: 'mart', label: 'Mart Models', items: mart });
+    }
+
+    return { projectName, groups };
   }
 
   /**
@@ -518,6 +651,68 @@ export class ModelLineage {
     const targetPath = fs.existsSync(jsonFilePath) ? jsonFilePath : sqlFilePath;
 
     await vscode.window.showTextDocument(vscode.Uri.file(targetPath));
+  }
+
+  /**
+   * Open the source file (.source.json) in the editor
+   */
+  private async openSourceFile(
+    sourceName: string,
+    projectName: string,
+  ): Promise<void> {
+    // Search for the source in dbt sources
+    for (const [sourceId, source] of this.coder.framework.dbt.sources) {
+      const tableName = source.name;
+      const sourceParentName = source.source_name;
+
+      if (
+        (tableName === sourceName || sourceParentName === sourceName) &&
+        sourceId.startsWith(`source.${projectName}.`)
+      ) {
+        const project = this.coder.framework.dbt.projects.get(projectName);
+        if (!project || !source.original_file_path) {
+          break;
+        }
+
+        const ymlPath = path.join(
+          project.pathSystem,
+          source.original_file_path,
+        );
+        const sourceJsonPath = ymlPath.replace(/\.yml$/, '.source.json');
+
+        // Prefer .source.json, fall back to .yml
+        const targetPath = fs.existsSync(sourceJsonPath)
+          ? sourceJsonPath
+          : ymlPath;
+
+        await vscode.window.showTextDocument(vscode.Uri.file(targetPath));
+        return;
+      }
+    }
+
+    throw new Error(`Source ${sourceName} not found in project ${projectName}`);
+  }
+
+  /**
+   * Open the seed file (.csv) in the editor
+   */
+  private async openSeedFile(
+    seedName: string,
+    projectName: string,
+  ): Promise<void> {
+    // Find seed in dbt.seeds map
+    for (const [seedId, seed] of this.coder.framework.dbt.seeds) {
+      if (seed.name === seedName && seedId.startsWith(`seed.${projectName}.`)) {
+        if (seed.pathSystemFile) {
+          await vscode.window.showTextDocument(
+            vscode.Uri.file(seed.pathSystemFile),
+          );
+          return;
+        }
+      }
+    }
+
+    throw new Error(`Seed ${seedName} not found in project ${projectName}`);
   }
 
   activate(_context: vscode.ExtensionContext): void {

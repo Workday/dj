@@ -1,5 +1,34 @@
 # Change Log
 
+## 1.5.0
+
+### Lightdash
+
+#### Dashboards as Code
+
+- **Edit Lightdash charts and dashboards as YAML files directly in VS Code.** The new `DJ: Lightdash — Dashboards as Code` command opens a panel that pulls your saved charts and dashboards from a Lightdash project as YAML, lets you edit them with full schema-aware autocomplete and validation, and pushes the changes back — all without leaving the editor. The local folder is configurable via `dj.lightdash.dashboardsAsCodePath` (default `lightdash`).
+- **Three tabs that match the workflow:** **Download** pulls the entire project or specific dashboards / charts (by slug, UUID, or URL); **Explorer** browses the downloaded YAML with a searchable file tree and a theme-aware preview that opens straight into the editor on `Edit`; **Upload** picks which files to push (or the whole project), with a post-upload prompt to refresh the just-uploaded files, refresh everything, clear locally, or keep as-is.
+- **Targeted Lightdash projects.** A required Project UUID (production or preview) at the top of each tab keeps every download/upload pointed at the right project — useful when iterating against a preview project before promoting to production.
+- **Schema validation comes for free.** When the Red Hat YAML extension is installed, the official Lightdash chart and dashboard schemas are auto-bound to your `charts/*.yml` / `dashboards/*.yml` files so you get inline errors, completions, and hover docs. The YAML extension is optional — opening the panel without it shows a one-time `Install / Not now / Don't ask again` prompt.
+- **New `dj-edit-lightdash-yaml` agent skill.** When `dj.codingAgent` is enabled, a skill ships at `.agents/skills/dj-edit-lightdash-yaml/SKILL.md` that teaches AI assistants how to safely edit the downloaded YAML between Download and Upload (preserve `slug` / `version`, cross-check references to dbt models and chart slugs, keep diffs minimal, never invoke the CLI directly). Lets users say "tweak the filters on this dashboard" and get a correct, schema-aware change.
+
+#### Default `sql_filter` for Lightdash tables
+
+- **Project-wide default `sql_filter` for Lightdash tables.** New `dj.lightdash.defaultSqlFilter` setting applies a default filter to every Lightdash-exposed model that doesn't already declare its own. Per-model values still win (and `"sql_filter": null` explicitly opts a model out), and `dj.lightdash.defaultSqlFilterRequiredColumns` skips the default on models that don't have the columns the filter references — useful when the filter targets, say, a `tenant_id` that some models don't carry.
+
+### Data Explorer
+
+- **New Project Overview landing page** — Data Explorer now opens with a project summary instead of an empty canvas.
+- **Source node enhancements** — clicking a source opens its `.source.json` (previously errored with "Model JSON file not found"), the query results tab is hidden for sources, and column lineage now navigates correctly from a source.
+
+### Settings UX
+
+- **One-click resync when settings that affect generated SQL change** — toggling `dj.lightdash.defaultSqlFilter`, `dj.lightdash.defaultSqlFilterRequiredColumns`, `dj.materialization.defaultIncrementalStrategy`, or `dj.aiHintTag` now shows a `Sync now / Later` notification so it's obvious the change requires regenerating SQL.
+
+### Webview design system
+
+- **New `web/DESIGN.md` reference** — a single source of truth for the colors, typography, spacing, and component tokens used across all DJ webviews (Model Wizard, Data Explorer, Dashboards-as-Code, etc.) with the corresponding CSS variables for all four themes (coder-dark, coder-light, web-dark, web-light). AI assistants and contributors building or modifying webview UIs can read this to stay consistent with the existing look and feel.
+
 ## 1.4.0
 
 - **`from.rollup` is now supported inside individual CTE entries** — re-aggregate a CTE's source to a coarser time grain (`hour` / `day` / `month` / `year`) the same way `int_select_model` and `int_join_models` already do at the model level, but scoped to one stage of a multi-CTE pipeline. Supported on `from.model` and `from.cte` (not on `from.source` or `from.union`, both schema-rejected). A rollup CTE must declare an explicit `select` listing the dimensions to keep — rollup auto-truncates `datetime` and auto-wraps fact columns with their suffix aggregate, so the select is usually shorter than the manual `DATE_TRUNC` + `sum()` shape it replaces. The framework rewrites the CTE's `datetime` to `date_trunc(<interval>, datetime)`, drops finer-grain `portal_partition_*` columns, wraps fct columns with their suffix-agg (`revenue_sum` → `sum(revenue_sum) as revenue_sum`), and synthesizes `GROUP BY <dims>` when not authored. Chained rollups (CTE A → month, CTE B → year off A) work end-to-end. Wrapper SELECTs and downstream passthrough CTEs that reference an already-rolled-up `datetime` reference it directly without re-emitting `date_trunc(<same interval>, datetime)` on top. New validators reject `exclude_datetime` / `exclude_framework_artifacts: "all" | "columns"` paired with `from.rollup` at the same scope, reject a rollup CTE whose source is a sibling CTE that itself excludes datetime, and reject a rollup CTE that omits `select`. See `docs/models/CTE_PATTERNS.md`.

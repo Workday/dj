@@ -24,6 +24,8 @@ export type CoderConfig = {
   trinoPath?: string;
   lightdashProjectPath?: string;
   lightdashProfilesPath?: string;
+  lightdashDefaultSqlFilter?: string;
+  lightdashDefaultSqlFilterRequiredColumns?: string[];
   lightdashDefaultPartitionColumnCaseSensitive?: boolean;
   materializationDefaultIncrementalStrategy?: DefaultIncrementalStrategy;
   // Settings with defaults from package.json

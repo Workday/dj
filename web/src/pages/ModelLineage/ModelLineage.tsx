@@ -1,4 +1,5 @@
 import {
+  ArrowLeftIcon,
   ArrowPathIcon,
   ArrowsPointingInIcon,
   ArrowsPointingOutIcon,
@@ -21,6 +22,7 @@ import { useDataExplorerStore } from '../../stores/dataExplorerStore';
 import CompilationLogs from '../DataExplorer/CompilationLogs';
 import QueryResults from '../DataExplorer/QueryResults';
 import LineageGraph from './LineageGraph';
+import ProjectOverview from './ProjectOverview';
 
 type RightPanelTab = 'query' | 'columns';
 type QueryViewMode = 'data' | 'sql';
@@ -70,6 +72,8 @@ export default function ModelLineage() {
     // Split mode state
     isSplitMode,
     setSplitMode,
+    // Expansion state
+    additionalNodes,
   } = useDataExplorerStore();
 
   const [showResults, setShowResults] = useState(false);
@@ -79,10 +83,13 @@ export default function ModelLineage() {
   const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>('columns'); // Start with columns tab
   const [showColumns, setShowColumns] = useState(false);
   const [selectedNodeName, setSelectedNodeName] = useState<string | null>(null);
+  const [selectedNodeType, setSelectedNodeType] = useState<
+    'model' | 'source' | 'seed' | null
+  >(null);
   const [queryViewMode, setQueryViewMode] = useState<QueryViewMode>('data'); // Toggle between data table and SQL view
 
-  // Auto-refresh state - disabled by default for better UX
-  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
+  // Auto-refresh state - enabled by default
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
   const [isLoadingPreferences, setIsLoadingPreferences] = useState(true);
 
   // Theme detection for CodeBlock
@@ -90,6 +97,14 @@ export default function ModelLineage() {
     const currentTheme = document.documentElement.getAttribute('data-theme');
     return currentTheme?.includes('dark') ? 'dark' : 'light';
   });
+
+  const findLineageNode = (name: string) =>
+    [
+      lineageData?.current,
+      ...(lineageData?.upstream || []),
+      ...(lineageData?.downstream || []),
+      ...additionalNodes,
+    ].find((n) => n?.name === name);
 
   // Initialize API handler
   useEffect(() => {
@@ -181,6 +196,11 @@ export default function ModelLineage() {
       } else if (message.type === 'set-active-model') {
         // Explicitly set the active model (from Data Explorer command on .model.json or .yml files)
         if (message.modelName && message.projectName) {
+          // Clear all stale data from previous model
+          clearResults();
+          clearModelColumns();
+          clearCompiledSql();
+          clearCompilationLogs();
           // Reset UI state to show lineage (in case we were showing maximized results or compilation logs)
           setIsResultsMaximized(false);
           setIsCompilationMaximized(false);
@@ -188,6 +208,8 @@ export default function ModelLineage() {
           setShowColumns(false);
           setShowCompilationLogs(false);
           setSplitMode(false);
+          setSelectedNodeName(null);
+          setSelectedNodeType(null);
           // Fetch lineage for this specific model
           void fetchLineage(message.modelName, message.projectName);
         }
@@ -210,6 +232,10 @@ export default function ModelLineage() {
     compileModelWithLogs,
     executeQuery,
     clearError,
+    clearResults,
+    clearModelColumns,
+    clearCompiledSql,
+    clearCompilationLogs,
     fetchLineage,
     setActiveModel,
     setSplitMode,
@@ -245,6 +271,13 @@ export default function ModelLineage() {
     }
   }, [isCompiling]);
 
+  // Reset maximized state when compilation completes so the graph becomes visible again
+  useEffect(() => {
+    if (compilationSuccess !== null && !isCompiling && isCompilationMaximized) {
+      setIsCompilationMaximized(false);
+    }
+  }, [compilationSuccess, isCompiling, isCompilationMaximized]);
+
   // Auto-fetch columns when columns tab is active and panel is visible but no columns loaded
   useEffect(() => {
     // Only auto-fetch when:
@@ -262,18 +295,17 @@ export default function ModelLineage() {
       !isLoadingColumns &&
       lineageData?.current
     ) {
-      // Find the target node (selected or current model)
       const targetNode = selectedNodeName
-        ? [
-            lineageData.current,
-            ...(lineageData.upstream || []),
-            ...(lineageData.downstream || []),
-          ].find((n) => n?.name === selectedNodeName)
+        ? findLineageNode(selectedNodeName)
         : lineageData.current;
 
       if (targetNode?.pathSystem) {
-        setShowColumns(true); // Set to true to prevent re-triggering
-        void fetchModelColumns(targetNode.pathSystem, targetNode.name);
+        setShowColumns(true);
+        void fetchModelColumns(
+          targetNode.pathSystem,
+          targetNode.name,
+          targetNode.type,
+        );
       }
     }
   }, [
@@ -285,6 +317,7 @@ export default function ModelLineage() {
     isLoadingColumns,
     lineageData,
     selectedNodeName,
+    additionalNodes,
     fetchModelColumns,
   ]);
 
@@ -311,8 +344,11 @@ export default function ModelLineage() {
     void compileModelWithLogs(modelName, projectName, true);
   };
 
-  const handleNodeClick = (modelName: string, projectName: string) => {
-    // Validate modelName to prevent issues
+  const handleNodeClick = (
+    modelName: string,
+    projectName: string,
+    type: 'model' | 'source' | 'seed',
+  ) => {
     if (!modelName || typeof modelName !== 'string') {
       console.error(
         '[ModelLineage] Invalid modelName in handleNodeClick:',
@@ -321,36 +357,23 @@ export default function ModelLineage() {
       return;
     }
 
-    // Set the selected node to update placeholders
     setSelectedNodeName(modelName);
-    // Ensure split mode is on to show the panel
+    setSelectedNodeType(type);
     setSplitMode(true);
-    // Hide compilation logs if open
     setShowCompilationLogs(false);
-    // Clear any existing results/columns/compiled SQL
     setShowResults(false);
+    setRightPanelTab('columns');
     clearResults();
     clearModelColumns();
     clearCompiledSql();
 
-    // If columns tab is active, auto-fetch columns for the clicked node
-    if (rightPanelTab === 'columns') {
-      const targetNode = [
-        lineageData?.current,
-        ...(lineageData?.upstream || []),
-        ...(lineageData?.downstream || []),
-      ].find((n) => n?.name === modelName);
-
-      if (targetNode?.pathSystem) {
-        setShowColumns(true);
-        void fetchModelColumns(targetNode.pathSystem, modelName);
-      }
-    } else {
-      setShowColumns(false);
+    const targetNode = findLineageNode(modelName);
+    if (targetNode?.pathSystem) {
+      setShowColumns(true);
+      void fetchModelColumns(targetNode.pathSystem, modelName, type);
     }
 
-    // Open the model file
-    void openModelFile(modelName, projectName);
+    void openModelFile(modelName, projectName, type);
   };
 
   const handleCloseResults = () => {
@@ -394,6 +417,15 @@ export default function ModelLineage() {
       clearError();
       void executeQuery(activeModel.modelName, activeModel.projectName);
     }
+  };
+
+  const handleBackToOverview = () => {
+    setActiveModel(null);
+    setShowResults(false);
+    setShowCompilationLogs(false);
+    setShowColumns(false);
+    setSelectedNodeName(null);
+    setSelectedNodeType(null);
   };
 
   const handleRefresh = () => {
@@ -468,16 +500,19 @@ export default function ModelLineage() {
     void savePreference();
   };
 
-  const handleViewColumns = (filePath: string, modelName: string) => {
-    // Show panel immediately with loading state
+  const handleViewColumns = (
+    filePath: string,
+    modelName: string,
+    type: 'model' | 'source' | 'seed',
+  ) => {
     setSplitMode(true);
     setShowColumns(true);
-    setShowCompilationLogs(false); // Hide compilation logs if open
+    setShowCompilationLogs(false);
     setRightPanelTab('columns');
     setSelectedNodeName(modelName);
-    // Clear any previous error
+    setSelectedNodeType(type);
     clearError();
-    void fetchModelColumns(filePath, modelName);
+    void fetchModelColumns(filePath, modelName, type);
   };
 
   const handleCloseColumns = () => {
@@ -510,13 +545,11 @@ export default function ModelLineage() {
   };
 
   const handleColumnClick = (columnName: string) => {
-    // Navigate to Column Lineage panel with the selected column
     if (!selectedModelFilePath || !selectedModelForColumns) {
       console.error('[ModelLineage] No file path for column lineage');
       return;
     }
 
-    // Send message to extension to open Column Lineage panel
     if (vscode) {
       vscode.postMessage({
         type: 'open-column-lineage',
@@ -524,6 +557,7 @@ export default function ModelLineage() {
         modelName: selectedModelForColumns,
         columnName: columnName,
         columns: modelColumns,
+        nodeType: selectedNodeType || 'model',
       });
     }
   };
@@ -542,10 +576,10 @@ export default function ModelLineage() {
   // Loading state
   if (isLoadingLineage && !lineageData) {
     return (
-      <div className="h-screen flex items-center justify-center bg-gray-50">
+      <div className="h-screen flex items-center justify-center bg-background">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading lineage...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-surface-contrast">Loading lineage...</p>
         </div>
       </div>
     );
@@ -554,22 +588,22 @@ export default function ModelLineage() {
   // Error state
   if (error && !lineageData) {
     return (
-      <div className="h-screen flex items-center justify-center bg-gray-50">
+      <div className="h-screen flex items-center justify-center bg-background">
         <div className="max-w-md">
-          <div className="bg-red-50 border border-red-200 rounded-lg p-6">
+          <div className="bg-message-error border border-message-error rounded-lg p-6">
             <div className="flex gap-3">
-              <ExclamationCircleIcon className="w-6 h-6 text-red-600 flex-shrink-0" />
+              <ExclamationCircleIcon className="w-6 h-6 text-message-error-contrast flex-shrink-0" />
               <div>
-                <h3 className="font-semibold text-red-900 mb-2">
+                <h3 className="font-semibold text-foreground mb-2">
                   Failed to Load Lineage
                 </h3>
-                <p className="text-sm text-red-700 mb-4">{error}</p>
+                <p className="text-sm text-surface-contrast mb-4">{error}</p>
                 <button
                   onClick={() => {
                     clearError();
                     void notifyReady();
                   }}
-                  className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors text-sm"
+                  className="px-4 py-2 bg-primary text-primary-contrast rounded hover:opacity-90 transition-opacity text-sm"
                 >
                   Try Again
                 </button>
@@ -581,42 +615,17 @@ export default function ModelLineage() {
     );
   }
 
-  // No active model state
+  // No active model state - show project overview
   if (!activeModel || !lineageData) {
     return (
-      <div className="h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center max-w-md">
-          <svg
-            className="w-16 h-16 text-gray-400 mx-auto mb-4"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-            />
-          </svg>
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">
-            No Active Model
-          </h3>
-          <p className="text-gray-600 mb-4">
-            Open a open a model file (.sql, .model.json, or .yml) to view its
-            lineage.
-          </p>
-          <button
-            onClick={() => {
-              void detectActiveModel();
-            }}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors inline-flex items-center gap-2"
-          >
-            <ArrowPathIcon className="w-4 h-4" />
-            Detect Active Model
-          </button>
-        </div>
-      </div>
+      <ProjectOverview
+        onSelectModel={(modelName, projectName) => {
+          void fetchLineage(modelName, projectName);
+        }}
+        onDetectActiveModel={() => {
+          void detectActiveModel();
+        }}
+      />
     );
   }
 
@@ -626,6 +635,13 @@ export default function ModelLineage() {
       <div className="flex-shrink-0 px-3 py-2 border-b border-neutral bg-card">
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0 flex-1">
+            <button
+              onClick={handleBackToOverview}
+              className="p-1 rounded hover:bg-surface transition-colors flex-shrink-0"
+              title="Back to overview"
+            >
+              <ArrowLeftIcon className="w-4 h-4 text-surface-contrast" />
+            </button>
             <span className="font-mono font-semibold text-sm text-foreground truncate">
               {activeModel.modelName}
             </span>
@@ -736,7 +752,20 @@ export default function ModelLineage() {
               modelName={activeModel?.modelName || ''}
               onClose={handleCloseCompilationLogs}
               onRunQuery={handleRunQueryAfterCompilation}
+              onOpenCompiledSql={() =>
+                vscode?.postMessage({
+                  type: 'execute-command',
+                  command: 'dj.command.openTargetCompiledSql',
+                })
+              }
+              onOpenRunSql={() =>
+                vscode?.postMessage({
+                  type: 'execute-command',
+                  command: 'dj.command.openTargetRunSql',
+                })
+              }
               showRunButton={true}
+              theme={codeTheme}
             />
           </div>
         )}
@@ -763,16 +792,18 @@ export default function ModelLineage() {
                 >
                   Columns
                 </button>
-                <button
-                  onClick={() => setRightPanelTab('query')}
-                  className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
-                    rightPanelTab === 'query'
-                      ? 'text-primary border-b-2 border-primary bg-surface'
-                      : 'text-surface-contrast hover:text-foreground hover:bg-surface'
-                  }`}
-                >
-                  Query Results
-                </button>
+                {selectedNodeType !== 'source' && (
+                  <button
+                    onClick={() => setRightPanelTab('query')}
+                    className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+                      rightPanelTab === 'query'
+                        ? 'text-primary border-b-2 border-primary bg-surface'
+                        : 'text-surface-contrast hover:text-foreground hover:bg-surface'
+                    }`}
+                  >
+                    Query Results
+                  </button>
+                )}
                 <button
                   onClick={handleToggleMaximize}
                   className="p-2 hover:bg-surface rounded transition-colors"
@@ -795,8 +826,8 @@ export default function ModelLineage() {
 
               {/* Panel Content */}
               <div className="flex-1 overflow-hidden">
-                {/* Query Results Tab */}
-                {rightPanelTab === 'query' && (
+                {/* Query Results Tab - hidden for source nodes */}
+                {rightPanelTab === 'query' && selectedNodeType !== 'source' && (
                   <div className="h-full flex flex-col">
                     {/* SQL View Mode */}
                     {queryViewMode === 'sql' && (
@@ -1003,6 +1034,7 @@ export default function ModelLineage() {
                         error={error || undefined}
                         onColumnSelect={handleColumnClick}
                         onClose={handleCloseColumns}
+                        selectedNodeType={selectedNodeType || ''}
                         onRetry={() => {
                           if (
                             selectedModelFilePath &&
@@ -1011,6 +1043,7 @@ export default function ModelLineage() {
                             void fetchModelColumns(
                               selectedModelFilePath,
                               selectedModelForColumns,
+                              selectedNodeType ?? 'model',
                             );
                           }
                         }}

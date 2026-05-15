@@ -10,7 +10,7 @@
     "type": "git",
     "url": "https://github.com/Workday/dj.git"
   },
-  "version": "1.4.0",
+  "version": "1.5.0",
   "workspaces": [
     "web"
   ],
@@ -101,6 +101,11 @@
         "command": "dj.command.lightdashPreview",
         "icon": "$(lightbulb-sparkle)",
         "title": "DJ: Start Lightdash Preview"
+      },
+      {
+        "command": "dj.command.lightdashDashboardsAsCode",
+        "icon": "$(file-code)",
+        "title": "DJ: Lightdash - Dashboards as Code"
       },
       {
         "command": "dj.command.modelNavigate",
@@ -321,6 +326,24 @@
           "type": "string",
           "description": "Custom path to the dbt profiles directory for Lightdash preview (relative to workspace root). If not set, will use the project directory or workspace root. Takes effect on next command execution."
         },
+        "dj.lightdash.dashboardsAsCodePath": {
+          "type": "string",
+          "default": "lightdash",
+          "markdownDescription": "Workspace-relative directory used by the **DJ: Lightdash — Dashboards as Code** command. The Lightdash CLI writes `charts/` and `dashboards/` subfolders here, and the extension automatically registers `yaml.schemas` bindings so chart/dashboard YAML files get autocomplete and validation. Defaults to `lightdash`."
+        },
+        "dj.lightdash.defaultSqlFilter": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Global default `sql_filter` injected into the `meta` block of every generated `.yml` whose source `model.json` contains a `lightdash` block but omits `sql_filter`. Per-model values win, and `\"sql_filter\": null` explicitly disables the filter for that model. Models without a `lightdash` block are never filtered. Use `dj.lightdash.defaultSqlFilterRequiredColumns` to guard against models that don't have the columns the filter references.\n\nChanges require running **DJ: Sync to SQL and YML** to take effect on existing models."
+        },
+        "dj.lightdash.defaultSqlFilterRequiredColumns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "Columns that must exist on a model for `dj.lightdash.defaultSqlFilter` to be applied. If any are missing, the global filter is silently skipped for that model. Leave empty to apply the default to every model that has a `lightdash` block.\n\nChanges require running **DJ: Sync to SQL and YML** to take effect on existing models."
+        },
         "dj.lightdash.defaultPartitionColumnCaseSensitive": {
           "type": "boolean",
           "default": false,
@@ -333,7 +356,7 @@
         },
         "dj.dataExplorer.autoRefresh": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Automatically refresh Data Explorer lineage when switching between supported files."
         },
         "dj.syncDebounceMs": {

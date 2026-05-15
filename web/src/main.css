@@ -114,6 +114,9 @@
     --color-message-error: rgb(51 24 24 / 85%);
     --color-message-error-contrast: #ef4444;
     --color-message-error-border: #4a0a0a;
+    --color-message-warning: rgb(69 26 3 / 85%);
+    --color-message-warning-contrast: #f59e0b;
+    --color-message-warning-border: #78350f;
     --color-message-success: #112217;
     --color-message-success-contrast: #1aab4c;
     --color-message-success-border: #0e4423;
@@ -176,6 +179,9 @@
     --color-message-error: rgb(254 226 226 / 75%);
     --color-message-error-contrast: #bc2121;
     --color-message-error-border: #f89191;
+    --color-message-warning: #fffbeb;
+    --color-message-warning-contrast: #b45309;
+    --color-message-warning-border: #fcd34d;
     --color-message-success: #edfdf2;
     --color-message-success-contrast: #027e2d;
     --color-message-success-border: #6ae594;

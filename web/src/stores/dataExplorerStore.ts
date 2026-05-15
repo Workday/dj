@@ -51,6 +51,26 @@ export interface ModelColumn {
   description?: string;
 }
 
+export interface ProjectOverviewItem {
+  id: string;
+  name: string;
+  type: 'model';
+  description?: string;
+  materialized?: MaterializationType;
+  testCount?: number;
+}
+
+export interface ProjectOverviewGroup {
+  layer: 'staging' | 'intermediate' | 'mart';
+  label: string;
+  items: ProjectOverviewItem[];
+}
+
+export interface ProjectOverviewData {
+  projectName: string;
+  groups: ProjectOverviewGroup[];
+}
+
 interface DataExplorerStore {
   // State
   activeModel: { modelName: string; projectName: string } | null;
@@ -90,6 +110,10 @@ interface DataExplorerStore {
   isSplitMode: boolean;
   selectedModelFilePath: string | null;
 
+  // Project overview state
+  projectOverview: ProjectOverviewData | null;
+  isLoadingOverview: boolean;
+
   // Actions
   setActiveModel: (
     model: { modelName: string; projectName: string } | null,
@@ -101,7 +125,11 @@ interface DataExplorerStore {
     limit?: number,
   ) => Promise<void>;
   compileModel: (modelName: string, projectName: string) => Promise<void>;
-  openModelFile: (modelName: string, projectName: string) => Promise<void>;
+  openModelFile: (
+    modelName: string,
+    projectName: string,
+    type?: 'model' | 'source' | 'seed',
+  ) => Promise<void>;
   clearResults: () => void;
   clearError: () => void;
   notifyReady: () => Promise<void>;
@@ -147,7 +175,11 @@ interface DataExplorerStore {
   resetExpansion: () => void;
 
   // Model columns actions
-  fetchModelColumns: (filePath: string, modelName: string) => Promise<void>;
+  fetchModelColumns: (
+    filePath: string,
+    modelName: string,
+    nodeType?: 'model' | 'source' | 'seed',
+  ) => Promise<void>;
   clearModelColumns: () => void;
 
   // Compiled SQL actions
@@ -156,6 +188,9 @@ interface DataExplorerStore {
 
   // Split mode actions
   setSplitMode: (value: boolean) => void;
+
+  // Project overview actions
+  fetchProjectOverview: () => Promise<void>;
 
   // Store the API handler
 
@@ -204,6 +239,10 @@ export const useDataExplorerStore = create<DataExplorerStore>((set, get) => ({
   // Split mode state - default to true (split mode on)
   isSplitMode: true,
 
+  // Project overview state
+  projectOverview: null,
+  isLoadingOverview: false,
+
   // Actions
 
   setApiHandler: (handler: any) => {
@@ -212,7 +251,24 @@ export const useDataExplorerStore = create<DataExplorerStore>((set, get) => ({
   },
 
   setActiveModel: (model) => {
-    set({ activeModel: model, error: null });
+    if (model === null) {
+      set({
+        activeModel: null,
+        lineageData: null,
+        queryResults: null,
+        error: null,
+        selectedNodeForQuery: null,
+        modelColumns: null,
+        selectedModelForColumns: null,
+        selectedModelFilePath: null,
+        compiledSql: null,
+        compiledSqlModelName: null,
+        compilationLogs: [],
+        compilationSuccess: null,
+      });
+    } else {
+      set({ activeModel: model, error: null });
+    }
   },
 
   fetchLineage: async (modelName: string, projectName: string) => {
@@ -358,7 +414,11 @@ export const useDataExplorerStore = create<DataExplorerStore>((set, get) => ({
     }
   },
 
-  openModelFile: async (modelName: string, projectName: string) => {
+  openModelFile: async (
+    modelName: string,
+    projectName: string,
+    type: 'model' | 'source' | 'seed' = 'model',
+  ) => {
     const { _apiHandler } = get();
     if (!_apiHandler) {
       console.error('API handler not set');
@@ -368,13 +428,13 @@ export const useDataExplorerStore = create<DataExplorerStore>((set, get) => ({
     try {
       await _apiHandler({
         type: 'data-explorer-open-model-file',
-        request: { modelName, projectName },
+        request: { modelName, projectName, nodeType: type },
       });
     } catch (error) {
       const errorMessage =
-        error instanceof Error ? error.message : 'Failed to open model file';
+        error instanceof Error ? error.message : 'Failed to open file';
       set({ error: errorMessage });
-      console.error('Error opening model file:', error);
+      console.error('Error opening file:', error);
     }
   },
 
@@ -736,7 +796,11 @@ export const useDataExplorerStore = create<DataExplorerStore>((set, get) => ({
   },
 
   // Model columns actions
-  fetchModelColumns: async (filePath: string, modelName: string) => {
+  fetchModelColumns: async (
+    filePath: string,
+    modelName: string,
+    nodeType: 'model' | 'source' | 'seed' = 'model',
+  ) => {
     const { _apiHandler } = get();
     if (!_apiHandler) {
       console.error('[DataExplorerStore] API handler not set');
@@ -748,6 +812,8 @@ export const useDataExplorerStore = create<DataExplorerStore>((set, get) => ({
       modelName,
       'filePath:',
       filePath,
+      'nodeType:',
+      nodeType,
     );
     set({
       isLoadingColumns: true,
@@ -757,12 +823,28 @@ export const useDataExplorerStore = create<DataExplorerStore>((set, get) => ({
     });
 
     try {
+      const request =
+        nodeType === 'source'
+          ? {
+              action: 'get-source-columns' as const,
+              filePath,
+              tableName: modelName,
+            }
+          : nodeType === 'seed'
+            ? {
+                action: 'get-seed-columns' as const,
+                filePath,
+                seedName: modelName,
+              }
+            : { action: 'get-columns' as const, filePath };
+
       const response = (await _apiHandler({
         type: 'framework-column-lineage',
-        request: { action: 'get-columns', filePath },
+        request,
       })) as {
         success: boolean;
         modelName?: string;
+        seedName?: string;
         columns?: ModelColumn[];
         error?: string;
       };
@@ -860,5 +942,30 @@ export const useDataExplorerStore = create<DataExplorerStore>((set, get) => ({
   // Split mode actions
   setSplitMode: (value: boolean) => {
     set({ isSplitMode: value });
+  },
+
+  // Project overview actions
+  fetchProjectOverview: async () => {
+    const { _apiHandler } = get();
+    if (!_apiHandler) {
+      console.error('[DataExplorerStore] API handler not set');
+      return;
+    }
+
+    set({ isLoadingOverview: true });
+    try {
+      const response = (await _apiHandler({
+        type: 'data-explorer-get-project-overview',
+        request: null,
+      })) as ProjectOverviewData | null;
+
+      set({ projectOverview: response, isLoadingOverview: false });
+    } catch (error) {
+      console.error(
+        '[DataExplorerStore] Error fetching project overview:',
+        error,
+      );
+      set({ isLoadingOverview: false });
+    }
   },
 }));

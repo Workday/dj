@@ -24,6 +24,31 @@ export type LightdashPreviewLog = {
   isPreviewSuccess?: boolean;
 };
 
+/**
+ * A single entry in the Lightdash YAML directory tree shown in the
+ * Dashboards-as-Code Explorer / Upload tabs.
+ */
+export type LightdashYamlNode = {
+  /** File or directory name (no path). */
+  name: string;
+  /** 'dir' | 'file' (only `*.yml` / `*.yaml` files are emitted). */
+  type: 'dir' | 'file';
+  /** Workspace-relative POSIX path. */
+  path: string;
+  /** Children for directories. */
+  children?: LightdashYamlNode[];
+};
+
+/**
+ * Streaming log entry surfaced by the dashboards-as-code download/upload
+ * workflows.
+ */
+export type LightdashYamlLog = {
+  level: 'info' | 'success' | 'error' | 'warning';
+  message: string;
+  timestamp: string;
+};
+
 export type LightdashApi =
   | {
       type: 'lightdash-fetch-models';
@@ -67,6 +92,96 @@ export type LightdashApi =
         log: LightdashPreviewLog;
       };
       response: { success: boolean };
+    }
+  | {
+      type: 'lightdash-yaml-list-files';
+      service: 'lightdash';
+      request: { path?: string };
+      response: {
+        success: boolean;
+        path?: string;
+        absolutePath?: string;
+        tree?: LightdashYamlNode[];
+        error?: string;
+      };
+    }
+  | {
+      type: 'lightdash-yaml-read-file';
+      service: 'lightdash';
+      request: { path: string };
+      response: {
+        success: boolean;
+        content?: string;
+        absolutePath?: string;
+        error?: string;
+      };
+    }
+  | {
+      type: 'lightdash-yaml-edit-file';
+      service: 'lightdash';
+      request: { path: string };
+      response: { success: boolean; error?: string };
+    }
+  | {
+      type: 'lightdash-yaml-download';
+      service: 'lightdash';
+      request: {
+        path?: string;
+        scope: 'all' | 'specific';
+        dashboardIds?: string[];
+        chartIds?: string[];
+        /**
+         * Required Lightdash project UUID. Accepts a production or
+         * preview project UUID; the CLI is invoked with `--project
+         * <uuid>` on every run so we never fall through to the
+         * Lightdash CLI's ambient active-project default. UI guards
+         * non-empty input via inline validation; backend defends
+         * against direct callers that bypass the UI.
+         */
+        project: string;
+      };
+      response: {
+        success: boolean;
+        tree?: LightdashYamlNode[];
+        absolutePath?: string;
+        error?: string;
+      };
+    }
+  | {
+      type: 'lightdash-yaml-upload';
+      service: 'lightdash';
+      request: {
+        path?: string;
+        chartSlugs?: string[];
+        dashboardSlugs?: string[];
+        force?: boolean;
+        includeCharts?: boolean;
+        /** See `lightdash-yaml-download` `project`. Same rules apply. */
+        project: string;
+      };
+      response: {
+        success: boolean;
+        uploadedFiles?: string[];
+        error?: string;
+      };
+    }
+  | {
+      type: 'lightdash-yaml-delete-files';
+      service: 'lightdash';
+      request: { paths: string[] };
+      response: { success: boolean; error?: string };
+    }
+  | {
+      type: 'lightdash-yaml-get-default-path';
+      service: 'lightdash';
+      request: null;
+      response: { path: string; absolutePath: string };
+    }
+  | {
+      type: 'lightdash-yaml-set-default-path';
+      service: 'lightdash';
+      request: { path: string };
+      response: { success: boolean; absolutePath?: string; error?: string };
     };
 
 export type LightdashDimension = SchemaLightdashDimension & {};

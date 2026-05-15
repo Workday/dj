@@ -42,6 +42,11 @@ export function getDjConfig(): CoderConfig {
     trinoPath: config.get('trinoPath', undefined),
     lightdashProjectPath: config.get('lightdashProjectPath', undefined),
     lightdashProfilesPath: config.get('lightdashProfilesPath', undefined),
+    lightdashDefaultSqlFilter: config.get('lightdash.defaultSqlFilter', ''),
+    lightdashDefaultSqlFilterRequiredColumns: config.get(
+      'lightdash.defaultSqlFilterRequiredColumns',
+      [],
+    ),
     lightdashDefaultPartitionColumnCaseSensitive: config.get(
       'lightdash.defaultPartitionColumnCaseSensitive',
       false,
@@ -58,7 +63,7 @@ export function getDjConfig(): CoderConfig {
     ),
     airflowGenerateDags: config.get('airflowGenerateDags', false),
     columnLineageAutoRefresh: config.get('columnLineage.autoRefresh', true),
-    dataExplorerAutoRefresh: config.get('dataExplorer.autoRefresh', false),
+    dataExplorerAutoRefresh: config.get('dataExplorer.autoRefresh', true),
     logLevel: config.get('logLevel', 'info'),
     autoGenerateTests: config.get('autoGenerateTests', {
       enabled: false,
@@ -263,6 +268,18 @@ export function getSettingReloadRequirement(
       description: "Requires 'DJ: Sync to SQL and YML' to take effect",
     },
     aiHintTag: {
+      requiresAction: true,
+      action: 'compile',
+      actionCommand: 'dj.command.jsonSync',
+      description: "Requires 'DJ: Sync to SQL and YML' to take effect",
+    },
+    'lightdash.defaultSqlFilter': {
+      requiresAction: true,
+      action: 'compile',
+      actionCommand: 'dj.command.jsonSync',
+      description: "Requires 'DJ: Sync to SQL and YML' to take effect",
+    },
+    'lightdash.defaultSqlFilterRequiredColumns': {
       requiresAction: true,
       action: 'compile',
       actionCommand: 'dj.command.jsonSync',
@@ -667,6 +684,18 @@ export function registerConfigurationChangeHandler(
     'autoGenerateTests',
   ];
 
+  // Settings whose values are baked into generated SQL/YML at sync time.
+  // Changing any of these alters a model's output even when its source
+  // .model.json bytes are unchanged, so the change-detection cache must be
+  // invalidated whenever one of them flips — otherwise unchanged JSON files
+  // would be treated as up-to-date and the new value would never reach disk.
+  const compileLevelSettings = [
+    'materialization.defaultIncrementalStrategy',
+    'aiHintTag',
+    'lightdash.defaultSqlFilter',
+    'lightdash.defaultSqlFilterRequiredColumns',
+  ];
+
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration(async (event) => {
       // Track which project-level settings changed (for batch notification)
@@ -751,24 +780,39 @@ export function registerConfigurationChangeHandler(
         }
       }
 
-      // materialization.defaultIncrementalStrategy - notify about compile requirement
-      if (
-        event.affectsConfiguration(
-          'dj.materialization.defaultIncrementalStrategy',
-        )
-      ) {
-        void vscode.window.setStatusBarMessage(
-          "DJ: Default incremental strategy updated - run 'DJ: Sync to SQL and YML' to apply",
-          5000,
-        );
-      }
+      // Compile-level settings: invalidate the sync cache and offer to
+      // regenerate. The cache is cleared regardless of which action the
+      // user picks, so any subsequent file save (or scheduled auto-sync)
+      // will pick up the new value even when the touched file's content
+      // hasn't otherwise changed.
+      const changedCompileSettings = compileLevelSettings.filter((setting) =>
+        event.affectsConfiguration(`dj.${setting}`),
+      );
 
-      // aiHintTag - notify about compile requirement
-      if (event.affectsConfiguration('dj.aiHintTag')) {
-        void vscode.window.setStatusBarMessage(
-          "DJ: AI Hint tag updated - run 'DJ: Sync to SQL and YML' to apply",
-          5000,
+      if (changedCompileSettings.length > 0) {
+        // Silent: suppress the cache-cleared toast since the actionable
+        // notification below already informs the user about the change.
+        await vscode.commands.executeCommand(COMMAND_ID.CLEAR_SYNC_CACHE, {
+          silent: true,
+        });
+
+        const settingsDisplay = changedCompileSettings
+          .map((s) => `dj.${s}`)
+          .join(', ');
+        const message =
+          changedCompileSettings.length === 1
+            ? `Setting '${settingsDisplay}' changed. Regenerate SQL/YML now?`
+            : `Settings changed: ${settingsDisplay}. Regenerate SQL/YML now?`;
+
+        const action = await vscode.window.showInformationMessage(
+          message,
+          'Sync now',
+          'Later',
         );
+
+        if (action === 'Sync now') {
+          await vscode.commands.executeCommand(COMMAND_ID.JSON_SYNC);
+        }
       }
 
       // lightdash.defaultPartitionColumnCaseSensitive - notify about compile requirement
