@@ -25,7 +25,9 @@ import {
   validateDjIcebergPartitionOverwrite,
   validateMainModelAggregation,
   validateMaterializationPartitionsExist,
+  validateModelReferencesExist,
   validatePartitionStrategyWithoutPartitions,
+  validateSelectModelReferences,
 } from '@services/modelValidation';
 import { jsonParse } from '@shared';
 import type { DbtProject } from '@shared/dbt/types';
@@ -153,6 +155,38 @@ export class ModelProcessor {
         this.config.logger.warn?.(`${modelName}: ${err.message}`);
       }
       validationWarnings.push(...aggErrors);
+    }
+
+    // 4b. Blocking: verify model references are valid before generating SQL.
+    // SELECT-vs-JOIN consistency (join models only) and manifest existence.
+    const selectRefErrors = validateSelectModelReferences(modelJson);
+    const missingRefErrors = validateModelReferencesExist(modelJson, project);
+    const referenceErrors = [...selectRefErrors, ...missingRefErrors];
+
+    if (referenceErrors.length > 0) {
+      const errorSummary = referenceErrors.map((e) => e.message).join('; ');
+      for (const e of referenceErrors) {
+        this.config.logger.error(`${modelName}: ${e.message}`);
+      }
+      this.callbacks.onModelValidationError?.(
+        newJsonUri,
+        `Model reference error(s): ${errorSummary}`,
+        referenceErrors,
+        jsonContent,
+      );
+      return {
+        modelId: resource.id,
+        modelName,
+        sql: '',
+        yml: '',
+        updatedProject: null,
+        operations: [],
+        skipped: false,
+        error: {
+          uri: newJsonUri,
+          message: `Model reference error(s): ${errorSummary}`,
+        },
+      };
     }
 
     // 5. Generate SQL and YML

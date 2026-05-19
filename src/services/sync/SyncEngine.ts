@@ -187,6 +187,31 @@ export class SyncEngine {
 
     project = { ...project, ...(manifest && { manifest }) };
 
+    // Prune deleted models from the manifest so that downstream
+    // validateModelReferencesExist correctly flags broken references,
+    // even when dbt parse failed and the manifest is stale.
+    if (params.deletedModels?.length && project.manifest?.nodes) {
+      const prefix = `model.${project.name}.`;
+      const prunedNodes = { ...project.manifest.nodes };
+      let didPrune = false;
+      for (const name of params.deletedModels) {
+        const nodeId = `${prefix}${name}`;
+        if (nodeId in prunedNodes) {
+          delete prunedNodes[nodeId];
+          didPrune = true;
+          this.config.logger.info(
+            `Pruned deleted model '${name}' from manifest`,
+          );
+        }
+      }
+      if (didPrune) {
+        project = {
+          ...project,
+          manifest: { ...project.manifest, nodes: prunedNodes },
+        };
+      }
+    }
+
     // Discovery phase: Extract framework-level dependencies from model.json files
     // This ensures accurate dependency levels even for new or changed models
     this.callbacks.onProgress?.('Discovering framework dependencies...');

@@ -5,13 +5,14 @@ import {
   isJinjaExpr,
   isWindowFunctionExpr,
 } from '@services/framework/utils/column-utils';
+import { frameworkGetNode } from '@services/framework/utils/model-utils';
+import type { DbtProject } from '@shared/dbt/types';
 import {
   BULK_CTE_TYPES,
   DEFAULT_INCREMENTAL_STRATEGY,
 } from '@shared/framework/constants';
 import type { FrameworkColumn } from '@shared/framework/types';
-import type { ValidateFunction } from 'ajv';
-import type { ErrorObject } from 'ajv';
+import type { ErrorObject, ValidateFunction } from 'ajv';
 
 import type { ValidationErrorDetail } from './sync/types';
 
@@ -1747,4 +1748,183 @@ function formatSingleError(error: ErrorObject): string {
     default:
       return `${field}: ${error.message || 'validation failed'}`;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Model reference validators (blocking — errors prevent SQL/YML generation)
+// ---------------------------------------------------------------------------
+
+const JOIN_MODEL_TYPES = new Set(['int_join_models', 'mart_join_models']);
+
+/**
+ * For `int_join_models` / `mart_join_models`, verify that every
+ * `select[].model` references a model that actually appears in `from.model`
+ * or `from.join[].model`. Also validates CTE-scoped select references.
+ */
+export function validateSelectModelReferences(
+  modelJson: any,
+): ValidationErrorDetail[] {
+  const errors: ValidationErrorDetail[] = [];
+  if (!modelJson || typeof modelJson !== 'object') {
+    return errors;
+  }
+  if (!JOIN_MODEL_TYPES.has(modelJson.type)) {
+    return errors;
+  }
+
+  errors.push(
+    ...validateSelectRefsForScope(modelJson.select, modelJson.from, ''),
+  );
+
+  if (Array.isArray(modelJson.ctes)) {
+    for (let i = 0; i < modelJson.ctes.length; i++) {
+      const cte = modelJson.ctes[i];
+      if (!cte?.from || !('join' in cte.from)) {
+        continue;
+      }
+      errors.push(
+        ...validateSelectRefsForScope(
+          cte.select,
+          cte.from,
+          `/ctes/${i}`,
+        ),
+      );
+    }
+  }
+  return errors;
+}
+
+function validateSelectRefsForScope(
+  select: any[] | undefined,
+  from: any,
+  pathPrefix: string,
+): ValidationErrorDetail[] {
+  const errors: ValidationErrorDetail[] = [];
+  if (!Array.isArray(select) || !from || typeof from !== 'object') {
+    return errors;
+  }
+
+  const availableModels = new Set<string>();
+  if ('model' in from && typeof from.model === 'string') {
+    availableModels.add(from.model);
+  }
+  if ('join' in from && Array.isArray(from.join)) {
+    for (const j of from.join) {
+      if (
+        j &&
+        typeof j === 'object' &&
+        'model' in j &&
+        typeof j.model === 'string'
+      ) {
+        availableModels.add(j.model);
+      }
+    }
+  }
+
+  if (availableModels.size === 0) {
+    return errors;
+  }
+
+  for (let i = 0; i < select.length; i++) {
+    const sel = select[i];
+    if (!sel || typeof sel !== 'object' || !('model' in sel)) {
+      continue;
+    }
+    const modelName = sel.model;
+    if (typeof modelName !== 'string') {
+      continue;
+    }
+    if (!availableModels.has(modelName)) {
+      errors.push({
+        message: `select references model '${modelName}' which is not joined — model must be in from.model or from.join to be selected from`,
+        instancePath: `${pathPrefix}/select/${i}`,
+        severity: 'error',
+      });
+    }
+  }
+  return errors;
+}
+
+/**
+ * Verify that every model referenced anywhere in the JSON (from.model,
+ * from.join[].model, select[].model, from.union.models[], and CTE
+ * equivalents) exists in the dbt manifest.
+ */
+export function validateModelReferencesExist(
+  modelJson: any,
+  project: DbtProject,
+): ValidationErrorDetail[] {
+  const errors: ValidationErrorDetail[] = [];
+  if (!modelJson || typeof modelJson !== 'object' || !project) {
+    return errors;
+  }
+
+  function checkModelRef(name: string, instancePath: string): void {
+    if (!name || typeof name !== 'string') {
+      return;
+    }
+    const node = frameworkGetNode({ project, model: name });
+    if (!node) {
+      errors.push({
+        message: `Model '${name}' not found in the dbt manifest. It may have been deleted or renamed. Run 'dbt parse' to update the manifest if needed.`,
+        instancePath,
+        severity: 'error',
+      });
+    }
+  }
+
+  function checkFrom(from: any, pathPrefix: string): void {
+    if (!from || typeof from !== 'object') {
+      return;
+    }
+    if ('model' in from && typeof from.model === 'string') {
+      checkModelRef(from.model, `${pathPrefix}/from/model`);
+    }
+    if ('join' in from && Array.isArray(from.join)) {
+      for (let i = 0; i < from.join.length; i++) {
+        const j = from.join[i];
+        if (j && typeof j === 'object' && 'model' in j && typeof j.model === 'string') {
+          checkModelRef(j.model, `${pathPrefix}/from/join/${i}/model`);
+        }
+      }
+    }
+    if ('union' in from && from.union && typeof from.union === 'object') {
+      const models = from.union.models;
+      if (Array.isArray(models)) {
+        for (let i = 0; i < models.length; i++) {
+          if (typeof models[i] === 'string') {
+            checkModelRef(models[i], `${pathPrefix}/from/union/models/${i}`);
+          }
+        }
+      }
+    }
+  }
+
+  function checkSelect(select: any[] | undefined, pathPrefix: string): void {
+    if (!Array.isArray(select)) {
+      return;
+    }
+    for (let i = 0; i < select.length; i++) {
+      const sel = select[i];
+      if (sel && typeof sel === 'object' && 'model' in sel && typeof sel.model === 'string') {
+        checkModelRef(sel.model, `${pathPrefix}/select/${i}/model`);
+      }
+    }
+  }
+
+  checkFrom(modelJson.from, '');
+  checkSelect(modelJson.select, '');
+
+  if (Array.isArray(modelJson.ctes)) {
+    for (let i = 0; i < modelJson.ctes.length; i++) {
+      const cte = modelJson.ctes[i];
+      if (!cte || typeof cte !== 'object') {
+        continue;
+      }
+      checkFrom(cte.from, `/ctes/${i}`);
+      checkSelect(cte.select, `/ctes/${i}`);
+    }
+  }
+
+  return errors;
 }

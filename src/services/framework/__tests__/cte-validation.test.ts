@@ -11,7 +11,9 @@ import {
   validateExcludeDatetimeRollupConflict,
   validateMainModelAggregation,
   validateMaterializationPartitionsExist,
+  validateModelReferencesExist,
   validatePartitionStrategyWithoutPartitions,
+  validateSelectModelReferences,
 } from '@services/modelValidation';
 
 import { createTestProject } from './helpers';
@@ -1837,5 +1839,303 @@ describe('validateMaterializationPartitionsExist', () => {
       ],
     });
     expect(errors).toEqual([]);
+  });
+});
+
+describe('validateSelectModelReferences', () => {
+  test('no errors when select models match from.model and from.join', () => {
+    const errors = validateSelectModelReferences({
+      type: 'int_join_models',
+      from: {
+        model: 'base_model',
+        join: [
+          { model: 'joined_a', type: 'left', on: { and: ['id'] } },
+          { model: 'joined_b', type: 'left', on: { and: ['id'] } },
+        ],
+      },
+      select: [
+        { type: 'all_from_model', model: 'base_model' },
+        { type: 'dims_from_model', model: 'joined_a' },
+        { type: 'fcts_from_model', model: 'joined_b' },
+      ],
+    });
+    expect(errors).toEqual([]);
+  });
+
+  test('error when select references model not in from.model or from.join', () => {
+    const errors = validateSelectModelReferences({
+      type: 'int_join_models',
+      from: {
+        model: 'base_model',
+        join: [
+          { model: 'joined_a', type: 'left', on: { and: ['id'] } },
+        ],
+      },
+      select: [
+        { type: 'all_from_model', model: 'base_model' },
+        { type: 'all_from_model', model: 'ghost_model' },
+      ],
+    });
+    expect(errors).toHaveLength(1);
+    expect(errors[0].instancePath).toBe('/select/1');
+    expect(errors[0].message).toContain('ghost_model');
+    expect(errors[0].message).toContain('not joined');
+    expect(errors[0].severity).toBe('error');
+  });
+
+  test('multiple invalid references produce multiple errors', () => {
+    const errors = validateSelectModelReferences({
+      type: 'mart_join_models',
+      from: {
+        model: 'base_model',
+        join: [],
+      },
+      select: [
+        { type: 'all_from_model', model: 'base_model' },
+        { type: 'all_from_model', model: 'missing_a' },
+        { type: 'dims_from_model', model: 'missing_b' },
+      ],
+    });
+    expect(errors).toHaveLength(2);
+    expect(errors[0].instancePath).toBe('/select/1');
+    expect(errors[1].instancePath).toBe('/select/2');
+  });
+
+  test('no errors for non-join model types', () => {
+    const errors = validateSelectModelReferences({
+      type: 'int_select_model',
+      from: { model: 'base_model' },
+      select: [
+        { type: 'all_from_model', model: 'some_other_model' },
+      ],
+    });
+    expect(errors).toEqual([]);
+  });
+
+  test('CTE select referencing model not in CTE from.join produces error', () => {
+    const errors = validateSelectModelReferences({
+      type: 'int_join_models',
+      from: {
+        model: 'base_model',
+        join: [{ model: 'joined_a', type: 'left', on: { and: ['id'] } }],
+      },
+      select: [
+        { type: 'all_from_model', model: 'base_model' },
+      ],
+      ctes: [
+        {
+          name: 'my_cte',
+          from: {
+            model: 'cte_base',
+            join: [
+              { model: 'cte_joined', type: 'left', on: { and: ['id'] } },
+            ],
+          },
+          select: [
+            { type: 'all_from_model', model: 'cte_base' },
+            { type: 'all_from_model', model: 'not_in_cte_join' },
+          ],
+        },
+      ],
+    });
+    expect(errors).toHaveLength(1);
+    expect(errors[0].instancePath).toBe('/ctes/0/select/1');
+    expect(errors[0].message).toContain('not_in_cte_join');
+  });
+
+  test('skips CTE join entries that are CTE references (not model)', () => {
+    const errors = validateSelectModelReferences({
+      type: 'int_join_models',
+      from: {
+        model: 'base_model',
+        join: [
+          { cte: 'some_cte', type: 'left', on: { and: ['id'] } },
+        ],
+      },
+      select: [
+        { type: 'all_from_model', model: 'base_model' },
+      ],
+    });
+    expect(errors).toEqual([]);
+  });
+
+  test('select items without model property are skipped', () => {
+    const errors = validateSelectModelReferences({
+      type: 'int_join_models',
+      from: {
+        model: 'base_model',
+        join: [{ model: 'joined_a', type: 'left', on: { and: ['id'] } }],
+      },
+      select: [
+        { type: 'all_from_model', model: 'base_model' },
+        { name: 'computed_col', type: 'fct', expr: 'SUM(amount)' },
+        'plain_column',
+      ],
+    });
+    expect(errors).toEqual([]);
+  });
+});
+
+describe('validateModelReferencesExist', () => {
+  const projectWithModels = createTestProject({
+    nodes: {
+      'model.project.model_a': {
+        columns: {
+          col_a: { name: 'col_a', data_type: 'varchar', meta: { type: 'dim' } },
+        },
+      },
+      'model.project.model_b': {
+        columns: {
+          col_b: { name: 'col_b', data_type: 'bigint', meta: { type: 'fct' } },
+        },
+      },
+      'seed.project.seed_x': {
+        resource_type: 'seed',
+        columns: {
+          seed_col: { name: 'seed_col', data_type: 'varchar', meta: { type: 'dim' } },
+        },
+      },
+    },
+  });
+
+  test('no errors when all referenced models exist in manifest', () => {
+    const errors = validateModelReferencesExist(
+      {
+        type: 'int_join_models',
+        from: {
+          model: 'model_a',
+          join: [{ model: 'model_b', type: 'left', on: { and: ['id'] } }],
+        },
+        select: [
+          { type: 'all_from_model', model: 'model_a' },
+          { type: 'all_from_model', model: 'model_b' },
+        ],
+      },
+      projectWithModels,
+    );
+    expect(errors).toEqual([]);
+  });
+
+  test('error when from.model references non-existent model', () => {
+    const errors = validateModelReferencesExist(
+      {
+        type: 'int_select_model',
+        from: { model: 'deleted_model' },
+        select: [{ type: 'all_from_model', model: 'deleted_model' }],
+      },
+      projectWithModels,
+    );
+    expect(errors.length).toBeGreaterThanOrEqual(1);
+    const fromError = errors.find((e) => e.instancePath === '/from/model');
+    expect(fromError).toBeDefined();
+    expect(fromError!.message).toContain('deleted_model');
+    expect(fromError!.message).toContain('not found in the dbt manifest');
+    expect(fromError!.severity).toBe('error');
+  });
+
+  test('error when from.join[].model references non-existent model', () => {
+    const errors = validateModelReferencesExist(
+      {
+        type: 'int_join_models',
+        from: {
+          model: 'model_a',
+          join: [
+            { model: 'ghost_join', type: 'left', on: { and: ['id'] } },
+          ],
+        },
+        select: [],
+      },
+      projectWithModels,
+    );
+    expect(errors.length).toBeGreaterThanOrEqual(1);
+    const joinError = errors.find(
+      (e) => e.instancePath === '/from/join/0/model',
+    );
+    expect(joinError).toBeDefined();
+    expect(joinError!.message).toContain('ghost_join');
+  });
+
+  test('error when select[].model references non-existent model', () => {
+    const errors = validateModelReferencesExist(
+      {
+        type: 'int_select_model',
+        from: { model: 'model_a' },
+        select: [
+          { type: 'all_from_model', model: 'nonexistent_select' },
+        ],
+      },
+      projectWithModels,
+    );
+    expect(errors.length).toBeGreaterThanOrEqual(1);
+    const selError = errors.find(
+      (e) => e.instancePath === '/select/0/model',
+    );
+    expect(selError).toBeDefined();
+    expect(selError!.message).toContain('nonexistent_select');
+  });
+
+  test('CTE from.model references non-existent model', () => {
+    const errors = validateModelReferencesExist(
+      {
+        type: 'int_select_model',
+        from: { cte: 'my_cte' },
+        select: [],
+        ctes: [
+          {
+            name: 'my_cte',
+            from: { model: 'cte_ghost_model' },
+            select: [],
+          },
+        ],
+      },
+      projectWithModels,
+    );
+    expect(errors.length).toBeGreaterThanOrEqual(1);
+    const cteError = errors.find(
+      (e) => e.instancePath === '/ctes/0/from/model',
+    );
+    expect(cteError).toBeDefined();
+    expect(cteError!.message).toContain('cte_ghost_model');
+  });
+
+  test('seed references are valid (no error)', () => {
+    const errors = validateModelReferencesExist(
+      {
+        type: 'stg_select_model',
+        from: { model: 'seed_x' },
+        select: [],
+      },
+      projectWithModels,
+    );
+    expect(errors).toEqual([]);
+  });
+
+  test('union model references are validated', () => {
+    const errors = validateModelReferencesExist(
+      {
+        type: 'int_union_models',
+        from: {
+          union: {
+            models: ['model_a', 'missing_union_model'],
+          },
+        },
+        select: [],
+      },
+      projectWithModels,
+    );
+    expect(errors).toHaveLength(1);
+    expect(errors[0].instancePath).toBe('/from/union/models/1');
+    expect(errors[0].message).toContain('missing_union_model');
+  });
+
+  test('no errors for empty or null inputs', () => {
+    expect(validateModelReferencesExist(null, projectWithModels)).toEqual([]);
+    expect(validateModelReferencesExist({}, projectWithModels)).toEqual([]);
+    expect(
+      validateModelReferencesExist(
+        { type: 'int_select_model' },
+        projectWithModels,
+      ),
+    ).toEqual([]);
   });
 });

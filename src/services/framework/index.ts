@@ -110,6 +110,18 @@ export class Framework implements ApiEnabledService<'framework'> {
   // for dependency resolution and rename propagation in subsequent syncs.
   private lastSyncHadRenames = false;
 
+  // When true, the next sync will force a manifest reparse so that deleted
+  // models are dropped from the manifest before downstream validation runs.
+  // Set by requestFullSync() (triggered on .model.json / .source.json deletion).
+  private pendingForceReparse = false;
+
+  // Model names whose .model.json was deleted since the last successful
+  // manifest refresh. SyncEngine prunes these from the manifest before
+  // validation so that downstream references are correctly flagged.
+  // Entries are only cleared when they no longer appear in the manifest
+  // (i.e., dbt parse eventually succeeded and removed them).
+  private pendingDeletedModels: string[] = [];
+
   // Handler instances
   private uiHandlers: UIHandlers;
   private modelDataHandlers: ModelDataHandlers;
@@ -281,6 +293,19 @@ export class Framework implements ApiEnabledService<'framework'> {
    */
   isSyncing(): boolean {
     return this.syncQueue.isSyncing();
+  }
+
+  /**
+   * Request a full sync of all framework JSON files.
+   * Used when a .model.json or .source.json is deleted so that downstream
+   * models are re-validated against the updated project state.
+   */
+  requestFullSync(opts?: { deletedModels?: string[] }): void {
+    if (opts?.deletedModels) {
+      this.pendingDeletedModels.push(...opts.deletedModels);
+    }
+    this.pendingForceReparse = true;
+    this.syncQueue.enqueueFullSync();
   }
 
   /**
@@ -1322,7 +1347,9 @@ export class Framework implements ApiEnabledService<'framework'> {
               cacheManager: this.cacheManager,
               roots,
               lastFileChange: this.coder.lastFileChange,
-              forceReparse: this.lastSyncHadRenames,
+              forceReparse:
+                this.lastSyncHadRenames || this.pendingForceReparse,
+              deletedModels: [...this.pendingDeletedModels],
               autoGenerateTestsConfig,
               parseManifest: async (project) => {
                 const manifest = await this.getApi().handleApi({
@@ -1411,6 +1438,23 @@ export class Framework implements ApiEnabledService<'framework'> {
               this.lastSyncHadRenames = true;
             } else if (!result.aborted) {
               this.lastSyncHadRenames = false;
+            }
+            if (!result.aborted) {
+              this.pendingForceReparse = false;
+            }
+            // Clear deleted-model entries that are no longer in the
+            // global manifest (meaning dbt parse eventually succeeded
+            // and removed them). Entries still present in the stale
+            // manifest are kept so future syncs continue to prune them.
+            if (!result.aborted && this.pendingDeletedModels.length > 0) {
+              const nodes = _project.manifest?.nodes;
+              if (nodes) {
+                this.pendingDeletedModels =
+                  this.pendingDeletedModels.filter(
+                    (name) =>
+                      `model.${_project.name}.${name}` in nodes,
+                  );
+              }
             }
           }
 
@@ -1640,6 +1684,26 @@ export class Framework implements ApiEnabledService<'framework'> {
           jsonContent,
         );
         this.diagnosticModelJson.set(uri, diagnostics);
+
+        const hasModelRefErrors = errors?.some(
+          (e) =>
+            e.message.includes('not found in the dbt manifest') ||
+            e.message.includes('which is not joined'),
+        );
+        if (hasModelRefErrors) {
+          vscode.window
+            .showErrorMessage(
+              'DJ: Model reference error(s) detected — sync blocked for affected model(s)',
+              'Show Problems',
+            )
+            .then((sel) => {
+              if (sel === 'Show Problems') {
+                vscode.commands.executeCommand(
+                  'workbench.action.problems.focus',
+                );
+              }
+            });
+        }
       },
 
       onModelValidationWarning: (uri, message, errors, jsonContent) => {

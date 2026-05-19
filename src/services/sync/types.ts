@@ -344,6 +344,10 @@ export interface SyncExecuteParams {
   lastFileChange?: Date | null;
   /** Force manifest reparse at start of sync (e.g., after a previous rename sync) */
   forceReparse?: boolean;
+  /** Model names whose .model.json was deleted since the last successful sync.
+   *  SyncEngine prunes these from the manifest before validation so that
+   *  `validateModelReferencesExist` correctly flags downstream references. */
+  deletedModels?: string[];
   /** Optional auto-test generation configuration */
   autoGenerateTestsConfig?: AutoGenerateTestsConfig;
   /**

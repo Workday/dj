@@ -913,6 +913,29 @@ export class Coder {
           }
           break;
         }
+        case 'delete': {
+          const deletedPath = uri.fsPath;
+          this.log.info(`PROCESSING DELETE EVENT: ${deletedPath}`);
+
+          const isModelJson = deletedPath.endsWith('.model.json');
+          const isSourceJson = deletedPath.endsWith('.source.json');
+
+          if (isModelJson) {
+            const modelName = path.basename(deletedPath, '.model.json');
+            this.log.info(
+              `Framework model JSON deleted: ${deletedPath} (${modelName}), triggering full sync`,
+            );
+            this.framework.requestFullSync({
+              deletedModels: [modelName],
+            });
+          } else if (isSourceJson) {
+            this.log.info(
+              `Framework source JSON deleted: ${deletedPath}, triggering full sync`,
+            );
+            this.framework.requestFullSync();
+          }
+          break;
+        }
         default:
           this.log.info(
             `UNHANDLED FILE WATCHER EVENT: ${type} - ${uri.fsPath}`,
@@ -1133,6 +1156,12 @@ export class Coder {
         return;
       }
       return this.handleWatcherEvent({ type: 'create', uri });
+    });
+    watcher.onDidDelete(async (uri) => {
+      if (ignoreRegex.test(uri.fsPath)) {
+        return;
+      }
+      return this.handleWatcherEvent({ type: 'delete', uri });
     });
     return watcher;
   }
