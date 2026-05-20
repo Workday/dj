@@ -205,6 +205,39 @@ export class ColumnLineageHandler {
         });
       }
 
+      if (action === 'get-seed-columns') {
+        const { seedName } = payload.request;
+        if (!seedName) {
+          return apiResponse<typeof payload.type>({
+            success: false,
+            error: 'seedName is required for get-seed-columns',
+          });
+        }
+        const result = await lineageService.getSeedColumns(filePath, seedName);
+        if (!result.success) {
+          return apiResponse<typeof payload.type>({
+            success: false,
+            error: result.error,
+          });
+        }
+        // Convert seed columns to FrameworkColumn format
+        const columns: FrameworkColumn[] = (result.columns ?? []).map(
+          (col) => ({
+            name: col.name,
+            data_type: col.data_type as FrameworkColumn['data_type'],
+            description: col.description || '',
+            meta: { type: col.type ?? 'dim' },
+            internal: {},
+          }),
+        );
+        return apiResponse<typeof payload.type>({
+          success: true,
+          seedName: result.seedName,
+          modelName: result.seedName,
+          columns,
+        });
+      }
+
       if (action === 'compute-source-lineage') {
         const { tableName } = payload.request;
         if (!tableName || !columnName) {

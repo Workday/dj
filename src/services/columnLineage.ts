@@ -2932,7 +2932,8 @@ export class ColumnLineageService implements DJService {
   }
 
   /**
-   * Get tables from a source file
+   * Get tables from a source file.
+   * Tries .source.json first (DJ-enhanced metadata), then falls back to manifest.
    */
   async getSourceTables(filePath: string): Promise<{
     success: boolean;
@@ -2941,27 +2942,20 @@ export class ColumnLineageService implements DJService {
     tables?: Array<{ name: string; columnCount: number }>;
   }> {
     try {
-      const validation = await this.validateSourceFiles(filePath);
-      if (!validation.valid) {
-        return { success: false, error: validation.error };
-      }
-
+      // Try .source.json first (has DJ-enhanced metadata)
       const loaded = this.loadSourceJsonSync(filePath);
-      if (!loaded?.sourceJson.tables) {
-        return {
-          success: false,
-          error: 'Invalid source JSON: missing tables array',
-        };
+      if (loaded?.sourceJson.tables) {
+        const tables = loaded.sourceJson.tables.map(
+          (table: { name: string; columns?: any[] }) => ({
+            name: table.name,
+            columnCount: table.columns?.length ?? 0,
+          }),
+        );
+        return { success: true, sourceName: loaded.sourceName, tables };
       }
 
-      const tables = loaded.sourceJson.tables.map(
-        (table: { name: string; columns?: any[] }) => ({
-          name: table.name,
-          columnCount: table.columns?.length ?? 0,
-        }),
-      );
-
-      return { success: true, sourceName: loaded.sourceName, tables };
+      // Fallback: read from dbt manifest
+      return this.getSourceTablesFromManifest(filePath);
     } catch (error: unknown) {
       this.coder.log.error('Error getting source tables:', error);
       return {
@@ -2972,7 +2966,88 @@ export class ColumnLineageService implements DJService {
   }
 
   /**
-   * Get columns from a specific table in a source file
+   * Get source tables from the dbt manifest (fallback when .source.json doesn't exist)
+   */
+  private getSourceTablesFromManifest(filePath: string): {
+    success: boolean;
+    error?: string;
+    sourceName?: string;
+    tables?: Array<{ name: string; columnCount: number }>;
+  } {
+    // Find the project containing this file
+    const project = this.coder.framework.dbt.getProjectFromPath(filePath);
+    if (!project?.manifest) {
+      return {
+        success: false,
+        error: 'Could not find dbt project for this file',
+      };
+    }
+
+    // Normalize file path for comparison
+    const normalizedFilePath = filePath
+      ?.replace(/\.source\.json$/, '.yml')
+      .replace(/\\/g, '/');
+
+    // Find all sources that match this file path
+    const sources = project.manifest.sources ?? {};
+    const matchingSources: Array<{
+      name: string;
+      sourceName: string;
+      columnCount: number;
+    }> = [];
+
+    let derivedSourceName: string | undefined;
+
+    for (const source of Object.values(sources)) {
+      if (!source) {
+        continue;
+      }
+
+      // Check if this source's file path matches
+      if (source.original_file_path) {
+        const fullSourcePath = path
+          .join(project.pathSystem, source.original_file_path)
+          .replace(/\\/g, '/');
+
+        if (
+          normalizedFilePath === fullSourcePath ||
+          normalizedFilePath?.endsWith(source.original_file_path)
+        ) {
+          // Derive source name from first matching source
+          if (!derivedSourceName) {
+            derivedSourceName =
+              `${source.database ?? ''}__${source.schema ?? ''}`
+                .replace(/^__/, '')
+                .replace(/__$/, '') || source.source_name;
+          }
+
+          matchingSources.push({
+            name: source.name ?? '',
+            sourceName: source.source_name ?? '',
+            columnCount: Object.keys(source.columns ?? {}).length,
+          });
+        }
+      }
+    }
+
+    if (matchingSources.length === 0) {
+      return {
+        success: false,
+        error: 'No sources found in manifest for this file',
+      };
+    }
+
+    const tables = matchingSources.map((s) => ({
+      name: s.name,
+      columnCount: s.columnCount,
+    }));
+
+    return { success: true, sourceName: derivedSourceName, tables };
+  }
+
+  /**
+   * Get columns from a specific table in a source file.
+   * Tries .source.json first (DJ-enhanced metadata), then falls back to manifest.
    */
   async getSourceColumns(
     filePath: string,
@@ -2989,44 +3064,32 @@ export class ColumnLineageService implements DJService {
     }>;
   }> {
     try {
-      const validation = await this.validateSourceFiles(filePath);
-      if (!validation.valid) {
-        return { success: false, error: validation.error };
-      }
-
+      // Try .source.json first (has DJ-enhanced metadata like dim/fct types)
       const loaded = this.loadSourceJsonSync(filePath);
-      if (!loaded?.sourceJson.tables) {
-        return {
-          success: false,
-          error: 'Invalid source JSON: missing tables array',
-        };
+      if (loaded?.sourceJson.tables) {
+        const table = loaded.sourceJson.tables.find(
+          (t: { name: string }) => t.name === tableName,
+        );
+        if (table) {
+          const columns = (table.columns ?? []).map(
+            (col: {
+              name: string;
+              data_type?: string;
+              description?: string;
+              type?: 'dim' | 'fct';
+            }) => ({
+              name: col.name,
+              data_type: col.data_type,
+              description: col.description,
+              type: col.type,
+            }),
+          );
+          return { success: true, sourceName: loaded.sourceName, columns };
+        }
       }
 
-      const table = loaded.sourceJson.tables.find(
-        (t: { name: string }) => t.name === tableName,
-      );
-      if (!table) {
-        return {
-          success: false,
-          error: `Table '${tableName}' not found in source`,
-        };
-      }
-
-      const columns = (table.columns ?? []).map(
-        (col: {
-          name: string;
-          data_type?: string;
-          description?: string;
-          type?: 'dim' | 'fct';
-        }) => ({
-          name: col.name,
-          data_type: col.data_type,
-          description: col.description,
-          type: col.type,
-        }),
-      );
-
-      return { success: true, sourceName: loaded.sourceName, columns };
+      // Fallback: read from dbt manifest
+      return this.getSourceColumnsFromManifest(filePath, tableName);
     } catch (error: unknown) {
       this.coder.log.error('Error getting source columns:', error);
       return {
@@ -3034,6 +3097,203 @@ export class ColumnLineageService implements DJService {
         error: error instanceof Error ? error.message : String(error),
       };
     }
+  }
+
+  /**
+   * Get source columns from the dbt manifest (fallback when .source.json doesn't exist)
+   */
+  private getSourceColumnsFromManifest(
+    filePath: string,
+    tableName: string,
+  ): {
+    success: boolean;
+    error?: string;
+    sourceName?: string;
+    columns?: Array<{
+      name: string;
+      data_type?: string;
+      description?: string;
+      type?: 'dim' | 'fct';
+    }>;
+  } {
+    // Find the project containing this file
+    const project = this.coder.framework.dbt.getProjectFromPath(filePath);
+    if (!project?.manifest) {
+      return {
+        success: false,
+        error: 'Could not find dbt project for this file',
+      };
+    }
+
+    // Find the source in manifest by matching tableName
+    const source = this.findSourceInManifest(project, tableName, filePath);
+    if (!source) {
+      return {
+        success: false,
+        error: `Source table '${tableName}' not found in manifest`,
+      };
+    }
+
+    // Extract columns from manifest source
+    const manifestColumns = source.columns ?? {};
+    const columns = Object.values(manifestColumns)
+      .filter((col): col is NonNullable<typeof col> => col !== undefined)
+      .map((col) => ({
+        name: col.name,
+        data_type: col.data_type,
+        description: col.description,
+        type: (col.meta?.type as 'dim' | 'fct') ?? undefined,
+      }));
+
+    // Build sourceName from database and schema
+    const sourceName =
+      `${source.database ?? ''}__${source.schema ?? ''}`
+        .replace(/^__/, '')
+        .replace(/__$/, '') || source.source_name;
+
+    return { success: true, sourceName, columns };
+  }
+
+  /**
+   * Find a source in the manifest by table name and optionally file path
+   */
+  private findSourceInManifest(
+    project: DbtProject,
+    tableName: string,
+    filePath?: string,
+  ): Partial<import('@shared/dbt/types').DbtProjectManifestSource> | undefined {
+    const sources = project.manifest?.sources ?? {};
+
+    // Normalize file path for comparison
+    const normalizedFilePath = filePath
+      ?.replace(/\.source\.json$/, '.yml')
+      .replace(/\\/g, '/');
+
+    for (const source of Object.values(sources)) {
+      if (!source) {
+        continue;
+      }
+
+      // Match by table name (source.name is the table name)
+      if (source.name === tableName) {
+        // If filePath provided, also verify it matches
+        if (normalizedFilePath && source.original_file_path) {
+          const fullSourcePath = path
+            .join(project.pathSystem, source.original_file_path)
+            .replace(/\\/g, '/');
+          if (
+            normalizedFilePath === fullSourcePath ||
+            normalizedFilePath.endsWith(source.original_file_path)
+          ) {
+            return source;
+          }
+        } else {
+          return source;
+        }
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Get columns from a seed file using the dbt manifest
+   */
+  async getSeedColumns(
+    filePath: string,
+    seedName: string,
+  ): Promise<{
+    success: boolean;
+    error?: string;
+    seedName?: string;
+    columns?: Array<{
+      name: string;
+      data_type?: string;
+      description?: string;
+      type?: 'dim' | 'fct';
+    }>;
+  }> {
+    try {
+      // Find the project containing this file
+      const project = this.coder.framework.dbt.getProjectFromPath(filePath);
+      if (!project?.manifest) {
+        return {
+          success: false,
+          error: 'Could not find dbt project for this file',
+        };
+      }
+
+      // Find the seed in manifest
+      const seed = this.findSeedInManifest(project, seedName, filePath);
+      if (!seed) {
+        return {
+          success: false,
+          error: `Seed '${seedName}' not found in manifest`,
+        };
+      }
+
+      // Extract columns from manifest node
+      const manifestColumns = seed.columns ?? {};
+      const columns = Object.values(manifestColumns)
+        .filter(
+          (col): col is NonNullable<typeof col> & { name: string } =>
+            col !== undefined && typeof col.name === 'string',
+        )
+        .map((col) => ({
+          name: col.name,
+          data_type: col.data_type,
+          description: col.description,
+          type: (col.meta?.type as 'dim' | 'fct') ?? undefined,
+        }));
+
+      return { success: true, seedName: seed.name ?? seedName, columns };
+    } catch (error: unknown) {
+      this.coder.log.error('Error getting seed columns:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  /**
+   * Find a seed in the manifest by name and optionally file path
+   */
+  private findSeedInManifest(
+    project: DbtProject,
+    seedName: string,
+    filePath?: string,
+  ): Partial<import('@shared/dbt/types').DbtProjectManifestNode> | undefined {
+    const nodes = project.manifest?.nodes ?? {};
+
+    // Normalize file path for comparison
+    const normalizedFilePath = filePath?.replace(/\\/g, '/');
+
+    for (const node of Object.values(nodes)) {
+      if (node?.resource_type !== 'seed') {
+        continue;
+      }
+
+      // Match by seed name
+      if (node.name === seedName) {
+        // If filePath provided, also verify it matches
+        if (normalizedFilePath && node.original_file_path) {
+          const fullSeedPath = path
+            .join(project.pathSystem, node.original_file_path)
+            .replace(/\\/g, '/');
+          if (
+            normalizedFilePath === fullSeedPath ||
+            normalizedFilePath.endsWith(node.original_file_path)
+          ) {
+            return node;
+          }
+        } else {
+          return node;
+        }
+      }
+    }
+
+    return undefined;
   }
 
   /**

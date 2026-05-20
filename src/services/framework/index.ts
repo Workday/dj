@@ -739,9 +739,12 @@ export class Framework implements ApiEnabledService<'framework'> {
 
     // CLEAR_SYNC_CACHE - clear framework sync cache
     context.subscriptions.push(
-      vscode.commands.registerCommand(COMMAND_ID.CLEAR_SYNC_CACHE, () => {
-        this.handleClearSyncCache();
-      }),
+      vscode.commands.registerCommand(
+        COMMAND_ID.CLEAR_SYNC_CACHE,
+        (options?: { silent?: boolean }) => {
+          this.handleClearSyncCache(options);
+        },
+      ),
     );
   }
 
@@ -1575,13 +1578,23 @@ export class Framework implements ApiEnabledService<'framework'> {
   }
 
   /**
-   * Clears the entire sync cache.
-   * Useful for debugging or forcing a full regeneration.
+   * Clears the entire sync cache. The next sync run will treat every JSON
+   * file as changed and regenerate its SQL/YML output regardless of whether
+   * the source content was modified. Useful for debugging, forcing a full
+   * regeneration, or recovering when something outside the source files
+   * (e.g. an extension setting) has altered the generated output.
+   *
+   * @param options.silent - When true, suppresses the user-facing toast.
+   *   Intended for programmatic callers that surface their own UI.
    */
-  handleClearSyncCache() {
+  handleClearSyncCache(options?: { silent?: boolean }) {
     this.cacheManager.clear();
-    vscode.window.showInformationMessage('JSON sync cache cleared');
-    this.log.info('Sync cache manually cleared');
+    if (!options?.silent) {
+      vscode.window.showInformationMessage('JSON sync cache cleared');
+    }
+    this.log.info(
+      `Sync cache cleared${options?.silent ? ' (silent)' : ' (manual)'}`,
+    );
   }
 
   /**

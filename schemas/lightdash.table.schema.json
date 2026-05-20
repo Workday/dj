@@ -14,7 +14,7 @@
     "required_filters": {
       "$ref": "lightdash.required_filters.schema.json"
     },
-    "sql_filter": { "type": "string" },
+    "sql_filter": { "type": ["string", "null"] },
     "sql_where": { "type": "string" }
   }
 }

@@ -72,23 +72,72 @@ class DataExplorerViewProvider implements vscode.WebviewViewProvider {
 
         // Handle open-column-lineage message to navigate to Column Lineage panel
         if ((message as any).type === 'open-column-lineage') {
-          const { filePath, modelName, columnName, columns } = message as any;
+          const { filePath, modelName, columnName, columns, nodeType } =
+            message as any;
           this._coder.log.info(
             'Opening Column Lineage for:',
             modelName,
             columnName,
+            'type:',
+            nodeType,
           );
 
-          // Focus the Column Lineage panel
           await vscode.commands.executeCommand(VIEW_ID.COLUMN_LINEAGE_FOCUS);
 
-          // Post the column lineage init message with the selected column included
-          this._coder.columnLineage.postInit({
-            filePath,
-            modelName,
-            columns: columns ?? [],
-            selectedColumn: columnName,
-          });
+          if (nodeType === 'source') {
+            // For sources, normalize path to .source.json and use source init
+            const sourceFilePath = filePath.replace(/\.yml$/, '.source.json');
+
+            // Fetch source tables to populate the source init
+            try {
+              const tablesResult = await this._coder.api.handleApi({
+                type: 'framework-column-lineage',
+                request: {
+                  action: 'get-source-tables',
+                  filePath: sourceFilePath,
+                },
+              });
+
+              if (tablesResult.success && tablesResult.tables) {
+                this._coder.columnLineage.postSourceInit({
+                  filePath: sourceFilePath,
+                  sourceName: tablesResult.sourceName || modelName,
+                  tables: tablesResult.tables,
+                  selectedTable: modelName,
+                });
+              } else {
+                this._coder.log.warn(
+                  'Failed to get source tables for column lineage:',
+                  tablesResult.error,
+                );
+                // Fall back to model init
+                this._coder.columnLineage.postInit({
+                  filePath: sourceFilePath,
+                  modelName,
+                  columns: columns ?? [],
+                  selectedColumn: columnName,
+                });
+              }
+            } catch (err) {
+              this._coder.log.warn(
+                'Error fetching source tables, falling back to model init:',
+                err,
+              );
+              this._coder.columnLineage.postInit({
+                filePath: sourceFilePath,
+                modelName,
+                columns: columns ?? [],
+                selectedColumn: columnName,
+              });
+            }
+          } else {
+            this._coder.columnLineage.postInit({
+              filePath,
+              modelName,
+              columns: columns ?? [],
+              selectedColumn: columnName,
+            });
+          }
           return;
         }
 
@@ -215,6 +264,7 @@ export class DataExplorer
       case 'data-explorer-open-model-file':
       case 'data-explorer-get-compiled-sql':
       case 'data-explorer-detect-active-model':
+      case 'data-explorer-get-project-overview':
         return await this.modelLineage.handleApi(payload);
     }
   }

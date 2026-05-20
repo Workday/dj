@@ -116,15 +116,15 @@ export default function ModelNode({ data }: { data: ModelNodeData }) {
     console.log('[ModelNode] handleNodeClickInternal:', {
       name,
       projectName,
-      type: typeof name,
+      nodeType: type,
     });
-    onNodeClick(name, projectName);
+    onNodeClick(name, projectName, type);
   };
 
   const handleViewColumns = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (onViewColumns && pathSystem) {
-      onViewColumns(pathSystem, name);
+      onViewColumns(pathSystem, name, type);
     }
   };
 

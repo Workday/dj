@@ -18,6 +18,8 @@ import type {
 export type DJ = {
   config: {
     aiHintTag?: string;
+    lightdashDefaultSqlFilter?: string;
+    lightdashDefaultSqlFilterRequiredColumns?: string[];
     lightdashDefaultPartitionColumnCaseSensitive?: boolean;
     materializationDefaultIncrementalStrategy?: DefaultIncrementalStrategy;
   };

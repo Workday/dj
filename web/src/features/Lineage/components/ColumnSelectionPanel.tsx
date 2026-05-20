@@ -33,6 +33,8 @@ export interface ColumnSelectionPanelProps {
   onClose?: () => void;
   /** Callback when retry is requested */
   onRetry?: () => void;
+
+  selectedNodeType?: string;
 }
 
 /**
@@ -50,6 +52,7 @@ export const ColumnSelectionPanel: React.FC<ColumnSelectionPanelProps> = ({
   onColumnSelect,
   onClose,
   onRetry,
+  selectedNodeType,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -68,7 +71,13 @@ export const ColumnSelectionPanel: React.FC<ColumnSelectionPanelProps> = ({
       {/* Header */}
       <div className="px-4 py-3 border-b border-neutral flex justify-between items-center">
         <span className="text-sm font-medium text-foreground">
-          {mode === 'modelLineage' ? 'Model Columns' : 'Choose column'}
+          {mode === 'modelLineage'
+            ? selectedNodeType === 'model'
+              ? 'Model Columns'
+              : selectedNodeType === 'source'
+                ? 'Source Columns'
+                : 'Seed Columns'
+            : 'Choose column'}
         </span>
         {onClose && (
           <button
@@ -83,7 +92,13 @@ export const ColumnSelectionPanel: React.FC<ColumnSelectionPanelProps> = ({
       {/* Model name */}
       {modelName && (
         <div className="px-4 py-3 text-xs text-surface-contrast border-b border-neutral">
-          <span className="mr-1">Model:</span>
+          <span className="mr-1">
+            {selectedNodeType === 'model'
+              ? 'Model:'
+              : selectedNodeType === 'source'
+                ? 'Source:'
+                : 'Seed:'}
+          </span>
           <span className="font-medium break-all" title={modelName}>
             {modelName}
           </span>

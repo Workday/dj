@@ -60,7 +60,11 @@ export type ModelLineageApi =
   | {
       type: 'data-explorer-open-model-file';
       service: 'model-lineage';
-      request: { modelName: string; projectName: string };
+      request: {
+        modelName: string;
+        projectName: string;
+        nodeType?: 'model' | 'source' | 'seed';
+      };
       response: { success: boolean };
     }
   | {
@@ -72,4 +76,30 @@ export type ModelLineageApi =
         compiledPath?: string;
         lastModified?: number; // Unix timestamp in milliseconds
       };
+    }
+  | {
+      type: 'data-explorer-get-project-overview';
+      service: 'model-lineage';
+      request: null;
+      response: ProjectOverviewData | null;
     };
+
+export interface ProjectOverviewItem {
+  id: string;
+  name: string;
+  type: 'model';
+  description?: string;
+  materialized?: MaterializationType;
+  testCount?: number;
+}
+
+export interface ProjectOverviewGroup {
+  layer: 'staging' | 'intermediate' | 'mart';
+  label: string;
+  items: ProjectOverviewItem[];
+}
+
+export interface ProjectOverviewData {
+  projectName: string;
+  groups: ProjectOverviewGroup[];
+}

@@ -2463,9 +2463,42 @@ export function frameworkModelProperties({
   }
   // Add model level lightdash meta
   if ('lightdash' in modelJson) {
+    // Precedence for `sql_filter` on the table block:
+    //   1. explicit string  -> use as-is (per-model override)
+    //   2. explicit null    -> drop the key (explicit disable)
+    //   3. undefined        -> inject `dj.lightdash.defaultSqlFilter` only if
+    //                          all `dj.lightdash.defaultSqlFilterRequiredColumns`
+    //                          are present on this model.
+    // Models without a `lightdash` block never receive the global default.
+    const tableMeta: Record<string, unknown> = {
+      ...(modelJson.lightdash?.table ?? {}),
+    };
+    const explicitSqlFilter = (
+      modelJson.lightdash?.table as { sql_filter?: string | null } | undefined
+    )?.sql_filter;
+
+    if (explicitSqlFilter === null) {
+      delete tableMeta.sql_filter;
+    } else if (typeof explicitSqlFilter !== 'string') {
+      const defaultFilter = dj.config.lightdashDefaultSqlFilter;
+      const requiredCols =
+        dj.config.lightdashDefaultSqlFilterRequiredColumns ?? [];
+      if (defaultFilter) {
+        const presentColNames = new Set(
+          columns.map((c) => frameworkColumnName({ column: c, modelJson })),
+        );
+        const allPresent = requiredCols.every((name: string) =>
+          presentColNames.has(name),
+        );
+        if (allPresent) {
+          tableMeta.sql_filter = defaultFilter;
+        }
+      }
+    }
+
     modelProperties.meta = {
       ...modelProperties.meta,
-      ...modelJson.lightdash?.table,
+      ...tableMeta,
     };
     for (const { name: metricName, ...metric } of modelJson.lightdash
       ?.metrics ?? []) {
@@ -3131,7 +3164,8 @@ export function frameworkMakeModelTemplate(
       if (table.required_filters) {
         tableConfig.required_filters = table.required_filters;
       }
-      if (table.sql_filter) {
+      // Preserve explicit `null` so users can disable the global default per model.
+      if (table.sql_filter === null || typeof table.sql_filter === 'string') {
         tableConfig.sql_filter = table.sql_filter;
       }
       if (table.sql_where) {

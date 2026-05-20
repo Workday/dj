@@ -88,7 +88,7 @@ export type FrameworkApi =
             group_details?: any;
             required_attributes?: any;
             required_filters?: any;
-            sql_filter?: string;
+            sql_filter?: string | null;
             sql_where?: string;
           };
           metrics?: Array<{
@@ -204,13 +204,14 @@ export type FrameworkApi =
           | 'switch-to-source-column'
           | 'get-source-tables'
           | 'get-source-columns'
+          | 'get-seed-columns'
           | 'compute-source-lineage'
           | 'export-lineage'
           | 'export-source-lineage'
           | 'save-csv';
         /**
-         * Path to model/source file (.model.json, .source.json, .sql, or .yml).
-         * Required for validate/get-columns/compute/switch-to-model-column/switch-to-source-column/export-lineage/get-source-tables/get-source-columns/compute-source-lineage.
+         * Path to model/source/seed file (.model.json, .source.json, .sql, .yml, or .csv).
+         * Required for validate/get-columns/compute/switch-to-model-column/switch-to-source-column/export-lineage/get-source-tables/get-source-columns/get-seed-columns/compute-source-lineage.
          * */
         filePath?: string;
         /**
@@ -221,6 +222,8 @@ export type FrameworkApi =
         columnName?: string;
         /** Table name within source. Required for 'get-source-columns' and 'compute-source-lineage'. */
         tableName?: string;
+        /** Seed name. Required for 'get-seed-columns'. */
+        seedName?: string;
         /** Number of upstream levels to trace (-1 for unlimited, default: 2) */
         upstreamLevels?: number;
         /** Number of downstream levels to trace (-1 for unlimited, default: 2) */
@@ -237,9 +240,11 @@ export type FrameworkApi =
         error?: string;
         /** Model name (returned by 'validate' action) */
         modelName?: string;
-        /** Source name (returned by 'get-source-tables' action) */
+        /** Source name (returned by 'get-source-tables' and 'get-source-columns' actions) */
         sourceName?: string;
-        /** Column list with metadata (returned by 'get-columns' and 'get-source-columns' action) */
+        /** Seed name (returned by 'get-seed-columns' action) */
+        seedName?: string;
+        /** Column list with metadata (returned by 'get-columns', 'get-source-columns', and 'get-seed-columns' actions) */
         columns?: FrameworkColumn[];
         /** Table list with column counts (returned by 'get-source-tables' action) */
         tables?: Array<{ name: string; columnCount: number }>;

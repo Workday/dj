@@ -86,6 +86,14 @@ export class Api {
       case 'lightdash-fetch-previews':
       case 'lightdash-get-preview-name':
       case 'lightdash-add-log':
+      case 'lightdash-yaml-list-files':
+      case 'lightdash-yaml-read-file':
+      case 'lightdash-yaml-edit-file':
+      case 'lightdash-yaml-download':
+      case 'lightdash-yaml-upload':
+      case 'lightdash-yaml-delete-files':
+      case 'lightdash-yaml-get-default-path':
+      case 'lightdash-yaml-set-default-path':
         // Lazy resolution - gets handler only when needed
         return (await this.getLightdashHandler()(
           payload as any,
@@ -97,6 +105,7 @@ export class Api {
       case 'data-explorer-open-with-model':
       case 'data-explorer-ready':
       case 'data-explorer-detect-active-model':
+      case 'data-explorer-get-project-overview':
         return (await this.dataExplorer.handleApi(
           payload as any,
         )) as ApiResponse<T>;

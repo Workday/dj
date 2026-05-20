@@ -629,30 +629,38 @@ To add/modify JSON schemas:
 - Free-form user keys under `meta` are stripped at emit time if they collide with a framework-reserved name (see `COLUMN_META_SQL_INTERNAL_RESERVED_KEYS` / `COLUMN_META_POPULATED_RESERVED_KEYS` in `meta-lint.ts`). The reserved-key lint surfaces these collisions as Warning diagnostics.
 - The invariant "SQL-internal keys never appear in emitted `columns[].meta`" is guarded by a regression test in `model-meta.test.ts` — keep it passing when adding new column-processing paths.
 
+### Lightdash Global `sql_filter` Default
+
+- The lightdash table-level `sql_filter` resolution lives in `frameworkModelProperties` (`sql-utils.ts`, near the `// Add model level lightdash meta` block). Precedence is: explicit string on `lightdash.table.sql_filter` → explicit `null` (disable) → `dj.config.lightdashDefaultSqlFilter` (only if every entry in `dj.config.lightdashDefaultSqlFilterRequiredColumns` is present on the model). Models without a `lightdash` block are never filtered.
+- `lightdash.table.sql_filter` accepts `string | null` per the schema in `schemas/lightdash.table.schema.json`; `null` means "explicitly disable, ignore the global default".
+- When changing the precedence rules, update the `lightdash global sql_filter default` describe block in `src/services/framework/__tests__/index.test.ts` (covers all six branches).
+
 ## Configuration
 
 ### Extension Settings (dj.\*)
 
-| Setting                        | Type    | Default      | Description                                      |
-| ------------------------------ | ------- | ------------ | ------------------------------------------------ |
-| `dj.pythonVenvPath`            | string  | —            | Python virtual environment path (e.g., `.venv`)  |
-| `dj.trinoPath`                 | string  | `trino-cli`  | Trino CLI executable path                        |
-| `dj.dbtProjectNames`           | array   | `[]`         | Restrict which dbt projects to recognize         |
-| `dj.dbtMacroPath`              | string  | `_ext_`      | Subfolder for extension-provided macros          |
-| `dj.airflowGenerateDags`       | boolean | `false`      | Toggle Airflow DAG generation                    |
-| `dj.airflowTargetVersion`      | string  | `2.7`        | Target Airflow version (2.7, 2.8, 2.9, 2.10)     |
-| `dj.airflowDagsPath`           | string  | `dags/_ext_` | Folder where extension writes Airflow DAGs       |
-| `dj.syncDebounceMs`            | number  | `1500`       | Debounce delay (ms) before triggering sync       |
-| `dj.logLevel`                  | string  | `info`       | Logging level (debug, info, warn, error)         |
-| `dj.codingAgent`               | boolean | `false`      | Enable AI agent integration (AGENTS.md + skills) |
-| `dj.aiHintTag`                 | string  | —            | Standard tag for resources with AI Hints         |
-| `dj.columnLineage.autoRefresh` | boolean | `true`       | Auto-refresh Column Lineage on file switch       |
-| `dj.dataExplorer.autoRefresh`  | boolean | `false`      | Auto-refresh Data Explorer on file switch        |
-| `dj.lightdashProjectPath`      | string  | —            | Custom path to dbt project for Lightdash         |
-| `dj.lightdashProfilesPath`     | string  | —            | Custom path to dbt profiles for Lightdash        |
+| Setting | Type | Default | Description |
+| --- | --- | --- | --- |
+| `dj.pythonVenvPath` | string | — | Python virtual environment path (e.g., `.venv`) |
+| `dj.trinoPath` | string | `trino-cli` | Trino CLI executable path |
+| `dj.dbtProjectNames` | array | `[]` | Restrict which dbt projects to recognize |
+| `dj.dbtMacroPath` | string | `_ext_` | Subfolder for extension-provided macros |
+| `dj.airflowGenerateDags` | boolean | `false` | Toggle Airflow DAG generation |
+| `dj.airflowTargetVersion` | string | `2.7` | Target Airflow version (2.7, 2.8, 2.9, 2.10) |
+| `dj.airflowDagsPath` | string | `dags/_ext_` | Folder where extension writes Airflow DAGs |
+| `dj.syncDebounceMs` | number | `1500` | Debounce delay (ms) before triggering sync |
+| `dj.logLevel` | string | `info` | Logging level (debug, info, warn, error) |
+| `dj.codingAgent` | boolean | `false` | Enable AI agent integration (AGENTS.md + skills) |
+| `dj.aiHintTag` | string | — | Standard tag for resources with AI Hints |
+| `dj.columnLineage.autoRefresh` | boolean | `true` | Auto-refresh Column Lineage on file switch |
+| `dj.dataExplorer.autoRefresh` | boolean | `false` | Auto-refresh Data Explorer on file switch |
+| `dj.lightdashProjectPath` | string | — | Custom path to dbt project for Lightdash |
+| `dj.lightdashProfilesPath` | string | — | Custom path to dbt profiles for Lightdash |
+| `dj.lightdash.defaultSqlFilter` | string | — | Global default `sql_filter` injected into models with a `lightdash` block but no `sql_filter`. Per-model values win; `"sql_filter": null` explicitly disables. |
+| `dj.lightdash.defaultSqlFilterRequiredColumns` | array | `[]` | Columns that must exist on a model for `dj.lightdash.defaultSqlFilter` to apply. If any are missing, the global filter is silently skipped. |
 | `dj.lightdash.defaultPartitionColumnCaseSensitive` | boolean | `false` | Auto-emit `meta.dimension.case_sensitive: true` on partition columns in generated YAML (stops Lightdash from wrapping partition columns in `UPPER()`, preserving Trino predicate pushdown). Requires `DJ: Sync to SQL and YML` to apply. |
 | `dj.materialization.defaultIncrementalStrategy` | string | `overwrite_existing_partitions` | Default incremental strategy: `append`, `delete+insert`, `merge`, `overwrite_existing_partitions`, or `dj_iceberg_partition_overwrite` |
-| `dj.autoGenerateTests`         | object  | —            | (Experimental) Auto-generate tests on models     |
+| `dj.autoGenerateTests` | object | — | (Experimental) Auto-generate tests on models |
 
 ### Environment Variables
 

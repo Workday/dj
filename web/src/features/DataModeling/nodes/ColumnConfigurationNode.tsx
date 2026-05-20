@@ -211,7 +211,7 @@ export const ColumnConfigurationNode: React.FC<NodeProps> = () => {
       </div>
 
       {/* Content */}
-      <div className="p-6" data-tutorial-id="column-config-tabs">
+      <div data-tutorial-id="column-config-tabs">
         <Tab
           tabs={['General', 'Lightdash', 'Others']}
           panels={[

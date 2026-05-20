@@ -16,6 +16,8 @@ Complete guide to configuring the DJ (Data JSON) Framework VS Code extension.
 | `airflowDagsPath`                               | Custom path for Airflow DAGs                                     | Refresh 🔄      |
 | `lightdashProjectPath`                          | Custom Lightdash project path                                    | Next preview ⚡ |
 | `lightdashProfilesPath`                         | Custom Lightdash profiles path                                   | Next preview ⚡ |
+| `lightdash.defaultSqlFilter`                    | Global default `sql_filter` for lightdash tables                 | Next sync 🔄    |
+| `lightdash.defaultSqlFilterRequiredColumns`     | Required columns guard for the global filter                     | Next sync 🔄    |
 | `lightdash.defaultPartitionColumnCaseSensitive` | Set default `case_sensitive` value for partition columns in YAML | Next sync 🔄    |
 | `aiHintTag`                                     | Tag for AI-generated hints                                       | Next sync 🔄    |
 | `codingAgent`                                   | Coding agent integration                                         | Refresh 🔄      |
@@ -118,6 +120,27 @@ Complete guide to configuring the DJ (Data JSON) Framework VS Code extension.
 - Both optional (extension auto-detects by default)
 - See [Lightdash Configuration Guide](setup/lightdash-configuration.md)
 
+**`dj.lightdash.defaultSqlFilter`** - Global default `sql_filter` for lightdash tables
+
+**`dj.lightdash.defaultSqlFilterRequiredColumns`** - Columns required for the default to apply
+
+```json
+{
+  "dj.lightdash.defaultSqlFilter": "account_project_id in (select id from finops.account_rollup_hierarchy where proj_level_1_cd in (${lightdash.attributes.opus_purpose_level2}))",
+  "dj.lightdash.defaultSqlFilterRequiredColumns": ["account_project_id"]
+}
+```
+
+Filtering rules:
+
+- **Inheriting the default** — when a model's `lightdash` block omits `sql_filter`, DJ injects the global default (only if every column in `defaultSqlFilterRequiredColumns` is present on the model).
+- **No `lightdash` block** — DJ never adds the filter; the model's YAML is unchanged.
+- **Per-model override** — `lightdash.table.sql_filter: "<some other filter>"` wins over the global default.
+- **Explicit disable** — `lightdash.table.sql_filter: null` turns the filter off for that model, even when the global default is set.
+- **Missing required columns** — when `defaultSqlFilterRequiredColumns` lists columns the model doesn't produce, the filter is silently skipped for that model.
+
+Takes effect on next `DJ: Sync to SQL and YML`.
+
 **`dj.lightdash.defaultPartitionColumnCaseSensitive`** - Auto-emit `case_sensitive: true` on partition columns in generated YAML (default: `false`)
 
 ```json
@@ -127,6 +150,27 @@ Complete guide to configuring the DJ (Data JSON) Framework VS Code extension.
 - When `true`, every generated partition column in `.yml` files gets `meta.dimension.case_sensitive: true`. This stops Lightdash from wrapping the column in `UPPER()` in queries, preserving Trino predicate pushdown on partitioned tables.
 - When `false` (the default), partition columns are emitted without the auto-injected `case_sensitive` flag. Per-model and per-column `lightdash.case_sensitive` overrides in `.model.json` continue to work in either mode.
 - Takes effect on next `DJ: Sync to SQL and YML`.
+
+**`dj.lightdash.defaultSqlFilter`** - Global default `sql_filter` for lightdash tables
+
+**`dj.lightdash.defaultSqlFilterRequiredColumns`** - Columns required for the default to apply
+
+```json
+{
+  "dj.lightdash.defaultSqlFilter": "account_project_id in (select id from finops.account_rollup_hierarchy where proj_level_1_cd in (${lightdash.attributes.opus_purpose_level2}))",
+  "dj.lightdash.defaultSqlFilterRequiredColumns": ["account_project_id"]
+}
+```
+
+Filtering rules:
+
+- **Inheriting the default** — when a model's `lightdash` block omits `sql_filter`, DJ injects the global default (only if every column in `defaultSqlFilterRequiredColumns` is present on the model).
+- **No `lightdash` block** — DJ never adds the filter; the model's YAML is unchanged.
+- **Per-model override** — `lightdash.table.sql_filter: "<some other filter>"` wins over the global default.
+- **Explicit disable** — `lightdash.table.sql_filter: null` turns the filter off for that model, even when the global default is set.
+- **Missing required columns** — when `defaultSqlFilterRequiredColumns` lists columns the model doesn't produce, the filter is silently skipped for that model.
+
+Takes effect on next `DJ: Sync to SQL and YML`.
 
 ---
 
@@ -241,6 +285,7 @@ Run this command (`Cmd/Ctrl+Shift+P` → `DJ: Refresh Projects`) after changing:
 ### 🔄 Requires `DJ: Sync to SQL and YML`
 
 - `aiHintTag` - Recompiles models with updated tags
+- `lightdash.defaultSqlFilter` / `lightdash.defaultSqlFilterRequiredColumns` - Re-emits lightdash table meta on existing models
 - `lightdash.defaultPartitionColumnCaseSensitive` - Re-emits partition column YAML meta
 
 ---

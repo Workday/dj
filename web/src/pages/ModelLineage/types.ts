@@ -47,10 +47,18 @@ export interface ModelNodeData extends Record<string, unknown> {
   onRun: (modelName: string, projectName: string) => void;
   onCompile: (modelName: string, projectName: string) => void;
   onCompileAndRun: (modelName: string, projectName: string) => void;
-  onNodeClick: (modelName: string, projectName: string) => void;
+  onNodeClick: (
+    modelName: string,
+    projectName: string,
+    type: 'model' | 'source' | 'seed',
+  ) => void;
   onExpandUpstream?: (modelName: string, projectName: string) => void;
   onExpandDownstream?: (modelName: string, projectName: string) => void;
-  onViewColumns?: (filePath: string, modelName: string) => void;
+  onViewColumns?: (
+    filePath: string,
+    modelName: string,
+    type: 'model' | 'source' | 'seed',
+  ) => void;
 }
 
 export type LineageFlowNode = Node<ModelNodeData>;

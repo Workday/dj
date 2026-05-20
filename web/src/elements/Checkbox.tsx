@@ -14,6 +14,7 @@ interface CheckboxProps {
   icon?: React.ReactNode;
   title?: string;
   indeterminate?: boolean;
+  description?: string;
 }
 
 export const Checkbox: React.FC<CheckboxProps> = ({
@@ -27,6 +28,7 @@ export const Checkbox: React.FC<CheckboxProps> = ({
   icon,
   title,
   indeterminate = false,
+  description,
 }) => {
   const checkboxRef = useRef<HTMLInputElement>(null);
 
@@ -62,18 +64,23 @@ export const Checkbox: React.FC<CheckboxProps> = ({
         )}
       </HeadlessCheckbox>
       {icon}
-      {label && (
-        <Label
-          htmlFor={id}
-          title={title}
-          className={makeClassName(
-            'text-sm select-none',
-            disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
-          )}
-        >
-          {label}
-        </Label>
-      )}
+      <div className="flex flex-col gap-1">
+        {label && (
+          <Label
+            htmlFor={id}
+            title={title}
+            className={makeClassName(
+              'text-sm select-none',
+              disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer',
+            )}
+          >
+            {label}
+          </Label>
+        )}
+        {description && (
+          <p className="text-sm text-neutral-500">{description}</p>
+        )}
+      </div>
     </Field>
   );
 };

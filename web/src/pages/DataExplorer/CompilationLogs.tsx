@@ -1,10 +1,11 @@
 import {
   BeakerIcon,
   CheckCircleIcon,
+  EllipsisVerticalIcon,
   ExclamationCircleIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline';
-import { CodeBlock } from '@web/elements';
+import { CodeBlock, Popover } from '@web/elements';
 import { useEffect, useRef } from 'react';
 
 export interface CompilationLog {
@@ -42,7 +43,10 @@ interface CompilationLogsProps {
   modelName: string;
   onClose: () => void;
   onRunQuery?: () => void;
+  onOpenCompiledSql?: () => void;
+  onOpenRunSql?: () => void;
   showRunButton: boolean;
+  theme?: 'light' | 'dark';
 }
 
 export default function CompilationLogs({
@@ -52,7 +56,10 @@ export default function CompilationLogs({
   modelName,
   onClose,
   onRunQuery,
+  onOpenCompiledSql,
+  onOpenRunSql,
   showRunButton,
+  theme = 'dark',
 }: CompilationLogsProps) {
   const logsEndRef = useRef<HTMLDivElement>(null);
 
@@ -75,15 +82,15 @@ export default function CompilationLogs({
   };
 
   return (
-    <div className="h-full flex flex-col bg-white border-l border-gray-200">
+    <div className="h-full flex flex-col bg-card border-l border-neutral">
       {/* Header */}
-      <div className="flex-shrink-0 px-4 py-3 border-b border-gray-200 flex items-center justify-between bg-gray-50">
+      <div className="flex-shrink-0 px-4 py-3 border-b border-neutral flex items-center justify-between bg-surface">
         <div className="flex items-center gap-3">
-          <BeakerIcon className="w-5 h-5 text-gray-700" />
-          <h3 className="font-semibold text-gray-900">Compiling Model</h3>
+          <BeakerIcon className="w-5 h-5 text-surface-contrast" />
+          <h3 className="font-semibold text-foreground">Compiling Model</h3>
           {isCompiling && (
-            <div className="flex items-center gap-2 text-sm text-blue-600">
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+            <div className="flex items-center gap-2 text-sm text-primary">
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
               <span>Compiling...</span>
             </div>
           )}
@@ -100,13 +107,58 @@ export default function CompilationLogs({
             </div>
           )}
         </div>
-        <button
-          onClick={onClose}
-          className="p-1.5 rounded hover:bg-gray-200 transition-colors"
-          title="Close"
-        >
-          <XMarkIcon className="w-5 h-5 text-gray-600" />
-        </button>
+        <div className="flex items-center gap-1">
+          {!isCompiling &&
+            compilationSuccess === true &&
+            (onOpenCompiledSql || onOpenRunSql) && (
+              <Popover
+                trigger={
+                  <button
+                    className="p-1.5 rounded hover:bg-card transition-colors"
+                    title="More actions"
+                  >
+                    <EllipsisVerticalIcon className="w-5 h-5 text-surface-contrast" />
+                  </button>
+                }
+                placement="right"
+                panelClassName="w-48 py-1"
+              >
+                {(close: () => void) => (
+                  <>
+                    {onOpenCompiledSql && (
+                      <button
+                        onClick={() => {
+                          onOpenCompiledSql();
+                          close();
+                        }}
+                        className="w-full text-left px-4 py-2 text-sm text-foreground hover:bg-surface transition-colors"
+                      >
+                        Open Compiled SQL
+                      </button>
+                    )}
+                    {onOpenRunSql && (
+                      <button
+                        onClick={() => {
+                          onOpenRunSql();
+                          close();
+                        }}
+                        className="w-full text-left px-4 py-2 text-sm text-foreground hover:bg-surface transition-colors"
+                      >
+                        Open Run SQL
+                      </button>
+                    )}
+                  </>
+                )}
+              </Popover>
+            )}
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded hover:bg-card transition-colors"
+            title="Close"
+          >
+            <XMarkIcon className="w-5 h-5 text-surface-contrast" />
+          </button>
+        </div>
       </div>
 
       {/* Content - Logs */}
@@ -132,7 +184,7 @@ export default function CompilationLogs({
                   <CodeBlock
                     code={log.message}
                     language="sql"
-                    theme="light"
+                    theme={theme}
                     showLineNumbers={true}
                     wrapLines={true}
                   />
@@ -145,14 +197,14 @@ export default function CompilationLogs({
       </div>
 
       {/* Footer with actions */}
-      <div className="flex-shrink-0 px-4 py-3 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
-        <p className="text-xs text-gray-600">
+      <div className="flex-shrink-0 px-4 py-3 border-t border-neutral bg-surface flex items-center justify-between">
+        <p className="text-xs text-surface-contrast">
           Model: <span className="font-mono font-semibold">{modelName}</span>
         </p>
         {showRunButton && compilationSuccess && onRunQuery && !isCompiling && (
           <button
             onClick={onRunQuery}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-sm font-medium"
+            className="px-4 py-2 bg-primary text-primary-contrast rounded hover:opacity-90 transition-colors text-sm font-medium"
           >
             Run Query
           </button>

@@ -9,8 +9,9 @@ import {
   ReactFlow,
   useEdgesState,
   useNodesState,
+  useReactFlow,
 } from '@xyflow/react';
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
 import { useDataExplorerStore } from '../../stores/dataExplorerStore';
 import ModelNode from './ModelNode';
@@ -29,13 +30,23 @@ interface LineageGraphProps {
   selectedNodeName: string | null;
   onRunQuery: (modelName: string, projectName: string) => void;
   onCompile: (modelName: string, projectName: string) => void;
-  onNodeClick: (modelName: string, projectName: string) => void;
-  onViewColumns?: (modelName: string, projectName: string) => void;
+  onNodeClick: (
+    modelName: string,
+    projectName: string,
+    type: 'model' | 'source' | 'seed',
+  ) => void;
+  onViewColumns?: (
+    filePath: string,
+    modelName: string,
+    type: 'model' | 'source' | 'seed',
+  ) => void;
 }
+
+const EDGE_COLOR = 'var(--color-border-contrast)';
 
 const edgeStyle = {
   strokeWidth: 2,
-  stroke: '#6b7280',
+  stroke: EDGE_COLOR,
 };
 
 // Node dimensions: max-width ~380px, height ~75px
@@ -194,10 +205,12 @@ export default function LineageGraph({
     additionalNodes,
     additionalEdges,
   } = useDataExplorerStore();
+  const { fitView } = useReactFlow();
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<ModelNodeData>>(
     [],
   );
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const layoutVersionRef = useRef(0);
 
   const handleCompile = useCallback(
     (modelName: string, projectName: string) => {
@@ -362,7 +375,7 @@ export default function LineageGraph({
           type: MarkerType.ArrowClosed,
           width: 20,
           height: 20,
-          color: '#6b7280',
+          color: EDGE_COLOR,
         },
       };
       newEdges.push(edge);
@@ -417,7 +430,7 @@ export default function LineageGraph({
           type: MarkerType.ArrowClosed,
           width: 20,
           height: 20,
-          color: '#6b7280',
+          color: EDGE_COLOR,
         },
       };
       newEdges.push(edge);
@@ -477,7 +490,7 @@ export default function LineageGraph({
           type: MarkerType.ArrowClosed,
           width: 20,
           height: 20,
-          color: '#6b7280',
+          color: EDGE_COLOR,
         },
       };
       newEdges.push(edge);
@@ -492,6 +505,7 @@ export default function LineageGraph({
 
     setNodes(layoutedNodes);
     setEdges(layoutedEdges);
+    layoutVersionRef.current += 1;
   }, [
     currentNode,
     upstreamNodes,
@@ -511,6 +525,15 @@ export default function LineageGraph({
     isNodeDownstreamExpanded,
     checkModelOutdated,
   ]);
+
+  // Imperative fitView after layout changes
+  useEffect(() => {
+    if (nodes.length > 0 && layoutVersionRef.current > 0) {
+      requestAnimationFrame(() => {
+        void fitView({ padding: 0.2, maxZoom: 1.5, duration: 200 });
+      });
+    }
+  }, [nodes.length, fitView]);
 
   // Highlight selected/clicked node
   useEffect(() => {
@@ -572,12 +595,12 @@ export default function LineageGraph({
       panOnScroll={true}
       panOnScrollMode={PanOnScrollMode.Free}
       preventScrolling={true}
-      className="bg-gray-50"
+      className="bg-surface"
       proOptions={{ hideAttribution: true }}
     >
-      <Background color="#d1d5db" gap={16} />
+      <Background color="var(--color-neutral)" gap={16} />
       <Controls
-        className="bg-white border border-gray-300 rounded-lg shadow-lg"
+        className="bg-card border border-neutral rounded-lg shadow-lg"
         showInteractive={false}
       />
     </ReactFlow>

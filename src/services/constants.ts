@@ -52,6 +52,7 @@ export const COMMAND_ID = {
   CLEAR_SYNC_CACHE: 'dj.command.clearSyncCache',
   DEFER_RUN: 'dj.command.deferRun',
   DISCARD_EDIT_DRAFT: 'dj.command.discardEditDraft',
+  LIGHTDASH_DASHBOARDS_AS_CODE: 'dj.command.lightdashDashboardsAsCode',
   LIGHTDASH_PREVIEW: 'dj.command.lightdashPreview',
   MODEL_CLONE: 'dj.command.modelClone',
   MODEL_COMPILE: 'dj.command.modelCompile',
@@ -97,10 +98,18 @@ export const VIEW_ID = {
   MODEL_LINEAGE_FOCUS: 'dj.view.modelLineage.focus',
   MODEL_TEST: 'dj.view.modelTest',
   SOURCE_CREATE: 'dj.view.sourceCreate',
+  LIGHTDASH_DASHBOARDS_AS_CODE: 'dj.view.lightdashDashboardsAsCode',
   LIGHTDASH_PREVIEW_MANAGER: 'dj.view.lightdashPreviewManager',
   // VS Code built-in commands for focusing view containers
   COLUMN_LINEAGE_CONTAINER_FOCUS: 'workbench.view.extension.dj-column-lineage',
 } as const;
+
+// Lightdash Dashboards-as-Code JSON schema URLs (used by the
+// auto-installed `yaml.schemas` workspace settings binding)
+export const LIGHTDASH_CHART_SCHEMA_URL =
+  'https://raw.githubusercontent.com/lightdash/lightdash/refs/heads/main/packages/common/src/schemas/json/chart-as-code-1.0.json';
+export const LIGHTDASH_DASHBOARD_SCHEMA_URL =
+  'https://raw.githubusercontent.com/lightdash/lightdash/refs/heads/main/packages/common/src/schemas/json/dashboard-as-code-1.0.json';
 
 export const DBT_MSG = {
   CREATE_SOURCE: 'Create Source',

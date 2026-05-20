@@ -29,8 +29,8 @@ export function Tab({ tabs, panels, onChange, defaultIndex }: TabProps) {
         };
 
   return (
-    <TabGroup {...tabGroupProps}>
-      <TabList className="flex bg-[var(--color-tab)]">
+    <TabGroup {...tabGroupProps} className="flex flex-col h-full min-h-0">
+      <TabList className="shrink-0 flex bg-[var(--color-tab)]">
         {tabs.map((tab, index) => (
           <HeadlessTab
             key={index}
@@ -43,9 +43,11 @@ export function Tab({ tabs, panels, onChange, defaultIndex }: TabProps) {
           </HeadlessTab>
         ))}
       </TabList>
-      <TabPanels className="p-4 bg-[var(--color-tab-contrast)]">
+      <TabPanels className="p-4 bg-[var(--color-tab-contrast)] flex-1 min-h-0">
         {panels.map((panel, index) => (
-          <TabPanel key={index}>{panel}</TabPanel>
+          <TabPanel key={index} className="h-full min-h-0">
+            {panel}
+          </TabPanel>
         ))}
       </TabPanels>
     </TabGroup>

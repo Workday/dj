@@ -1509,6 +1509,210 @@ describe('incremental unique_key defaulting', () => {
   });
 });
 
+describe('lightdash global sql_filter default', () => {
+  // Reuse the same project fixture shape used by the other lightdash-adjacent
+  // tests above. Columns on `model_a` are `dim_a` + `dim_b`, on `model_b` they
+  // are `dim_a`, `dim_b`, `amount`.
+  const project: DbtProject = {
+    name: 'project',
+    macroPaths: ['macros'],
+    manifest: {
+      child_map: {},
+      disabled: {},
+      docs: {},
+      exposures: {},
+      group_map: {},
+      groups: {},
+      macros: {},
+      metadata: { project_name: 'project' },
+      metrics: {},
+      nodes: {
+        ['model.project.model_a']: {
+          columns: {
+            dim_a: {
+              name: 'dim_a',
+              data_type: 'varchar',
+              meta: { type: 'dim' },
+            },
+            dim_b: {
+              name: 'dim_b',
+              data_type: 'varchar',
+              meta: { type: 'dim' },
+            },
+          },
+        },
+      },
+      parent_map: {},
+      saved_queries: {},
+      selectors: {},
+      semantic_models: {},
+      sources: {},
+    },
+    modelPaths: ['models'],
+    packagePath: '',
+    pathRelative: '',
+    pathSystem: '',
+    properties: { vars: { event_dates: '2024-07-01' } },
+    targetPath: 'target',
+    variables: {},
+  };
+
+  const GLOBAL_FILTER =
+    '(account_project_id in (select id from opus.finops.account_rollup))';
+
+  // Builds a DJ object with optional lightdash global-default config.
+  function makeDj(opts?: {
+    defaultFilter?: string;
+    requiredColumns?: string[];
+  }): DJ {
+    return {
+      config: {
+        aiHintTag: 'ai',
+        lightdashDefaultSqlFilter: opts?.defaultFilter,
+        lightdashDefaultSqlFilterRequiredColumns: opts?.requiredColumns,
+      },
+    };
+  }
+
+  // Common model that has `dim_a`/`dim_b` (matches required cols `dim_a`).
+  // We use a select-from-model so the generated columns match `model_a`'s set.
+  const baseModel = (
+    lightdash: FrameworkModel extends infer T
+      ? T extends { lightdash?: infer L }
+        ? L
+        : never
+      : never,
+  ): FrameworkModel =>
+    ({
+      type: 'int_select_model',
+      group: 'ml',
+      topic: 'lf',
+      name: 'lightdash_global_filter_target',
+      select: [{ type: 'dims_from_model', model: 'model_a' }],
+      from: { model: 'model_a' },
+      lightdash,
+    }) as unknown as FrameworkModel;
+
+  test('no lightdash block: global default is never applied', () => {
+    const modelJson: FrameworkModel = {
+      type: 'int_select_model',
+      group: 'ml',
+      topic: 'lf',
+      name: 'no_lightdash',
+      select: [{ type: 'dims_from_model', model: 'model_a' }],
+      from: { model: 'model_a' },
+    } as unknown as FrameworkModel;
+
+    const { properties } = frameworkGenerateModelOutput({
+      dj: makeDj({ defaultFilter: GLOBAL_FILTER, requiredColumns: ['dim_a'] }),
+      modelJson,
+      project,
+    });
+
+    expect(properties.meta?.sql_filter).toBeUndefined();
+  });
+
+  test('lightdash block, no sql_filter, no global config: nothing applied', () => {
+    const modelJson = baseModel({
+      table: { label: 'My Table' },
+    });
+
+    const { properties } = frameworkGenerateModelOutput({
+      dj: makeDj(),
+      modelJson,
+      project,
+    });
+
+    expect(properties.meta?.sql_filter).toBeUndefined();
+    expect(properties.meta?.label).toBe('My Table');
+  });
+
+  test('lightdash block, no sql_filter, global config + required columns present: default injected', () => {
+    const modelJson = baseModel({
+      table: { label: 'My Table' },
+    });
+
+    const { properties } = frameworkGenerateModelOutput({
+      dj: makeDj({
+        defaultFilter: GLOBAL_FILTER,
+        requiredColumns: ['dim_a'],
+      }),
+      modelJson,
+      project,
+    });
+
+    expect(properties.meta?.sql_filter).toBe(GLOBAL_FILTER);
+  });
+
+  test('lightdash block, no sql_filter, global config + missing required column: default skipped', () => {
+    const modelJson = baseModel({
+      table: { label: 'My Table' },
+    });
+
+    const { properties } = frameworkGenerateModelOutput({
+      dj: makeDj({
+        defaultFilter: GLOBAL_FILTER,
+        // `account_project_id` is not on `model_a`, so the global filter
+        // must NOT be applied to this model.
+        requiredColumns: ['dim_a', 'account_project_id'],
+      }),
+      modelJson,
+      project,
+    });
+
+    expect(properties.meta?.sql_filter).toBeUndefined();
+  });
+
+  test('lightdash block with explicit sql_filter string: per-model override wins', () => {
+    const overrideFilter = 'dim_a in (1, 2, 3)';
+    const modelJson = baseModel({
+      table: { label: 'My Table', sql_filter: overrideFilter },
+    });
+
+    const { properties } = frameworkGenerateModelOutput({
+      dj: makeDj({
+        defaultFilter: GLOBAL_FILTER,
+        requiredColumns: ['dim_a'],
+      }),
+      modelJson,
+      project,
+    });
+
+    expect(properties.meta?.sql_filter).toBe(overrideFilter);
+  });
+
+  test('lightdash block with sql_filter: null: explicit disable, even with global config set', () => {
+    const modelJson = baseModel({
+      table: { label: 'My Table', sql_filter: null },
+    });
+
+    const { properties } = frameworkGenerateModelOutput({
+      dj: makeDj({
+        defaultFilter: GLOBAL_FILTER,
+        requiredColumns: ['dim_a'],
+      }),
+      modelJson,
+      project,
+    });
+
+    expect(properties.meta?.sql_filter).toBeUndefined();
+  });
+
+  test('empty requiredColumns means "always apply" when default filter is set', () => {
+    const modelJson = baseModel({
+      table: { label: 'My Table' },
+    });
+
+    const { properties } = frameworkGenerateModelOutput({
+      dj: makeDj({ defaultFilter: GLOBAL_FILTER, requiredColumns: [] }),
+      modelJson,
+      project,
+    });
+
+    expect(properties.meta?.sql_filter).toBe(GLOBAL_FILTER);
+  });
+});
+
 describe('partition column case_sensitive', () => {
   const project: DbtProject = {
     name: 'project',
@@ -1650,5 +1854,209 @@ describe('partition column case_sensitive', () => {
     );
     // Explicit false overrides the auto-set behavior
     expect(partitionCol?.meta?.dimension?.case_sensitive).toBe(false);
+  });
+});
+
+describe('lightdash global sql_filter default', () => {
+  // Reuse the same project fixture shape used by the other lightdash-adjacent
+  // tests above. Columns on `model_a` are `dim_a` + `dim_b`, on `model_b` they
+  // are `dim_a`, `dim_b`, `amount`.
+  const project: DbtProject = {
+    name: 'project',
+    macroPaths: ['macros'],
+    manifest: {
+      child_map: {},
+      disabled: {},
+      docs: {},
+      exposures: {},
+      group_map: {},
+      groups: {},
+      macros: {},
+      metadata: { project_name: 'project' },
+      metrics: {},
+      nodes: {
+        ['model.project.model_a']: {
+          columns: {
+            dim_a: {
+              name: 'dim_a',
+              data_type: 'varchar',
+              meta: { type: 'dim' },
+            },
+            dim_b: {
+              name: 'dim_b',
+              data_type: 'varchar',
+              meta: { type: 'dim' },
+            },
+          },
+        },
+      },
+      parent_map: {},
+      saved_queries: {},
+      selectors: {},
+      semantic_models: {},
+      sources: {},
+    },
+    modelPaths: ['models'],
+    packagePath: '',
+    pathRelative: '',
+    pathSystem: '',
+    properties: { vars: { event_dates: '2024-07-01' } },
+    targetPath: 'target',
+    variables: {},
+  };
+
+  const GLOBAL_FILTER =
+    '(account_project_id in (select id from opus.finops.account_rollup))';
+
+  // Builds a DJ object with optional lightdash global-default config.
+  function makeDj(opts?: {
+    defaultFilter?: string;
+    requiredColumns?: string[];
+  }): DJ {
+    return {
+      config: {
+        aiHintTag: 'ai',
+        lightdashDefaultSqlFilter: opts?.defaultFilter,
+        lightdashDefaultSqlFilterRequiredColumns: opts?.requiredColumns,
+      },
+    };
+  }
+
+  // Common model that has `dim_a`/`dim_b` (matches required cols `dim_a`).
+  // We use a select-from-model so the generated columns match `model_a`'s set.
+  const baseModel = (
+    lightdash: FrameworkModel extends infer T
+      ? T extends { lightdash?: infer L }
+        ? L
+        : never
+      : never,
+  ): FrameworkModel =>
+    ({
+      type: 'int_select_model',
+      group: 'ml',
+      topic: 'lf',
+      name: 'lightdash_global_filter_target',
+      select: [{ type: 'dims_from_model', model: 'model_a' }],
+      from: { model: 'model_a' },
+      lightdash,
+    }) as unknown as FrameworkModel;
+
+  test('no lightdash block: global default is never applied', () => {
+    const modelJson: FrameworkModel = {
+      type: 'int_select_model',
+      group: 'ml',
+      topic: 'lf',
+      name: 'no_lightdash',
+      select: [{ type: 'dims_from_model', model: 'model_a' }],
+      from: { model: 'model_a' },
+    } as unknown as FrameworkModel;
+
+    const { properties } = frameworkGenerateModelOutput({
+      dj: makeDj({ defaultFilter: GLOBAL_FILTER, requiredColumns: ['dim_a'] }),
+      modelJson,
+      project,
+    });
+
+    expect(properties.meta?.sql_filter).toBeUndefined();
+  });
+
+  test('lightdash block, no sql_filter, no global config: nothing applied', () => {
+    const modelJson = baseModel({
+      table: { label: 'My Table' },
+    });
+
+    const { properties } = frameworkGenerateModelOutput({
+      dj: makeDj(),
+      modelJson,
+      project,
+    });
+
+    expect(properties.meta?.sql_filter).toBeUndefined();
+    expect(properties.meta?.label).toBe('My Table');
+  });
+
+  test('lightdash block, no sql_filter, global config + required columns present: default injected', () => {
+    const modelJson = baseModel({
+      table: { label: 'My Table' },
+    });
+
+    const { properties } = frameworkGenerateModelOutput({
+      dj: makeDj({
+        defaultFilter: GLOBAL_FILTER,
+        requiredColumns: ['dim_a'],
+      }),
+      modelJson,
+      project,
+    });
+
+    expect(properties.meta?.sql_filter).toBe(GLOBAL_FILTER);
+  });
+
+  test('lightdash block, no sql_filter, global config + missing required column: default skipped', () => {
+    const modelJson = baseModel({
+      table: { label: 'My Table' },
+    });
+
+    const { properties } = frameworkGenerateModelOutput({
+      dj: makeDj({
+        defaultFilter: GLOBAL_FILTER,
+        // `account_project_id` is not on `model_a`, so the global filter
+        // must NOT be applied to this model.
+        requiredColumns: ['dim_a', 'account_project_id'],
+      }),
+      modelJson,
+      project,
+    });
+
+    expect(properties.meta?.sql_filter).toBeUndefined();
+  });
+
+  test('lightdash block with explicit sql_filter string: per-model override wins', () => {
+    const overrideFilter = 'dim_a in (1, 2, 3)';
+    const modelJson = baseModel({
+      table: { label: 'My Table', sql_filter: overrideFilter },
+    });
+
+    const { properties } = frameworkGenerateModelOutput({
+      dj: makeDj({
+        defaultFilter: GLOBAL_FILTER,
+        requiredColumns: ['dim_a'],
+      }),
+      modelJson,
+      project,
+    });
+
+    expect(properties.meta?.sql_filter).toBe(overrideFilter);
+  });
+
+  test('lightdash block with sql_filter: null: explicit disable, even with global config set', () => {
+    const modelJson = baseModel({
+      table: { label: 'My Table', sql_filter: null },
+    });
+
+    const { properties } = frameworkGenerateModelOutput({
+      dj: makeDj({
+        defaultFilter: GLOBAL_FILTER,
+        requiredColumns: ['dim_a'],
+      }),
+      modelJson,
+      project,
+    });
+
+    expect(properties.meta?.sql_filter).toBeUndefined();
+  });
+
+  test('empty requiredColumns means "always apply" when default filter is set', () => {
+    const modelJson = baseModel({
+      table: { label: 'My Table' },
+    });
+
+    const { properties } = frameworkGenerateModelOutput({
+      dj: makeDj({ defaultFilter: GLOBAL_FILTER, requiredColumns: [] }),
+      modelJson,
+      project,
+    });
+
+    expect(properties.meta?.sql_filter).toBe(GLOBAL_FILTER);
   });
 });
