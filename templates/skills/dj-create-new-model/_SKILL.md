@@ -43,7 +43,7 @@ One clarifying question if source vs existing model is unclear.
 ## Conventions & gotchas
 
 - **type**: Type of the model - mart, staging, intermediate, source, etc. Determined from the decision tree above.
-- **group**: Group of the model - analytics, finops, sales, marketing, etc.
+- **group**: Must be one of: `ml`, `capeng`, `perftools`, `mlde`, `ai_platform`, `ibp`.
 - **topic**: Topic of the model - aws_cur, gcp_billing, salesforce, etc.
 - **name**: Name of the model - accounts_billing_daily, opportunities_facts, etc.
 

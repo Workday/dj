@@ -13,8 +13,16 @@ describe('Skills', () => {
     .readdirSync(SKILLS_DIR, { withFileTypes: true })
     .filter((e) => e.isDirectory());
 
-  test('templates/skills contains at least one skill directory', () => {
-    expect(skillDirs.length).toBeGreaterThanOrEqual(1);
+  const EXPECTED_SKILLS = [
+    'convert-sql-to-model',
+    'dj-create-new-model',
+    'dj-edit-lightdash-yaml',
+    'dj-update-ai-hints',
+  ];
+
+  test('all expected skill templates are present', () => {
+    const skillNames = skillDirs.map((d) => d.name).sort();
+    expect(skillNames).toEqual(EXPECTED_SKILLS);
   });
 
   test.each(skillDirs.map((d) => d.name))(

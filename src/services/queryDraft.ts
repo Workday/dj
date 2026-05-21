@@ -211,14 +211,14 @@ SELECT 1
    * Build the conversion prompt for AI assistants
    */
   buildConversionPrompt(sql: string): string {
-    return `Use the /convert-sql-to-model skill to convert this SQL query into a DJ .model.json file.
+    return `/convert-sql-to-model
 
 ## SQL Query
 \`\`\`sql
 ${sql}
 \`\`\`
 
-Please analyze the query structure and create the appropriate .model.json file following DJ conventions.`;
+Convert this SQL query into a DJ .model.json file.`;
   }
 
   /**
