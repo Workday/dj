@@ -96,7 +96,7 @@ export function LightdashDashboardsAsCode() {
     <div className="h-screen text-surface-contrast flex flex-col gap-4 overflow-hidden">
       <header className="px-4 flex flex-col gap-2">
         <h1 className="text-2xl font-bold">Dashboards as Code</h1>
-        <p className="text-sm flex">
+        <p className="text-sm">
           Manage Lightdash charts and dashboards as YAML files using the{' '}
           <code>lightdash download</code> and <code>lightdash upload</code> CLI
           commands.

@@ -354,6 +354,11 @@
           "default": true,
           "description": "Automatically refresh Column Lineage when switching between supported files."
         },
+        "dj.dataExplorer.showLightdashLineage": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Show downstream **Lightdash dashboards and standalone charts** as nodes for `mart_*` models in the Data Explorer lineage graph. Reads local Dashboards-as-Code YAML from the path defined by `#dj.lightdash.dashboardsAsCodePath#`. Disabled by default; enable to opt in (the toggle is also available in the Data Explorer header)."
+        },
         "dj.dataExplorer.autoRefresh": {
           "type": "boolean",
           "default": true,
