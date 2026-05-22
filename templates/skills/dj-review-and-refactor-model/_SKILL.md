@@ -67,7 +67,7 @@ Each row below is **one** finding type. Verbose before/after JSONC, detection he
 
 ## Report template
 
-Render this **upfront, before any edits**. Make every finding self-contained so the user can decide without opening the file.
+Render this **upfront, before any edits**. Make every finding self-contained so the user can decide without opening the file. Treat the block below as a **shape**, not a verbatim string -- adapt headings to the actual scope and findings.
 
 ```text
 ## Review for <scope>
@@ -88,20 +88,37 @@ Render this **upfront, before any edits**. Make every finding self-contained so 
 [B] ...
 ```
 
-If a single file produces multiple findings, list each as its own numbered item -- don't bundle them. If the entire scope produces zero findings, print `No legacy patterns detected.` and exit.
+Rules:
+
+- **Omit empty buckets.** If there are no Recommended findings, drop that whole `###` heading. Same for Needs-your-decision. Never print a placeholder like `(none)` or `N/A` under a heading.
+- **One finding per item.** If a single file produces multiple findings, list each as its own labeled item -- don't bundle them under one number.
+- **Zero findings overall.** Print `No legacy patterns detected.` and exit. Don't ask for confirmation, don't render headings.
 
 ## Confirmation prompt
 
-After the report, ask **verbatim**:
+After the report, ask the user -- in **natural prose, your own wording each time** -- which findings to apply. Do **not** copy a fixed template, do **not** echo this section as text, and do **not** present the user with abstract format strings like `recommended + A,C`. The question must fit the actual report you just rendered.
 
-> Apply changes? Reply with one of:
->
-> - `recommended` -- apply every Recommended `[N]` item
-> - `recommended + A,C` -- apply all Recommended plus the lettered items you list
-> - `1,3,A` -- apply only the items you list
-> - `none` -- skip everything
+The ask must:
 
-Wait for the user. Anything else (a question, a partial answer, a clarification) means "stop and ask again", not "apply all".
+- **Adapt to populated buckets.** If only Recommended items exist, don't mention letter labels. If only Needs-your-decision items exist, don't mention numeric labels. If both exist, mention both label sets.
+- **Reuse the labels already printed** in the report (`[1]`, `[2]`, `[A]`, ...) so the user can refer to specific items.
+- **Surface the common shorthands inline:** apply every recommended item, list specific labels, skip everything. Phrase these as part of a sentence -- not as a bulleted format menu.
+
+Then **stop and wait.** Parse the reply yourself and treat these as consent:
+
+| Reply intent (paraphrased)                             | Action                            |
+| ------------------------------------------------------ | --------------------------------- |
+| "all", "all recommended", "yes apply them", "go ahead" | Apply every Recommended item only |
+| "1 and 3", "apply 2 and A", "all recommended plus A"   | Apply exactly the listed labels   |
+| "skip", "none", "no thanks", "leave it"                | Apply nothing                     |
+
+Anything else (a question, a half-answer, a model-name reference, a single bare number with no verb) is a clarification request -- answer it, then re-ask. Never treat ambiguity as "apply all".
+
+**Illustrative asks** (do not paste; rewrite to fit the report you just rendered):
+
+- _Both buckets populated:_ "Want me to apply any of these? You can say `all recommended` for every numbered item, list specific labels (e.g. `1, 3, A`) to mix and match, or `skip` to leave the file alone."
+- _Only Recommended:_ "These are all safe rewrites -- apply them all, or list the specific numbers you want?"
+- _Only Needs-your-decision:_ "Each of these needs your call. Which letters should I apply? Or `skip` to leave things as-is."
 
 ## Hard rules (DO NOT)
 
@@ -192,13 +209,12 @@ Wait for the user. Anything else (a question, a partial answer, a clarification)
 [3] int__sales__orders__hourly.model.json: group_by [{ "type": "dims" }] -> "dims" shorthand
     Before:  "group_by": [{ "type": "dims" }],
     After:   "group_by": "dims",
-
-### Needs your decision (context below; you pick)
-(none)
 ```
 
-**Confirmation:**
+(Note: the `### Needs your decision` heading is **omitted entirely** because that bucket is empty -- no `(none)` placeholder.)
 
-> Apply changes? Reply with one of: `recommended`, `recommended + A,C`, `1,3,A`, `none`
+**Confirmation** (phrased naturally because only Recommended items exist):
 
-User replies `recommended`. The skill applies all three edits, prints `applied / applied / applied`, waits ~3s for the watcher, confirms the Problems tab shows no new diagnostics, then asks the user to run `DJ: Sync to SQL and YML` for a project-wide pass. The free-form `meta.owner` key round-trips untouched.
+> All three of these are safe rewrites. Want me to apply them all, or list the specific numbers you want?
+
+User replies `apply all`. The skill applies all three edits, prints `applied / applied / applied`, waits ~3s for the watcher, confirms the Problems tab shows no new diagnostics, then asks the user to run `DJ: Sync to SQL and YML` for a project-wide pass. The free-form `meta.owner` key round-trips untouched.
