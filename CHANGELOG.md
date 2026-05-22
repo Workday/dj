@@ -1,5 +1,12 @@
 # Change Log
 
+## Next
+
+### Agent Skills
+
+- **Migrate legacy ephemeral models into inline CTEs through your AI assistant.** When `dj.codingAgent` is enabled, a new skill at `.agents/skills/dj-migrate-ephemerals-to-ctes/SKILL.md` walks an IDE agent through finding ephemeral `.model.json` files, deciding which ones can safely fold into their downstream consumers, applying the rewrite, and prompting you before any deletion. Ephemerals carrying Lightdash metadata or staging models that read from sources are flagged as unsafe so nothing is silently lost. Lets you say "audit the ephemerals under the sales group and migrate the qualifying ones" to dissolve redundant intermediate layers in one pass.
+- **Agent skills can bundle nested subdirectories.** A skill template's `references/`, `scripts/`, and `assets/` subdirectories are copied to `.agents/skills/<skill>/` alongside its `SKILL.md`, matching the [agentskills.io](https://agentskills.io) progressive-disclosure layout.
+
 ## 1.5.0
 
 ### Lightdash
