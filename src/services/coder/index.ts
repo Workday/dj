@@ -45,6 +45,8 @@ export class Coder {
   dbt: Dbt; // Added for convenience (same as framework.dbt)
   framework: Framework;
   gitPending: boolean;
+  private gitPendingTimer: NodeJS.Timeout | null = null;
+  private gitPendingStartedAt: number | null = null;
   lastFileChange: Date | null;
   lastGitLog: { action: GitAction | null; line: string };
   lightdash: Lightdash;
@@ -691,6 +693,61 @@ export class Coder {
   /**
    * Handles file change events
    */
+  private static readonly GIT_PENDING_WINDOW_MS = 2000;
+  private static readonly GIT_PENDING_MAX_MS = 10_000;
+
+  /**
+   * Mark the start of a git operation. Sets a resettable window during which
+   * any debounced framework sync will escalate to a full sync. The window
+   * extends each time {@link extendGitPending} is called (up to a hard cap).
+   */
+  private setGitPending(): void {
+    this.gitPending = true;
+    this.gitPendingStartedAt = Date.now();
+
+    if (this.gitPendingTimer !== null) {
+      clearTimeout(this.gitPendingTimer);
+    }
+
+    this.gitPendingTimer = setTimeout(() => {
+      this.gitPending = false;
+      this.gitPendingTimer = null;
+      this.gitPendingStartedAt = null;
+    }, Coder.GIT_PENDING_WINDOW_MS);
+  }
+
+  /**
+   * Extend the git-pending window if one is active and the hard cap has not
+   * been reached. Called from debounceFrameworkSync when new file events
+   * arrive while gitPending is true, keeping the window open as long as
+   * files are still changing.
+   */
+  private extendGitPending(): void {
+    if (!this.gitPending || this.gitPendingStartedAt === null) {
+      return;
+    }
+
+    const elapsed = Date.now() - this.gitPendingStartedAt;
+    if (elapsed >= Coder.GIT_PENDING_MAX_MS) {
+      return;
+    }
+
+    if (this.gitPendingTimer !== null) {
+      clearTimeout(this.gitPendingTimer);
+    }
+
+    const remaining = Math.min(
+      Coder.GIT_PENDING_WINDOW_MS,
+      Coder.GIT_PENDING_MAX_MS - elapsed,
+    );
+
+    this.gitPendingTimer = setTimeout(() => {
+      this.gitPending = false;
+      this.gitPendingTimer = null;
+      this.gitPendingStartedAt = null;
+    }, remaining);
+  }
+
   /**
    * Get the sync debounce delay from configuration.
    * Defaults to 1500ms if not configured.
@@ -721,7 +778,14 @@ export class Coder {
    * Debounce and then process a model or source file change.
    * Re-reads the file from disk when the timer fires, ensuring the latest content is used.
    */
+  private static readonly BULK_CHANGE_THRESHOLD = 5;
+
   debounceFrameworkSync(filePath: string) {
+    // Extend the git-pending window while file events keep arriving.
+    if (this.gitPending) {
+      this.extendGitPending();
+    }
+
     // Clear any existing pending sync for this file path
     const existingTimer = this.pendingModelSyncs.get(filePath);
     if (existingTimer) {
@@ -734,7 +798,6 @@ export class Coder {
         this.pendingModelSyncs.delete(filePath);
 
         try {
-          // If a git operation (checkout/pull) is pending, request a full sync
           if (this.gitPending) {
             this.log.info(
               `DEBOUNCE: Git operation pending, enqueuing full sync`,
@@ -759,9 +822,6 @@ export class Coder {
               this.log.error(`DEBOUNCE: No model ID found for ${filePath}`);
               return;
             }
-            // Pass filePath as pathJson so the SyncEngine can find the file
-            // even when the ID is derived from the NEW name but the file is
-            // still at the OLD path (pre-rename).
             this.log.info(
               `DEBOUNCE: Enqueuing sync for ${id} (modelName=${modelName}, pathJson: ${filePath})`,
             );
@@ -790,6 +850,28 @@ export class Coder {
     this.log.info(
       `DEBOUNCE: Scheduled sync for ${filePath} in ${debounceMs}ms`,
     );
+
+    // Bulk-change detection: many simultaneous debounce timers indicate a
+    // mass file change (git restore, external tooling, etc.). Short-circuit
+    // to a full sync instead of waiting for each timer individually.
+    if (this.pendingModelSyncs.size > Coder.BULK_CHANGE_THRESHOLD) {
+      this.log.info(
+        `DEBOUNCE: Bulk change detected (${this.pendingModelSyncs.size} pending timers > ${Coder.BULK_CHANGE_THRESHOLD}), escalating to full sync`,
+      );
+      this.clearAllPendingTimers();
+      this.framework.syncQueue.enqueueFullSync();
+    }
+  }
+
+  /**
+   * Clear all pending debounce timers. Used when escalating to full sync
+   * so individual file timers do not fire redundantly.
+   */
+  private clearAllPendingTimers(): void {
+    for (const [, t] of this.pendingModelSyncs) {
+      clearTimeout(t);
+    }
+    this.pendingModelSyncs.clear();
   }
 
   async handleWatcherEvent({
@@ -863,13 +945,12 @@ export class Coder {
                 // Re-sync all json files after these git actions
                 switch (info.log.action) {
                   case 'checkout':
-                  case 'pull': {
+                  case 'pull':
+                  case 'rebase':
+                  case 'reset':
+                  case 'fast-forward': {
                     this.log.info('GIT ACTION: ', info.log.action);
-                    this.gitPending = true;
-                    setTimeout(() => {
-                      // Keeps this true for 2 seconds, so that if file changes come in during the window, we know to trigger a full sync
-                      this.gitPending = false;
-                    }, 2000);
+                    this.setGitPending();
                   }
                 }
               }

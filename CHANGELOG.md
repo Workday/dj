@@ -1,5 +1,11 @@
 # Change Log
 
+## Next
+
+### Sync engine
+
+- **Sync coalesces during bulk file changes** — large `git checkout`, `git pull`, `git restore .`, and other mass file operations now batch into a single sync run instead of triggering many partial syncs, preventing inconsistent intermediate state. Sync also detects `git rebase`, `git reset`, and fast-forward operations the same way it already handles `checkout` and `pull`.
+
 ## 1.5.0
 
 ### Lightdash
