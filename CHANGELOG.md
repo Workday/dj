@@ -1,6 +1,6 @@
 # Change Log
 
-## Next
+## 1.6.0
 
 ### Data Explorer — Lightdash lineage
 
