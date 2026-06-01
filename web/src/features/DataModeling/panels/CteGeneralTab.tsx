@@ -91,6 +91,12 @@ const BUNDLE_TO_LABEL = (value: 'all' | 'columns' | undefined): string => {
 // gap, not in scope for this redesign.
 const FLAG_ROWS: ReadonlyArray<{
   key: keyof CteState;
+  /**
+   * Plain-English label rendered next to the checkbox. Wording mirrors the
+   * model-level Additional Fields page so the inheritance reads naturally
+   * (the JSON key is reserved for the diagnostics tab and YAML emit).
+   */
+  label: string;
   inheritKey:
     | 'exclude_date_filter'
     | 'exclude_daily_filter'
@@ -99,18 +105,36 @@ const FLAG_ROWS: ReadonlyArray<{
     | 'exclude_portal_source_count'
     | null;
 }> = [
-  { key: 'exclude_date_filter', inheritKey: 'exclude_date_filter' },
-  { key: 'exclude_daily_filter', inheritKey: 'exclude_daily_filter' },
-  { key: 'exclude_datetime', inheritKey: 'exclude_datetime' },
+  {
+    key: 'exclude_date_filter',
+    label: 'Exclude Date Filter',
+    inheritKey: 'exclude_date_filter',
+  },
+  {
+    key: 'exclude_daily_filter',
+    label: 'Exclude Daily Filter',
+    inheritKey: 'exclude_daily_filter',
+  },
+  {
+    key: 'exclude_datetime',
+    label: 'Exclude Datetime',
+    inheritKey: 'exclude_datetime',
+  },
   {
     key: 'exclude_portal_partition_columns',
+    label: 'Exclude Portal Partition Columns',
     inheritKey: 'exclude_portal_partition_columns',
   },
   {
     key: 'exclude_portal_source_count',
+    label: 'Exclude Portal Source Count',
     inheritKey: 'exclude_portal_source_count',
   },
-  { key: 'include_full_month', inheritKey: null },
+  {
+    key: 'include_full_month',
+    label: 'Include Full Month',
+    inheritKey: null,
+  },
 ];
 
 /**
@@ -613,33 +637,30 @@ const FrameworkArtifactsSection: React.FC<FrameworkArtifactsSectionProps> = ({
         </Tooltip>
       </div>
 
-      {/* Bundle (segmented control). */}
-      <div className="mb-3">
-        <label className="block text-sm text-foreground mb-1 font-mono">
-          exclude_framework_artifacts
+      <div className="mb-3 flex items-center gap-3 flex-wrap">
+        <label className="text-sm text-foreground">
+          Exclude Framework Artifacts
         </label>
-        <div className="flex items-center gap-3 flex-wrap">
-          <ButtonGroup
-            options={[...BUNDLE_OPTIONS]}
-            initialValue={bundleLabel}
-            onSelect={(label) => {
-              setFlag(
-                'exclude_framework_artifacts',
-                LABEL_TO_BUNDLE[label as (typeof BUNDLE_OPTIONS)[number]],
-              );
-            }}
-          />
-          {showInheritedBundleHint && (
-            <span className="text-xs text-muted-foreground">
-              inherited: <span className="font-mono">{inheritedBundle}</span>
-            </span>
-          )}
-        </div>
+        <ButtonGroup
+          options={[...BUNDLE_OPTIONS]}
+          initialValue={bundleLabel}
+          onSelect={(label) => {
+            setFlag(
+              'exclude_framework_artifacts',
+              LABEL_TO_BUNDLE[label as (typeof BUNDLE_OPTIONS)[number]],
+            );
+          }}
+        />
+        {showInheritedBundleHint && (
+          <span className="text-xs text-muted-foreground">
+            inherited: <span className="font-mono">{inheritedBundle}</span>
+          </span>
+        )}
       </div>
 
       {/* Individual flag rows. */}
       <div className="space-y-1.5">
-        {FLAG_ROWS.map(({ key, inheritKey }) => {
+        {FLAG_ROWS.map(({ key, label, inheritKey }) => {
           const overrideRaw = cte[key];
           const isOverridden = typeof overrideRaw === 'boolean';
           const inheritedValue = inheritKey ? inherited[inheritKey] : undefined;
@@ -677,20 +698,20 @@ const FrameworkArtifactsSection: React.FC<FrameworkArtifactsSectionProps> = ({
                 }
               />
               <span
-                className={`font-mono ${
+                className={
                   isInherited && !isOverridden
                     ? 'text-muted-foreground'
                     : 'text-foreground'
-                }`}
+                }
               >
-                {String(key)}
+                {label}
               </span>
               {isOverridden && (
                 <Button
                   variant="iconButton"
                   className="ml-1 p-0.5 text-muted-foreground hover:text-error hover:bg-surface"
                   title="Clear override (inherit from main model)"
-                  aria-label={`Clear ${String(key)} override`}
+                  aria-label={`Clear ${label} override`}
                   icon={<XMarkIcon className="w-3 h-3" />}
                   onClick={(e) => {
                     e.preventDefault();

@@ -1,10 +1,12 @@
 import { CircleStackIcon } from '@heroicons/react/24/outline';
+import { Square3Stack3DIcon } from '@heroicons/react/24/solid';
 import type { DbtProject } from '@shared/dbt/types';
 import DataSearchIcon from '@web/assets/icons/data-search.svg?react';
 import { useApp } from '@web/context';
 import { Button, SelectSingle, Tooltip } from '@web/elements';
 import { type SchemaSelect, useModelStore } from '@web/stores/useModelStore';
 import { useTutorialStore } from '@web/stores/useTutorialStore';
+import { isCteCapableType } from '@web/stores/utils';
 import {
   filterAvailableModels,
   getUsedModelsForSelect,
@@ -26,7 +28,7 @@ import type {
   SelectionType,
   SelectionTypeValues,
 } from '../types';
-import { supportsColumnName, supportsExprOnly } from '../types';
+import { ActionType, supportsColumnName, supportsExprOnly } from '../types';
 import { extractColumnsFromNode } from '../utils/manifestColumns';
 import { buildUpdatedSelections } from '../utils/selectionUtils';
 
@@ -50,6 +52,13 @@ export const SelectNode: React.FC<NodeProps> = ({ data: _data }) => {
   const cteAnalysisColumns = useModelStore(
     (state) => state.cteAnalysis.columns,
   );
+  // "Create CTE" shortcut: enable the CTE list action, seed a stub row,
+  // and pop the editor open. Mirrors CteNode's empty-state Add CTE button
+  // for users who haven't toggled the action via the side rail yet.
+  const activeActions = useModelStore((state) => state.activeActions);
+  const toggleAction = useModelStore((state) => state.toggleAction);
+  const addCte = useModelStore((state) => state.addCte);
+  const openCteEditor = useModelStore((state) => state.openCteEditor);
 
   // Tutorial integration
   const { isPlayTutorialActive } = useTutorialStore((state) => ({
@@ -669,6 +678,25 @@ export const SelectNode: React.FC<NodeProps> = ({ data: _data }) => {
     });
   }, [api, selectedModel, currentProject]);
 
+  // Shortcut: enable the CTE list (idempotent if already enabled), seed a
+  // stub `cte_N` row, and open the editor on it. The newly added CTE's
+  // index is `ctes.length` (pre-add length). When the action is already
+  // active, only the addCte + openCteEditor steps run -- the toggle would
+  // disable it again.
+  const cteCapable =
+    typeof basicFields.type === 'string' && isCteCapableType(basicFields.type);
+  const handleCreateCte = useCallback(() => {
+    if (!activeActions.has(ActionType.CTE)) {
+      toggleAction(ActionType.CTE);
+    }
+    const newIndex = ctes?.length || 0;
+    addCte({
+      name: `cte_${newIndex + 1}`,
+      from: { model: '' },
+    });
+    openCteEditor(newIndex);
+  }, [activeActions, toggleAction, addCte, openCteEditor, ctes]);
+
   // Handler for opening Column Lineage with a specific column
   const handleColumnLineageClick = useCallback(
     (columnName: string) => {
@@ -781,20 +809,35 @@ export const SelectNode: React.FC<NodeProps> = ({ data: _data }) => {
               variant="outline"
             />
           </div>
-          {selectedModel && !isTypeSource && (
-            <Button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleOpenDataExplorer();
-              }}
-              disabled={!selectedModel}
-              variant="iconButton"
-              label="DATA EXPLORER"
-              icon={<DataSearchIcon className="w-3 h-3" />}
-              iconLabelClassName="text-xs"
-              className="text-tiny bg-primary text-white hover:text-white font-bold p-0.5 px-2"
-            />
-          )}
+          <div className="flex items-center gap-2">
+            {cteCapable && !isTypeSource && (
+              <Button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleCreateCte();
+                }}
+                variant="outlineIconButton"
+                label="CREATE CTE"
+                icon={<Square3Stack3DIcon className="w-3 h-3" />}
+                iconLabelClassName="text-xs"
+                className="text-tiny p-0.5 px-2 text-foreground border-neutral bg-surface hover:bg-surface font-bold"
+              />
+            )}
+            {selectedModel && !isTypeSource && (
+              <Button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleOpenDataExplorer();
+                }}
+                disabled={!selectedModel}
+                variant="iconButton"
+                label="DATA EXPLORER"
+                icon={<DataSearchIcon className="w-3 h-3" />}
+                iconLabelClassName="text-xs"
+                className="text-tiny bg-primary text-white hover:text-white font-bold p-0.5 px-2"
+              />
+            )}
+          </div>
         </div>
 
         <div

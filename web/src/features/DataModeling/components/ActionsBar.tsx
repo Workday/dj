@@ -2,6 +2,7 @@ import {
   ChartBarIcon,
   FunnelIcon,
   RectangleGroupIcon,
+  Square3Stack3DIcon,
 } from '@heroicons/react/24/solid';
 import { Button, DialogBox, Icon } from '@web/elements';
 import { mapActionTypeToGuideStep } from '@web/features/Tutorial/config/assistMe/assistSteps';
@@ -38,6 +39,12 @@ const actionDefinitions: Action[] = [
     icon: FunnelIcon,
     title: 'Click to toggle Where conditions',
     type: ActionType.WHERE,
+  },
+  {
+    label: 'Add CTEs',
+    icon: Square3Stack3DIcon,
+    title: 'Click to toggle CTE list',
+    type: ActionType.CTE,
   },
 ];
 
@@ -83,7 +90,10 @@ export const ActionsBar: React.FC<ActionsBarProps> = ({ actionTypes }) => {
 
   const onActionClick = useCallback(
     (action: Action) => {
-      if (disabled) return;
+      // CTEs sit upstream of the SELECT FROM picker, so the user may want
+      // to declare them before picking a source -- skip the from-required
+      // gate for CTE only.
+      if (disabled && action.type !== ActionType.CTE) return;
 
       // During tutorial, prevent user from toggling actions
       if (isPlayTutorialActive) {
@@ -132,6 +142,7 @@ export const ActionsBar: React.FC<ActionsBarProps> = ({ actionTypes }) => {
       [ActionType.WHERE]: 'Where Clause',
       [ActionType.GROUPBY]: 'Group By',
       [ActionType.LIGHTDASH]: 'Lightdash',
+      [ActionType.CTE]: 'CTEs',
     };
     return labels[actionType] || 'this action';
   };
@@ -166,37 +177,26 @@ export const ActionsBar: React.FC<ActionsBarProps> = ({ actionTypes }) => {
                 ? action.label.replace('Add ', 'Remove ')
                 : action.label;
 
-            // Get description for each action type
-            // const getActionDescription = (type: ActionType) => {
-            //   switch (type) {
-            //     case ActionType.LIGHTDASH:
-            //       return 'Configure analytics metadata for BI tools';
-            //     case ActionType.GROUPBY:
-            //       return 'Aggregate data by grouping dimensions';
-            //     case ActionType.WHERE:
-            //       return 'Apply filters to your data';
-            //     default:
-            //       return '';
-            //   }
-            // };
+            // CTE bypasses the from-required gate (declared upstream of
+            // SELECT FROM, so the user may want to set it up first).
+            const actionDisabled = disabled && action.type !== ActionType.CTE;
 
             return (
               <HoverTooltip
                 key={action.type}
                 content={tooltipLabel}
-                //description={getActionDescription(action.type)}
-                disabled={disabled}
+                disabled={actionDisabled}
                 placement="right"
               >
                 <Button
                   variant="iconButton"
                   label=""
                   onClick={() => onActionClick(action)}
-                  disabled={disabled}
+                  disabled={actionDisabled}
                   className={`
                     flex flex-col items-center justify-center py-2 px-1 transition-all duration-200 group w-full
                     ${
-                      disabled
+                      actionDisabled
                         ? 'cursor-not-allowed opacity-50'
                         : 'cursor-pointer hover:bg-surface/50'
                     }

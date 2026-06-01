@@ -744,27 +744,42 @@ export const useModelStore = create<ModelStore>()(
         }
 
         // Clear CTEs when switching to a non-CTE-capable model type. Also
-        // close the side-panel editor (`editingCteIndex`) so a stale index
-        // can't reference a CTE that's about to be wiped.
+        // close the side-panel editor (`editingCteIndex`) and remove the
+        // CTE action from activeActions so the canvas drops the list node
+        // alongside the data.
         if (
           field === 'type' &&
           typeof value === 'string' &&
-          !isCteCapableType(value) &&
-          state.ctes.length > 0
+          !isCteCapableType(value)
         ) {
-          newCtes = [];
-          setTimeout(() => {
-            void get().saveField('ctes', null);
-            get().closeCteEditor();
-          }, 0);
+          if (state.ctes.length > 0) {
+            newCtes = [];
+            setTimeout(() => {
+              void get().saveField('ctes', null);
+              get().closeCteEditor();
+            }, 0);
+          }
+          if (state.activeActions.has(ActionType.CTE)) {
+            // newActiveActions may already be the original Set reference
+            // (we want a fresh copy before mutating).
+            if (newActiveActions === state.activeActions) {
+              newActiveActions = new Set(state.activeActions);
+            }
+            newActiveActions.delete(ActionType.CTE);
+          }
         }
 
         // Clear group by state when model type changes to one that doesn't support it
         if (field === 'type' && typeof value === 'string') {
           if (!isGroupByAllowedType(value)) {
             newGroupBy = DEFAULT_GROUP_BY_STATE;
-            // Remove GROUPBY action from activeActions
-            newActiveActions = new Set(state.activeActions);
+            // Remove GROUPBY action from activeActions. Use a shared
+            // mutable copy so prior cleanups in this update (e.g. CTE
+            // deletion above) aren't lost when more than one branch
+            // mutates activeActions.
+            if (newActiveActions === state.activeActions) {
+              newActiveActions = new Set(state.activeActions);
+            }
             newActiveActions.delete(ActionType.GROUPBY);
             // Schedule save of cleared group by
             setTimeout(() => {
@@ -1153,9 +1168,14 @@ export const useModelStore = create<ModelStore>()(
 
       // Load CTEs if present. Defensive normalization drops empty `from`
       // branches and unknown keys so the panel doesn't render half-broken
-      // states from older / malformed JSON.
-      if (data.ctes && Array.isArray(data.ctes)) {
+      // states from older / malformed JSON. Activate the CTE action so
+      // the canvas renders the list node when reopening a CTE-bearing
+      // model -- mirrors the where/group_by/lightdash auto-toggle below.
+      if (data.ctes && Array.isArray(data.ctes) && data.ctes.length > 0) {
         set({ ctes: (data.ctes as unknown[]).map(normalizeCte) });
+        if (!state.activeActions.has(ActionType.CTE)) {
+          state.toggleAction(ActionType.CTE);
+        }
       }
 
       // Handle select data - with special case for int_join_column
@@ -1529,6 +1549,15 @@ export const useModelStore = create<ModelStore>()(
               ...state.modelingState,
               lightdash: patch,
             };
+            break;
+          }
+          case ActionType.CTE: {
+            // Disabling the CTE list discards every CTE on the model;
+            // mirrors the data-loss cleanup the other actions do. The
+            // confirm dialog in ActionsBar gates this behind a user
+            // acknowledgement when ctes is non-empty.
+            newState.ctes = [];
+            newState.editingCteIndex = null;
             break;
           }
         }

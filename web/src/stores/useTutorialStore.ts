@@ -9,6 +9,7 @@ export enum ActionType {
   LIGHTDASH = 'lightdash',
   GROUPBY = 'groupby',
   WHERE = 'where',
+  CTE = 'cte',
 }
 
 export type TutorialMode = 'select' | 'join' | 'union' | 'rollup' | 'lookback';

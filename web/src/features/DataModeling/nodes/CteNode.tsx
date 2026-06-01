@@ -7,9 +7,9 @@ import {
   ExclamationTriangleIcon,
   PencilSquareIcon,
   PlusIcon,
-  TableCellsIcon,
   TrashIcon,
 } from '@heroicons/react/24/outline';
+import { Square3Stack3DIcon } from '@heroicons/react/24/solid';
 import { Button, DialogBox } from '@web/elements';
 import { type CteState, useModelStore } from '@web/stores/useModelStore';
 import { Handle, type NodeProps, Position } from '@xyflow/react';
@@ -228,7 +228,7 @@ export const CteNode: React.FC<NodeProps> = ({ data: _data }) => {
 
       <div className="flex items-center justify-between mb-2 px-1">
         <div className="flex items-center gap-2">
-          <TableCellsIcon className="w-5 h-5 text-foreground" />
+          <Square3Stack3DIcon className="w-5 h-5 text-foreground" />
           <div className="text-sm font-bold text-muted-foreground">
             CTEs ({cteCount})
           </div>

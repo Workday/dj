@@ -52,7 +52,7 @@ import { NavigationBar } from '../DataModeling/components/NavigationBar';
 import { useCteAnalysis } from '../DataModeling/hooks/useCteAnalysis';
 import { useLayoutManager } from '../DataModeling/hooks/useLayoutManager';
 import { useNodeOperations } from '../DataModeling/hooks/useNodeOperations';
-import { NODE_TYPES } from '../DataModeling/types';
+import { ActionType, NODE_TYPES } from '../DataModeling/types';
 
 type JoinWithUUID = SchemaModelFromJoinModels[0] & {
   _uuid?: string;
@@ -203,13 +203,18 @@ const DataModelingFlow: React.FC<DataModelingProps> = ({ config }) => {
       stroke: 'var(--color-surface-contrast)',
     };
 
-    // CTE list leads the DAG for any CTE-capable model type. The user
-    // declares CTEs first, then the SELECT FROM picker can target one of
-    // them -- mirrors how the SQL itself reads (WITH ... SELECT FROM ...).
-    // The node is always inserted for CTE-capable types so the empty-state
-    // "Add CTE" affordance is discoverable before any `from` is set.
+    // CTE list leads the DAG for any CTE-capable model type, but only when
+    // the user has explicitly enabled it via the Actions bar (or the
+    // SelectNode "Create CTE" shortcut). When disabled, SelectNode is the
+    // root again -- mirrors how Group By / Where / Lightdash come and go.
+    // Effective set picks tutorial state during Play tutorial, real store
+    // state otherwise (see column-selection action insertion below).
+    const cteEffectiveActions = isPlayTutorialActive
+      ? tutorialActiveActions
+      : activeActions;
     const cteCapable = isCteCapableType(currentModelType);
-    if (cteCapable) {
+    const cteActive = cteCapable && cteEffectiveActions.has(ActionType.CTE);
+    if (cteActive) {
       currentFlow = updateFlow(
         {
           id: 'cte-1',
@@ -223,15 +228,16 @@ const DataModelingFlow: React.FC<DataModelingProps> = ({ config }) => {
       );
     }
 
-    // EntryNode: SelectNode (sources off `cte-1` when CTE-capable so the
-    // canvas reads as a single connected DAG even when no CTEs exist yet).
+    // EntryNode: SelectNode. When the CTE list is active, anchor SelectNode
+    // off `cte-1` so the canvas reads as a single connected DAG; otherwise
+    // SelectNode is the root.
     currentFlow = updateFlow(
       {
         id: 'select-1',
         type: NODE_TYPES.SELECT,
         position: { x: 100, y: 200 },
         data: {},
-        ...(cteCapable ? { sourceNodeId: 'cte-1' } : {}),
+        ...(cteActive ? { sourceNodeId: 'cte-1' } : {}),
       },
       currentFlow.nodes,
       currentFlow.edges,
@@ -504,6 +510,12 @@ const DataModelingFlow: React.FC<DataModelingProps> = ({ config }) => {
         : activeActions;
 
       allowedActions.forEach((action) => {
+        // CTE doesn't live in the registry -- the list node is placed at
+        // the top of the DAG, not off the column-selection node. Skip it
+        // so we don't try to dereference a missing ACTION_SPECS[action].
+        if (action === ActionType.CTE) {
+          return;
+        }
         // Check if this action is enabled via the activeActions set
         if (effectiveActiveActions.has(action)) {
           const spec = ACTION_SPECS[action];

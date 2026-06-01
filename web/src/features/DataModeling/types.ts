@@ -52,6 +52,7 @@ export enum ActionType {
   LIGHTDASH = 'lightdash',
   GROUPBY = 'groupby',
   WHERE = 'where',
+  CTE = 'cte',
 }
 
 // Column Type (schema values: 'dim' | 'fct')
