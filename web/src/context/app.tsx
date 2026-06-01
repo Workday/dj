@@ -7,7 +7,6 @@ import type { FrameworkModel } from '@shared/framework/types';
 import type { LightdashYamlNode } from '@shared/lightdash/types';
 import { TrinoProvider } from '@web/context/trino';
 import { useEnvironment } from '@web/context/useEnvironment';
-import { ColumnLineage } from '@web/pages/ColumnLineage';
 import DataExplorer from '@web/pages/DataExplorer';
 import { Home } from '@web/pages/Home';
 import { LightdashDashboardsAsCode } from '@web/pages/LightdashDashboardsAsCode';
@@ -100,13 +99,9 @@ const routeConfigs: WebRoute[] = [
     path: '/lightdash/dashboards-as-code',
     regex: /^\/lightdash\/dashboards-as-code$/,
   },
-  {
-    element: <ColumnLineage />,
-    label: 'Column Lineage',
-    path: '/lineage/column',
-    regex: /^\/lineage\/column$/,
-  },
 ];
+
+const additionalRouteConfigs: WebRoute[] = [];
 
 const apiChannels: {
   [id: string]: {
@@ -1347,6 +1342,28 @@ where a = 1
                     }),
                   );
                 }
+                case 'query-draft-create': {
+                  // Mock query draft creation for web development
+                  const filepath = `.dj/drafts/${Date.now()}.draft.sql`;
+                  return resolve(apiResponse<typeof payloadType>({ filepath }));
+                }
+                case 'query-draft-execute': {
+                  // Mock query execution for web development
+                  const mockColumns = ['id', 'name', 'value', 'created_at'];
+                  const mockRows = [
+                    [1, 'Alice', 100, '2025-01-01'],
+                    [2, 'Bob', 200, '2025-01-02'],
+                    [3, 'Charlie', 300, '2025-01-03'],
+                  ];
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      columns: mockColumns,
+                      rows: mockRows,
+                      rowCount: mockRows.length,
+                      executionTime: 150,
+                    }),
+                  );
+                }
                 default:
                   return assertExhaustive<ApiResponse>(payloadType);
               }
@@ -1417,9 +1434,12 @@ where a = 1
 }
 
 function RenderRoute({ route }: { route: string | null }) {
+  // Combine all route configs
+  const allRouteConfigs = [...routeConfigs, ...additionalRouteConfigs];
+
   if (route) {
     // Running in extension at specific route
-    const routeConfig = routeConfigs.find((r) => r.regex.test(route));
+    const routeConfig = allRouteConfigs.find((r) => r.regex.test(route));
     if (!routeConfig) {
       return <div>404: Route not found</div>;
     }
@@ -1433,7 +1453,7 @@ function RenderRoute({ route }: { route: string | null }) {
     );
   } else {
     // Running in separate browser
-    const router = createBrowserRouter(routeConfigs);
+    const router = createBrowserRouter(allRouteConfigs);
     return <RouterProvider router={router} />;
   }
 }

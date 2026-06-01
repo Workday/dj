@@ -1,5 +1,15 @@
 # Change Log
 
+## Next
+
+### Adhoc SQL Editor / Query Draft
+
+- **Query Draft support** — Create ad-hoc SQL queries in `.dj/drafts/` for prototyping and testing without cluttering the project with temporary dbt models. Access via "Create New Query" in the Actions panel.
+- **Query Results panel** — New dedicated panel in the Data Explorer view container for executing draft SQL queries directly against Trino and viewing results. Shows query results, execution time, and errors.
+- **DJ: Run Query command** — Right-click on `.draft.sql` files and select "DJ: Run Query" to execute the SQL and view results in the Query Results panel. Only draft-specific commands (Run Query, Convert to DJ Model) appear in the context menu.
+- **AI-assisted model conversion** — Right-click on `.draft.sql` files to convert them to DJ models using your preferred AI assistant (Copilot, Cursor, or Claude). The extension detects available assistants and shows relevant options.
+- **New `convert-sql-to-model` skill** — AI skill file that guides assistants through the SQL-to-model conversion process, analyzing query patterns and creating properly structured `.model.json` files.
+
 ## 1.5.0
 
 ### Lightdash

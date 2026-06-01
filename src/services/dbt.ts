@@ -137,6 +137,14 @@ export class Dbt implements ApiEnabledService<'dbt'> {
     iconPath: new vscode.ThemeIcon('add'),
     label: 'Create Source',
   };
+  treeItemQueryCreate: TreeItem = {
+    command: {
+      command: COMMAND_ID.QUERY_DRAFT_CREATE,
+      title: 'Create New Query',
+    },
+    iconPath: new vscode.ThemeIcon('file-add'),
+    label: 'Create New Query',
+  };
 
   // Webview panels
   webviewPanelSourceCreate: vscode.WebviewPanel | undefined;
@@ -2217,6 +2225,7 @@ ${macro.macro_sql}`;
       this.treeItemProjectClean,
       this.treeItemModelCreate,
       this.treeItemSourceCreate,
+      this.treeItemQueryCreate,
       this.coder.lightdash.treeItemLightdashPreview,
       this.coder.lightdash.treeItemLightdashDashboardsAsCode,
       this.treeItemModelRun,

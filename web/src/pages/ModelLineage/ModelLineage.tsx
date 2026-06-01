@@ -1,12 +1,14 @@
 import {
-  ArrowLeftIcon,
   ArrowPathIcon,
   ArrowsPointingInIcon,
   ArrowsPointingOutIcon,
   CodeBracketIcon,
   CogIcon,
+  CubeIcon,
   ExclamationCircleIcon,
+  HomeIcon,
   PlayIcon,
+  PlusIcon,
   TableCellsIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline';
@@ -22,7 +24,6 @@ import { useDataExplorerStore } from '../../stores/dataExplorerStore';
 import CompilationLogs from '../DataExplorer/CompilationLogs';
 import QueryResults from '../DataExplorer/QueryResults';
 import LineageGraph from './LineageGraph';
-import ProjectOverview from './ProjectOverview';
 
 type RightPanelTab = 'query' | 'columns';
 type QueryViewMode = 'data' | 'sql';
@@ -44,9 +45,9 @@ export default function ModelLineage() {
     clearResults,
     clearError,
     notifyReady,
-    detectActiveModel,
     setApiHandler,
     setActiveModel,
+    setActiveView,
     // Compilation state
     compilationLogs,
     isCompiling,
@@ -419,15 +420,6 @@ export default function ModelLineage() {
     }
   };
 
-  const handleBackToOverview = () => {
-    setActiveModel(null);
-    setShowResults(false);
-    setShowCompilationLogs(false);
-    setShowColumns(false);
-    setSelectedNodeName(null);
-    setSelectedNodeType(null);
-  };
-
   const handleRefresh = () => {
     if (activeModel) {
       void fetchLineage(activeModel.modelName, activeModel.projectName);
@@ -550,16 +542,35 @@ export default function ModelLineage() {
       return;
     }
 
-    if (vscode) {
-      vscode.postMessage({
+    if (selectedNodeType === 'source') {
+      // Source nodes need source tables fetched by the extension. Route
+      // through the existing `open-column-lineage` handler which calls
+      // postSourceInit — the unified shell will switch to the Column view
+      // when it receives column-lineage-source-init.
+      vscode?.postMessage({
         type: 'open-column-lineage',
         filePath: selectedModelFilePath,
         modelName: selectedModelForColumns,
-        columnName: columnName,
+        columnName,
         columns: modelColumns,
-        nodeType: selectedNodeType || 'model',
+        nodeType: 'source',
       });
+      return;
     }
+
+    // For model/seed nodes, initialize the in-shell Column Lineage view
+    // directly — no extension round trip needed.
+    window.postMessage(
+      {
+        type: 'column-lineage-init',
+        filePath: selectedModelFilePath,
+        modelName: selectedModelForColumns,
+        columns: modelColumns,
+        selectedColumn: columnName,
+      },
+      '*',
+    );
+    setActiveView('column');
   };
 
   // Determine if right panel should be shown
@@ -615,17 +626,29 @@ export default function ModelLineage() {
     );
   }
 
-  // No active model state - show project overview
+  // No active model state - prompt the user to pick one from Home.
   if (!activeModel || !lineageData) {
     return (
-      <ProjectOverview
-        onSelectModel={(modelName, projectName) => {
-          void fetchLineage(modelName, projectName);
-        }}
-        onDetectActiveModel={() => {
-          void detectActiveModel();
-        }}
-      />
+      <div className="h-screen flex items-center justify-center bg-background">
+        <div className="text-center max-w-sm px-4">
+          <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-card border border-neutral flex items-center justify-center">
+            <CubeIcon className="w-6 h-6 text-surface-contrast" />
+          </div>
+          <h3 className="text-base font-semibold text-foreground mb-2">
+            No Model Selected
+          </h3>
+          <p className="text-sm text-surface-contrast mb-4">
+            Choose a model from the project overview to view its lineage.
+          </p>
+          <button
+            onClick={() => setActiveView('home')}
+            className="px-4 py-2 bg-primary text-primary-contrast rounded hover:opacity-90 transition-opacity text-sm font-medium inline-flex items-center gap-2"
+          >
+            <HomeIcon className="w-4 h-4" />
+            Go to Home
+          </button>
+        </div>
+      </div>
     );
   }
 
@@ -635,13 +658,6 @@ export default function ModelLineage() {
       <div className="flex-shrink-0 px-3 py-2 border-b border-neutral bg-card">
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0 flex-1">
-            <button
-              onClick={handleBackToOverview}
-              className="p-1 rounded hover:bg-surface transition-colors flex-shrink-0"
-              title="Back to overview"
-            >
-              <ArrowLeftIcon className="w-4 h-4 text-surface-contrast" />
-            </button>
             <span className="font-mono font-semibold text-sm text-foreground truncate">
               {activeModel.modelName}
             </span>
@@ -664,6 +680,20 @@ export default function ModelLineage() {
             </div>
           </div>
           <div className="flex items-center gap-1">
+            {/* New Query Button */}
+            <button
+              onClick={() =>
+                vscode?.postMessage({
+                  type: 'execute-command',
+                  command: 'dj.command.queryDraftCreate',
+                })
+              }
+              className="flex items-center gap-1 px-2 py-1 rounded hover:bg-surface transition-colors text-xs text-surface-contrast"
+              title="Create a new query draft file"
+            >
+              <PlusIcon className="w-3.5 h-3.5" />
+              New Query
+            </button>
             {/* Split Mode Toggle */}
             <button
               onClick={handleToggleSplitMode}
