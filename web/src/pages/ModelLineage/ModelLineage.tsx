@@ -3,10 +3,12 @@ import {
   ArrowPathIcon,
   ArrowsPointingInIcon,
   ArrowsPointingOutIcon,
+  ArrowTopRightOnSquareIcon,
   CodeBracketIcon,
   CogIcon,
   ExclamationCircleIcon,
   PlayIcon,
+  PresentationChartLineIcon,
   TableCellsIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline';
@@ -74,6 +76,12 @@ export default function ModelLineage() {
     setSplitMode,
     // Expansion state
     additionalNodes,
+    // Lightdash lineage actions
+    openLightdashUrl,
+    setLightdashEnabled,
+    openDashboardsAsCode,
+    openLightdashYaml,
+    isLightdashRefreshing,
   } = useDataExplorerStore();
 
   const [showResults, setShowResults] = useState(false);
@@ -708,8 +716,69 @@ export default function ModelLineage() {
                 tooltipText="Automatically sync lineage when switching files"
               />
             </div>
+
+            {/* Lightdash lineage toggle */}
+            <div className="flex items-center gap-1">
+              <Switch
+                checked={lineageData.lightdashEnabled === true}
+                onChange={(checked) => {
+                  const enabled =
+                    typeof checked === 'boolean'
+                      ? checked
+                      : checked.target.checked;
+                  void setLightdashEnabled(enabled);
+                }}
+                label="Lightdash"
+                size="sm"
+                className="ml-2"
+                disabled={isLightdashRefreshing}
+                tooltipText="Show downstream Lightdash dashboards/charts for mart models. Requires local Dashboards-as-Code YAML."
+              />
+              {isLightdashRefreshing && (
+                <span className="ml-1 inline-flex">
+                  <Spinner size={12} stroke={6} inline />
+                </span>
+              )}
+            </div>
           </div>
         </div>
+
+        {/* Empty-state banner when Lightdash lineage is on but no content
+            was found in the configured directory. */}
+        {lineageData.lightdashEnabled === true &&
+          lineageData.lightdashAvailable === false && (
+            <div className="mt-2 px-3 py-2 rounded border border-purple-600/40 bg-purple-600/10 flex items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2 min-w-0">
+                <PresentationChartLineIcon className="w-4 h-4 text-purple-500 flex-shrink-0" />
+                <div className="text-foreground min-w-0">
+                  No Lightdash content at{' '}
+                  <code className="font-mono text-foreground bg-card px-1 py-0.5 rounded">
+                    {lineageData.lightdashResolvedPath || 'lightdash'}
+                  </code>
+                  . Download charts and dashboards as code to populate
+                  downstream lineage.
+                </div>
+              </div>
+              <div className="flex items-center gap-1 flex-shrink-0">
+                <button
+                  onClick={() => void openDashboardsAsCode()}
+                  className="px-2 py-1 rounded bg-primary text-primary-contrast hover:opacity-90 transition-opacity inline-flex items-center gap-1"
+                  title="Open the Dashboards as Code panel to download YAML"
+                >
+                  <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5" />
+                  Open Dashboards as Code
+                </button>
+                <button
+                  onClick={handleRefresh}
+                  className="px-2 py-1 rounded hover:bg-surface text-surface-contrast transition-colors inline-flex items-center gap-1"
+                  title="Re-run lineage detection"
+                >
+                  <ArrowPathIcon className="w-3.5 h-3.5" />
+                  Refresh
+                </button>
+              </div>
+            </div>
+          )}
       </div>
 
       {/* Content */}
@@ -724,6 +793,7 @@ export default function ModelLineage() {
                 currentNode={lineageData.current}
                 upstreamNodes={lineageData.upstream}
                 downstreamNodes={lineageData.downstream}
+                lightdashDownstream={lineageData.lightdashDownstream}
                 projectName={activeModel.projectName}
                 selectedNodeForQuery={selectedNodeForQuery}
                 selectedNodeName={selectedNodeName}
@@ -731,6 +801,10 @@ export default function ModelLineage() {
                 onCompile={handleCompile}
                 onNodeClick={handleNodeClick}
                 onViewColumns={handleViewColumns}
+                onOpenLightdash={(url) => void openLightdashUrl(url)}
+                onOpenLightdashYaml={(filePath) =>
+                  void openLightdashYaml(filePath)
+                }
               />
             </ReactFlowProvider>
           </div>
