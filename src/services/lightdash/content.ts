@@ -128,10 +128,7 @@ export class LightdashContent {
     // `dashboardSlug` only (not actually rendered as a tile). It stays
     // undefined for rows in the standalone-charts container popover,
     // where the embedded-as-tile concept does not apply.
-    const buildChartRow = (
-      chartSlug: string,
-      parentDashboardSlug?: string,
-    ) => {
+    const buildChartRow = (chartSlug: string, parentDashboardSlug?: string) => {
       const chart = this.chartsBySlug.get(chartSlug);
       // `hasYaml` is false when a dashboard's `tiles[]` references a
       // chartSlug we have no local YAML for (chart removed / never
@@ -142,7 +139,7 @@ export class LightdashContent {
         ? this.tileEmbeddedChartSlugs.get(parentDashboardSlug)
         : undefined;
       const embeddedAsTile = parentDashboardSlug
-        ? (tileSet?.has(chartSlug) ?? true)
+        ? tileSet?.has(chartSlug) ?? true
         : undefined;
       return {
         slug: chartSlug,
@@ -278,10 +275,16 @@ export class LightdashContent {
     // popover ordering stays deterministic across rebuilds.
     const savedWithinByDashboard = new Map<string, LightdashChartContent[]>();
     for (const chart of this.chartsBySlug.values()) {
-      if (!chart.dashboardSlug) {continue;}
+      if (!chart.dashboardSlug) {
+        continue;
+      }
       const dashboard = this.dashboardsBySlug.get(chart.dashboardSlug);
-      if (!dashboard) {continue;}
-      if (dashboard.chartSlugs.includes(chart.slug)) {continue;}
+      if (!dashboard) {
+        continue;
+      }
+      if (dashboard.chartSlugs.includes(chart.slug)) {
+        continue;
+      }
       const arr = savedWithinByDashboard.get(chart.dashboardSlug) ?? [];
       arr.push(chart);
       savedWithinByDashboard.set(chart.dashboardSlug, arr);
