@@ -19,6 +19,7 @@ import {
   frameworkMakeSourceName,
 } from '@services/framework/utils';
 import { Lightdash } from '@services/lightdash';
+import { LightdashContent } from '@services/lightdash/content';
 import { SERVICE_NAMES, ServiceLocator } from '@services/ServiceLocator';
 import { StateManager } from '@services/statemanager';
 import { Trino } from '@services/trino';
@@ -48,6 +49,7 @@ export class Coder {
   lastFileChange: Date | null;
   lastGitLog: { action: GitAction | null; line: string };
   lightdash: Lightdash;
+  lightdashContent: LightdashContent;
   log: DJLogger;
   stateManager: StateManager;
   trino: Trino;
@@ -162,6 +164,11 @@ export class Coder {
           ),
       );
 
+      this.locator.register(
+        SERVICE_NAMES.LightdashContent,
+        () => new LightdashContent(this.locator.get(SERVICE_NAMES.Logger)),
+      );
+
       // Resolve all services (triggers lazy instantiation)
       this.log = this.locator.get(SERVICE_NAMES.Logger);
       this.log.info('Logger initialized');
@@ -181,6 +188,8 @@ export class Coder {
       this.log.info('Api resolved');
       this.lightdash = this.locator.get(SERVICE_NAMES.Lightdash);
       this.log.info('Lightdash resolved');
+      this.lightdashContent = this.locator.get(SERVICE_NAMES.LightdashContent);
+      this.log.info('LightdashContent resolved');
     } catch (error: unknown) {
       console.error('[DJ] FATAL ERROR in Coder constructor:', error);
       throw error;
@@ -321,6 +330,7 @@ export class Coder {
       trackProgress('Activating lightdash features');
       this.log.info('Starting Lightdash activation...');
       this.lightdash.activate(this.context);
+      this.lightdashContent.activate(this.context);
       this.log.info('Lightdash activation completed');
 
       trackProgress('Activating data explorer features');
@@ -1398,6 +1408,7 @@ export class Coder {
       // Activate other services
       this.trino.activate(this.context);
       this.lightdash.activate(this.context);
+      this.lightdashContent.activate(this.context);
       this.dataExplorer.activate(this.context);
       this.columnLineage.activate(this.context);
 
@@ -1542,6 +1553,7 @@ export class Coder {
     this.api.deactivate();
     this.framework.deactivate();
     this.lightdash.deactivate();
+    this.lightdashContent.deactivate();
     this.trino.deactivate();
     this.columnLineage.deactivate();
   }

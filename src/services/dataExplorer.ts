@@ -265,6 +265,10 @@ export class DataExplorer
       case 'data-explorer-get-compiled-sql':
       case 'data-explorer-detect-active-model':
       case 'data-explorer-get-project-overview':
+      case 'data-explorer-open-lightdash-url':
+      case 'data-explorer-set-lightdash-toggle':
+      case 'data-explorer-open-dashboards-as-code':
+      case 'data-explorer-open-lightdash-yaml':
         return await this.modelLineage.handleApi(payload);
     }
   }
