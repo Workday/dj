@@ -182,6 +182,18 @@ export type LightdashApi =
       service: 'lightdash';
       request: { path: string };
       response: { success: boolean; absolutePath?: string; error?: string };
+    }
+  | {
+      type: 'lightdash-yaml-ensure-gitignore';
+      service: 'lightdash';
+      request: { path: string };
+      response: {
+        success: boolean;
+        added?: boolean;
+        alreadyPresent?: boolean;
+        gitignorePath?: string;
+        error?: string;
+      };
     };
 
 export type LightdashDimension = SchemaLightdashDimension & {};
