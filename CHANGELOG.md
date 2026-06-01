@@ -1,5 +1,17 @@
 # Change Log
 
+## 1.6.0
+
+### Data Explorer — Lightdash lineage
+
+- **Lightdash dashboards now show as downstream nodes for `mart_*` models** in the Data Explorer lineage graph. Each dashboard node lists its embedded charts in a popover, and saved charts that aren't part of any dashboard are bundled into a single **Standalone Charts** node per mart so the canvas stays tidy. Both nodes expose **Open YAML** (jump to the source file) and **Open in Lightdash** (deep link to the dashboard or chart in the Lightdash UI, when `LIGHTDASH_URL` and `LIGHTDASH_PROJECT` are set). Lineage is built locally from Dashboards-as-Code YAML under `dj.lightdash.dashboardsAsCodePath` and refreshes when the files change — no API calls, no extra `dbt` work.
+- **New setting `dj.dataExplorer.showLightdashLineage`** (default `false`) and a matching **header toggle in the Data Explorer panel** opt into the Lightdash lineage layer, so projects that don't use Lightdash incur zero cost.
+- **Empty-state CTA on the lineage graph** — when the toggle is on but no local content is found, an inline banner offers one-click access to **`Open Dashboards as Code`** to download the YAML and **`Refresh`** to rebuild the lineage.
+
+### Dashboards as Code
+
+- **Optional `.gitignore` helper on the Download tab** — new `Add path to .gitignore` checkbox (default off) idempotently appends the configured `dj.lightdash.dashboardsAsCodePath` to the workspace `.gitignore` before the download starts, so generated YAML stays out of version control. Entries land inside a short managed block (`# dj` … `# /dj`) so future DJ-managed paths can share the same region. Skips the write when the entry is already present and streams a single status line into the download log panel.
+
 ## 1.5.0
 
 ### Lightdash
