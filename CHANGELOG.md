@@ -1,11 +1,5 @@
 # Change Log
 
-## 1.7.0
-
-### Agent Skills
-
-- **New `dj-initialize` agent skill** — interactive skill that guides Agents through setting up all required and recommended configurations for DJ in an existing dbt project: Python venv, `dbt_project.yml` vars (`storage_type`, `etl_schema`), groups, `.gitignore`, VS Code settings, Trino connection, and optional integrations (Lightdash, Airflow).
-
 ## 1.6.0
 
 ### Agent Skills
