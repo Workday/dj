@@ -12,6 +12,7 @@ import { apiResponse } from '@shared/api/utils';
  */
 type ApiCallback = (payload: unknown) => Promise<ApiResponse>;
 import { COMMAND_ID, VIEW_ID } from '@services/constants';
+import { ensureLightdashPathInGitignore } from '@services/lightdash/content';
 import {
   deleteYamlFiles,
   executeLightdashDownload,
@@ -369,6 +370,43 @@ export class Lightdash implements ApiEnabledService<'lightdash'> {
           return apiResponse<typeof payload.type>({
             success: false,
             error: err instanceof Error ? err.message : 'Unknown error',
+          });
+        }
+      }
+      case 'lightdash-yaml-ensure-gitignore': {
+        const onLog = (level: LightdashYamlLog['level'], message: string) => {
+          this.dashboardsAsCodePanel?.webview.postMessage({
+            type: 'lightdash-yaml-log',
+            log: {
+              level,
+              message,
+              timestamp: new Date().toISOString(),
+            },
+          });
+        };
+        try {
+          const result = ensureLightdashPathInGitignore(payload.request.path);
+          if (result.alreadyPresent) {
+            onLog(
+              'info',
+              `"${payload.request.path}" already in .gitignore - skipped.`,
+            );
+          } else if (result.added) {
+            onLog('success', `Added "${payload.request.path}" to .gitignore.`);
+          }
+          return apiResponse<typeof payload.type>({
+            success: true,
+            added: result.added,
+            alreadyPresent: result.alreadyPresent,
+            gitignorePath: result.gitignorePath,
+          });
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : 'Unknown error';
+          this.log.error('Error updating .gitignore:', err);
+          onLog('error', `Failed to update .gitignore: ${message}`);
+          return apiResponse<typeof payload.type>({
+            success: false,
+            error: message,
           });
         }
       }
