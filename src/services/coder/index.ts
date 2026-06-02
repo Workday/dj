@@ -19,6 +19,7 @@ import {
   frameworkMakeSourceName,
 } from '@services/framework/utils';
 import { Lightdash } from '@services/lightdash';
+import { LightdashContent } from '@services/lightdash/content';
 import { QueryDraftService } from '@services/queryDraft';
 import { QueryPreview } from '@services/queryPreview';
 import { SERVICE_NAMES, ServiceLocator } from '@services/ServiceLocator';
@@ -47,9 +48,13 @@ export class Coder {
   dbt: Dbt; // Added for convenience (same as framework.dbt)
   framework: Framework;
   gitPending: boolean;
+  private gitPendingTimer: NodeJS.Timeout | null = null;
+  private gitPendingStartedAt: number | null = null;
+  private fullSyncSettleTimer: NodeJS.Timeout | null = null;
   lastFileChange: Date | null;
   lastGitLog: { action: GitAction | null; line: string };
   lightdash: Lightdash;
+  lightdashContent: LightdashContent;
   log: DJLogger;
   queryDraft: QueryDraftService;
   queryPreview: QueryPreview;
@@ -181,6 +186,11 @@ export class Coder {
         () => new QueryPreview({ coder: this }),
       );
 
+      this.locator.register(
+        SERVICE_NAMES.LightdashContent,
+        () => new LightdashContent(this.locator.get(SERVICE_NAMES.Logger)),
+      );
+
       // Resolve all services (triggers lazy instantiation)
       this.log = this.locator.get(SERVICE_NAMES.Logger);
       this.log.info('Logger initialized');
@@ -204,6 +214,8 @@ export class Coder {
       this.log.info('QueryDraft resolved');
       this.queryPreview = this.locator.get(SERVICE_NAMES.QueryPreview);
       this.log.info('QueryPreview resolved');
+      this.lightdashContent = this.locator.get(SERVICE_NAMES.LightdashContent);
+      this.log.info('LightdashContent resolved');
     } catch (error: unknown) {
       console.error('[DJ] FATAL ERROR in Coder constructor:', error);
       throw error;
@@ -344,6 +356,7 @@ export class Coder {
       trackProgress('Activating lightdash features');
       this.log.info('Starting Lightdash activation...');
       this.lightdash.activate(this.context);
+      this.lightdashContent.activate(this.context);
       this.log.info('Lightdash activation completed');
 
       trackProgress('Activating data explorer features');
@@ -721,6 +734,82 @@ export class Coder {
   /**
    * Handles file change events
    */
+  private static readonly GIT_PENDING_WINDOW_MS = 2000;
+  private static readonly GIT_PENDING_MAX_MS = 10_000;
+
+  /**
+   * Mark the start of a git operation. Sets a resettable window during which
+   * any debounced framework sync will escalate to a full sync. The window
+   * extends each time {@link extendGitPending} is called (up to a hard cap).
+   */
+  private setGitPending(): void {
+    this.gitPending = true;
+    this.gitPendingStartedAt = Date.now();
+
+    if (this.gitPendingTimer !== null) {
+      clearTimeout(this.gitPendingTimer);
+    }
+
+    this.gitPendingTimer = setTimeout(() => {
+      this.gitPending = false;
+      this.gitPendingTimer = null;
+      this.gitPendingStartedAt = null;
+    }, Coder.GIT_PENDING_WINDOW_MS);
+  }
+
+  /**
+   * Extend the git-pending window if one is active and the hard cap has not
+   * been reached. Called from debounceFrameworkSync when new file events
+   * arrive while gitPending is true, keeping the window open as long as
+   * files are still changing.
+   */
+  private extendGitPending(): void {
+    if (!this.gitPending || this.gitPendingStartedAt === null) {
+      return;
+    }
+
+    const elapsed = Date.now() - this.gitPendingStartedAt;
+    if (elapsed >= Coder.GIT_PENDING_MAX_MS) {
+      return;
+    }
+
+    if (this.gitPendingTimer !== null) {
+      clearTimeout(this.gitPendingTimer);
+    }
+
+    const remaining = Math.min(
+      Coder.GIT_PENDING_WINDOW_MS,
+      Coder.GIT_PENDING_MAX_MS - elapsed,
+    );
+
+    this.gitPendingTimer = setTimeout(() => {
+      this.gitPending = false;
+      this.gitPendingTimer = null;
+      this.gitPendingStartedAt = null;
+    }, remaining);
+  }
+
+  private static readonly FULL_SYNC_SETTLE_MS = 750;
+
+  /**
+   * Coalesce all full-sync triggers (git ops, bulk changes) into a single
+   * enqueue. Each call resets the timer; the full sync is enqueued only
+   * after FULL_SYNC_SETTLE_MS of quiescence, i.e. once the change burst
+   * (e.g. a git checkout writing many files) has settled. This prevents
+   * a sync from starting mid-burst and another being queued behind it.
+   */
+  private scheduleFullSync(): void {
+    if (this.fullSyncSettleTimer !== null) {
+      clearTimeout(this.fullSyncSettleTimer);
+    }
+    this.fullSyncSettleTimer = setTimeout(() => {
+      this.fullSyncSettleTimer = null;
+      this.clearAllPendingTimers();
+      this.log.info(`SETTLE: Burst quiet, enqueuing single full sync`);
+      this.framework.syncQueue.enqueueFullSync();
+    }, Coder.FULL_SYNC_SETTLE_MS);
+  }
+
   /**
    * Get the sync debounce delay from configuration.
    * Defaults to 1500ms if not configured.
@@ -751,7 +840,21 @@ export class Coder {
    * Debounce and then process a model or source file change.
    * Re-reads the file from disk when the timer fires, ensuring the latest content is used.
    */
+  private static readonly BULK_CHANGE_THRESHOLD = 5;
+
   debounceFrameworkSync(filePath: string) {
+    // Git path: defer to a single settle-timer-driven full sync. Do NOT
+    // schedule a per-file debounce timer — they would otherwise fire during
+    // the git burst, race the settle timer, and produce a second sync.
+    if (this.gitPending) {
+      this.extendGitPending();
+      this.log.info(
+        `DEBOUNCE: Git operation pending, scheduling settled full sync for ${filePath}`,
+      );
+      this.scheduleFullSync();
+      return;
+    }
+
     // Clear any existing pending sync for this file path
     const existingTimer = this.pendingModelSyncs.get(filePath);
     if (existingTimer) {
@@ -764,12 +867,13 @@ export class Coder {
         this.pendingModelSyncs.delete(filePath);
 
         try {
-          // If a git operation (checkout/pull) is pending, request a full sync
+          // Re-check gitPending: a git op may have started after this timer
+          // was scheduled. Route through the settle timer for consistency.
           if (this.gitPending) {
             this.log.info(
-              `DEBOUNCE: Git operation pending, enqueuing full sync`,
+              `DEBOUNCE: Git operation pending, scheduling settled full sync`,
             );
-            this.framework.syncQueue.enqueueFullSync();
+            this.scheduleFullSync();
             return;
           }
 
@@ -789,9 +893,6 @@ export class Coder {
               this.log.error(`DEBOUNCE: No model ID found for ${filePath}`);
               return;
             }
-            // Pass filePath as pathJson so the SyncEngine can find the file
-            // even when the ID is derived from the NEW name but the file is
-            // still at the OLD path (pre-rename).
             this.log.info(
               `DEBOUNCE: Enqueuing sync for ${id} (modelName=${modelName}, pathJson: ${filePath})`,
             );
@@ -820,6 +921,28 @@ export class Coder {
     this.log.info(
       `DEBOUNCE: Scheduled sync for ${filePath} in ${debounceMs}ms`,
     );
+
+    // Bulk-change detection: many simultaneous debounce timers indicate a
+    // mass file change (git restore, external tooling, etc.). Route through
+    // the settle scheduler so the full sync waits for the burst to quiet,
+    // avoiding the start-mid-burst + queued-second-sync pattern.
+    if (this.pendingModelSyncs.size > Coder.BULK_CHANGE_THRESHOLD) {
+      this.log.info(
+        `DEBOUNCE: Bulk change detected (${this.pendingModelSyncs.size} pending timers > ${Coder.BULK_CHANGE_THRESHOLD}), scheduling settled full sync`,
+      );
+      this.scheduleFullSync();
+    }
+  }
+
+  /**
+   * Clear all pending debounce timers. Used when escalating to full sync
+   * so individual file timers do not fire redundantly.
+   */
+  private clearAllPendingTimers(): void {
+    for (const [, t] of this.pendingModelSyncs) {
+      clearTimeout(t);
+    }
+    this.pendingModelSyncs.clear();
   }
 
   async handleWatcherEvent({
@@ -893,13 +1016,12 @@ export class Coder {
                 // Re-sync all json files after these git actions
                 switch (info.log.action) {
                   case 'checkout':
-                  case 'pull': {
+                  case 'pull':
+                  case 'rebase':
+                  case 'reset':
+                  case 'fast-forward': {
                     this.log.info('GIT ACTION: ', info.log.action);
-                    this.gitPending = true;
-                    setTimeout(() => {
-                      // Keeps this true for 2 seconds, so that if file changes come in during the window, we know to trigger a full sync
-                      this.gitPending = false;
-                    }, 2000);
+                    this.setGitPending();
                   }
                 }
               }
@@ -1495,6 +1617,7 @@ export class Coder {
       // Activate other services
       this.trino.activate(this.context);
       this.lightdash.activate(this.context);
+      this.lightdashContent.activate(this.context);
       this.dataExplorer.activate(this.context);
       this.columnLineage.activate(this.context);
 
@@ -1634,12 +1757,25 @@ export class Coder {
     }
     this.pendingModelSyncs.clear();
 
+    if (this.gitPendingTimer !== null) {
+      clearTimeout(this.gitPendingTimer);
+      this.gitPendingTimer = null;
+    }
+    this.gitPendingStartedAt = null;
+    this.gitPending = false;
+
+    if (this.fullSyncSettleTimer !== null) {
+      clearTimeout(this.fullSyncSettleTimer);
+      this.fullSyncSettleTimer = null;
+    }
+
     this.watcher?.dispose();
     this.projectWatcher?.dispose();
     this.manifestWatcher?.dispose();
     this.api.deactivate();
     this.framework.deactivate();
     this.lightdash.deactivate();
+    this.lightdashContent.deactivate();
     this.trino.deactivate();
     this.columnLineage.deactivate();
   }

@@ -32,10 +32,31 @@ export interface LineageNode {
   hasOwnDownstream?: boolean;
 }
 
+export interface LightdashLineageNode {
+  id: string;
+  slug: string;
+  name: string;
+  kind: 'dashboard' | 'standalone-charts';
+  url?: string;
+  charts?: {
+    slug: string;
+    name: string;
+    url?: string;
+    filePath: string;
+    embeddedAsTile?: boolean;
+    hasYaml?: boolean;
+  }[];
+  filePath: string;
+}
+
 export interface LineageData {
   current: LineageNode;
   upstream: LineageNode[];
   downstream: LineageNode[];
+  lightdashDownstream?: LightdashLineageNode[];
+  lightdashAvailable?: boolean;
+  lightdashResolvedPath?: string;
+  lightdashEnabled?: boolean;
 }
 
 export interface QueryResults {
@@ -89,6 +110,12 @@ interface DataExplorerStore {
   isExecutingQuery: boolean;
   error: string | null;
   selectedNodeForQuery: string | null;
+  /**
+   * True while the Lightdash toggle write + lineage re-fetch are in
+   * flight. Drives a spinner alongside the toggle to indicate the rebuild
+   * is in progress.
+   */
+  isLightdashRefreshing: boolean;
 
   // Compilation state
   compilationLogs: CompilationLog[];
@@ -204,6 +231,11 @@ interface DataExplorerStore {
 
   // Project overview actions
   fetchProjectOverview: () => Promise<void>;
+  // Lightdash lineage actions
+  openLightdashUrl: (url: string) => Promise<void>;
+  setLightdashEnabled: (enabled: boolean) => Promise<void>;
+  openDashboardsAsCode: () => Promise<void>;
+  openLightdashYaml: (filePath: string) => Promise<void>;
 
   // Sidebar / nav actions
   setActiveView: (view: ActiveView) => void;
@@ -226,6 +258,7 @@ export const useDataExplorerStore = create<DataExplorerStore>((set, get) => ({
   isExecutingQuery: false,
   error: null,
   selectedNodeForQuery: null,
+  isLightdashRefreshing: false,
   _apiHandler: null,
 
   // Compilation state
@@ -1012,4 +1045,97 @@ export const useDataExplorerStore = create<DataExplorerStore>((set, get) => ({
         sidebarWidth > midpoint ? SIDEBAR_MIN_WIDTH : SIDEBAR_MAX_WIDTH,
     });
   },
+
+  // Lightdash lineage actions
+  openLightdashUrl: async (url: string) => {
+    const { _apiHandler } = get();
+    if (!_apiHandler || !url) {
+      return;
+    }
+    try {
+      await _apiHandler({
+        type: 'data-explorer-open-lightdash-url',
+        request: { url },
+      });
+    } catch (error) {
+      console.error('[DataExplorerStore] Error opening Lightdash URL:', error);
+    }
+  },
+
+  setLightdashEnabled: async (enabled: boolean) => {
+    const { _apiHandler, activeModel, fetchLineage, lineageData } = get();
+    if (!_apiHandler) {
+      return;
+    }
+
+    const previousEnabled = lineageData?.lightdashEnabled === true;
+    if (lineageData) {
+      set({
+        lineageData: { ...lineageData, lightdashEnabled: enabled },
+        isLightdashRefreshing: true,
+      });
+    } else {
+      set({ isLightdashRefreshing: true });
+    }
+
+    try {
+      await _apiHandler({
+        type: 'data-explorer-set-lightdash-toggle',
+        request: { enabled },
+      });
+      if (activeModel) {
+        await fetchLineage(activeModel.modelName, activeModel.projectName);
+      }
+    } catch (error) {
+      console.error(
+        '[DataExplorerStore] Error setting Lightdash toggle:',
+        error,
+      );
+      const current = get().lineageData;
+      if (current) {
+        set({
+          lineageData: { ...current, lightdashEnabled: previousEnabled },
+        });
+      }
+    } finally {
+      set({ isLightdashRefreshing: false });
+    }
+  },
+
+  openDashboardsAsCode: async () => {
+    const { _apiHandler } = get();
+    if (!_apiHandler) {
+      return;
+    }
+    try {
+      await _apiHandler({
+        type: 'data-explorer-open-dashboards-as-code',
+        request: null,
+      });
+    } catch (error) {
+      console.error(
+        '[DataExplorerStore] Error opening Dashboards as Code:',
+        error,
+      );
+    }
+  },
+
+  openLightdashYaml: async (filePath: string) => {
+    const { _apiHandler } = get();
+    if (!_apiHandler || !filePath) {
+      return;
+    }
+    try {
+      await _apiHandler({
+        type: 'data-explorer-open-lightdash-yaml',
+        request: { filePath },
+      });
+    } catch (error) {
+      console.error(
+        '[DataExplorerStore] Error opening Lightdash YAML file:',
+        error,
+      );
+    }
+  },
+  
 }));

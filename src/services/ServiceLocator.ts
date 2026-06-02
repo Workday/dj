@@ -157,6 +157,7 @@ export const SERVICE_NAMES = {
   // API Layer
   Api: 'api',
   Lightdash: 'lightdash',
+  LightdashContent: 'lightdashContent',
 } as const;
 
 export type ServiceName = (typeof SERVICE_NAMES)[keyof typeof SERVICE_NAMES];

@@ -630,6 +630,136 @@ export function AppProvider() {
                           hasOwnDownstream: false, // No further downstream
                         },
                       ],
+                      // Mock Lightdash data so the new node can be exercised in
+                      // browser dev mode. The mocked current model is named
+                      // `int_orders`, not a mart, so the production extension
+                      // would suppress these - but in dev mode we surface them
+                      // to make the UI testable end-to-end.
+                      lightdashEnabled: true,
+                      lightdashAvailable: true,
+                      lightdashResolvedPath: 'lightdash',
+                      lightdashDownstream: [
+                        {
+                          id: 'lightdash::dashboard::executive-overview',
+                          slug: 'executive-overview',
+                          name: 'Executive Overview',
+                          kind: 'dashboard',
+                          // Mock charts cover all three popover row
+                          // states so the Eye / EyeSlash / Warning icons,
+                          // italic muted name, and per-row action button
+                          // overrides can be exercised without a real
+                          // Lightdash content directory:
+                          // - `tile`    → Eye icon, default styling
+                          // - `hidden`  → EyeSlash icon (saved-within)
+                          // - `missing` → amber warning, italic name,
+                          //               Open YAML hidden, Open in
+                          //               Lightdash tooltip warns the
+                          //               chart may have been removed.
+                          charts: [
+                            {
+                              slug: 'orders-by-region',
+                              name: 'Orders by Region',
+                              url: 'https://example.lightdash.cloud/projects/mock/saved/orders-by-region',
+                              filePath: 'lightdash/charts/orders-by-region.yml',
+                              embeddedAsTile: true,
+                              hasYaml: true,
+                            },
+                            {
+                              slug: 'top-customers',
+                              name: 'Top Customers',
+                              url: 'https://example.lightdash.cloud/projects/mock/saved/top-customers',
+                              filePath: 'lightdash/charts/top-customers.yml',
+                              embeddedAsTile: true,
+                              hasYaml: true,
+                            },
+                            {
+                              slug: 'orders-by-region-drilldown',
+                              name: 'Orders by Region (Drill-down)',
+                              url: 'https://example.lightdash.cloud/projects/mock/saved/orders-by-region-drilldown',
+                              filePath:
+                                'lightdash/charts/orders-by-region-drilldown.yml',
+                              embeddedAsTile: false,
+                              hasYaml: true,
+                            },
+                            {
+                              slug: 'removed-chart',
+                              name: 'Removed Chart',
+                              url: 'https://example.lightdash.cloud/projects/mock/saved/removed-chart',
+                              filePath: '',
+                              embeddedAsTile: true,
+                              hasYaml: false,
+                            },
+                          ],
+                          url: 'https://example.lightdash.cloud/projects/mock/dashboards/executive-overview/view',
+                          filePath:
+                            'lightdash/dashboards/executive-overview.yml',
+                        },
+                        {
+                          id: 'lightdash::standalone-charts::int_orders',
+                          slug: 'int_orders::standalone-charts',
+                          name: 'Standalone Charts',
+                          kind: 'standalone-charts',
+                          filePath: '',
+                          charts: [
+                            {
+                              slug: 'orders-funnel-debug',
+                              name: 'Orders Funnel (Debug)',
+                              url: 'https://example.lightdash.cloud/projects/mock/saved/orders-funnel-debug',
+                              filePath:
+                                'lightdash/charts/orders-funnel-debug.yml',
+                            },
+                            {
+                              slug: 'one-off-revenue-spike',
+                              name: 'One-off Revenue Spike Investigation',
+                              url: 'https://example.lightdash.cloud/projects/mock/saved/one-off-revenue-spike',
+                              filePath:
+                                'lightdash/charts/one-off-revenue-spike.yml',
+                            },
+                          ],
+                        },
+                      ],
+                    }),
+                  );
+                }
+                case 'data-explorer-open-lightdash-url': {
+                  console.log(
+                    '[Mock] Opening Lightdash URL:',
+                    (payload.request as { url: string }).url,
+                  );
+                  return resolve(
+                    apiResponse<typeof payloadType>({ success: true }),
+                  );
+                }
+                case 'data-explorer-set-lightdash-toggle': {
+                  const enabled = (payload.request as { enabled: boolean })
+                    .enabled;
+                  console.log('[Mock] Setting Lightdash toggle:', enabled);
+                  return resolve(apiResponse<typeof payloadType>({ enabled }));
+                }
+                case 'data-explorer-open-dashboards-as-code': {
+                  console.log('[Mock] Opening Dashboards as Code panel');
+                  return resolve(
+                    apiResponse<typeof payloadType>({ success: true }),
+                  );
+                }
+                case 'data-explorer-open-lightdash-yaml': {
+                  console.log(
+                    '[Mock] Opening Lightdash YAML file:',
+                    (payload.request as { filePath: string }).filePath,
+                  );
+                  return resolve(
+                    apiResponse<typeof payloadType>({ success: true }),
+                  );
+                }
+                case 'lightdash-yaml-ensure-gitignore': {
+                  const path = (payload.request as { path: string }).path;
+                  console.log('[Mock] Ensuring .gitignore contains:', path);
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      success: true,
+                      added: true,
+                      alreadyPresent: false,
+                      gitignorePath: '/mock/workspace/.gitignore',
                     }),
                   );
                 }
