@@ -170,6 +170,42 @@ SELECT 1
   }
 
   /**
+   * Open the most recent .draft.sql file in the editor.
+   * If a draft is already open in the active editor, focus it instead.
+   */
+  async openLatestDraft(): Promise<void> {
+    const editor = vscode.window.activeTextEditor;
+    if (editor?.document.uri.fsPath.endsWith('.draft.sql')) {
+      await vscode.window.showTextDocument(editor.document);
+      return;
+    }
+
+    if (!fs.existsSync(DJ_DRAFTS_PATH)) {
+      vscode.window.showWarningMessage(
+        'No query drafts found. Create one first.',
+      );
+      return;
+    }
+
+    const files = fs
+      .readdirSync(DJ_DRAFTS_PATH)
+      .filter((f) => f.endsWith('.draft.sql'))
+      .sort()
+      .reverse();
+
+    if (files.length === 0) {
+      vscode.window.showWarningMessage(
+        'No query drafts found. Create one first.',
+      );
+      return;
+    }
+
+    const latestFile = path.join(DJ_DRAFTS_PATH, files[0]);
+    const uri = vscode.Uri.file(latestFile);
+    await vscode.window.showTextDocument(uri);
+  }
+
+  /**
    * Detect available AI assistants and set VS Code context
    */
   async detectAiAssistants(): Promise<void> {

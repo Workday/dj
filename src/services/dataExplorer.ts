@@ -70,6 +70,12 @@ class DataExplorerViewProvider implements vscode.WebviewViewProvider {
           return;
         }
 
+        // Handle open-last-draft message to open the most recent .draft.sql file
+        if ((message as any).type === 'open-last-draft') {
+          await this._coder.queryDraft.openLatestDraft();
+          return;
+        }
+
         // Handle open-column-lineage message to navigate to Column Lineage panel
         if ((message as any).type === 'open-column-lineage') {
           const { filePath, modelName, columnName, columns, nodeType } =

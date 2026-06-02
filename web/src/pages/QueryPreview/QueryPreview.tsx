@@ -2,7 +2,6 @@ import {
   ArrowLeftIcon,
   ArrowPathIcon,
   CheckCircleIcon,
-  ClockIcon,
   DocumentTextIcon,
   ExclamationCircleIcon,
   ExclamationTriangleIcon,
@@ -55,7 +54,6 @@ export default function QueryPreview({ onClose }: QueryPreviewProps) {
   const [isExecuting, setIsExecuting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
-  const [showHistory, setShowHistory] = useState(false);
   const executingIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -111,7 +109,6 @@ export default function QueryPreview({ onClose }: QueryPreviewProps) {
       } else if (message.type === 'query-executing') {
         setIsExecuting(true);
         setError(null);
-        setShowHistory(false);
 
         const id = `${Date.now()}`;
         executingIdRef.current = id;
@@ -135,7 +132,6 @@ export default function QueryPreview({ onClose }: QueryPreviewProps) {
     async (limit = 500) => {
       setIsExecuting(true);
       setError(null);
-      setShowHistory(false);
 
       const id = `${Date.now()}`;
       executingIdRef.current = id;
@@ -207,7 +203,6 @@ export default function QueryPreview({ onClose }: QueryPreviewProps) {
   const handleClearResults = useCallback(() => {
     setResults(null);
     setError(null);
-    setShowHistory(false);
   }, []);
 
   const handleNewQuery = useCallback(() => {
@@ -215,6 +210,10 @@ export default function QueryPreview({ onClose }: QueryPreviewProps) {
       type: 'execute-command',
       command: 'dj.command.queryDraftCreate',
     });
+  }, [vscode]);
+
+  const handleOpenDraftFile = useCallback(() => {
+    vscode?.postMessage({ type: 'open-last-draft' });
   }, [vscode]);
 
   const handleConvertToModel = useCallback(() => {
@@ -232,7 +231,6 @@ export default function QueryPreview({ onClose }: QueryPreviewProps) {
       setError(entry.error);
       setResults(null);
     }
-    setShowHistory(false);
   }, []);
 
   const hasContent = results || error;
@@ -256,7 +254,7 @@ export default function QueryPreview({ onClose }: QueryPreviewProps) {
             <span className="font-mono font-semibold text-sm text-foreground">
               Adhoc Query
             </span>
-            {results && !showHistory && (
+            {results && (
               <span className="text-xs text-surface-contrast">
                 {results.rowCount} rows
                 {results.executionTime && ` • ${results.executionTime}ms`}
@@ -264,7 +262,7 @@ export default function QueryPreview({ onClose }: QueryPreviewProps) {
             )}
           </div>
           <div className="flex items-center gap-1">
-            {results && !showHistory && (
+            {results && (
               <button
                 onClick={handleConvertToModel}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600 text-white text-xs rounded hover:bg-purple-700 transition-colors"
@@ -274,16 +272,17 @@ export default function QueryPreview({ onClose }: QueryPreviewProps) {
                 Convert to DJ Model
               </button>
             )}
-            {history.length > 0 && (
+            {results && (
               <button
-                onClick={() => setShowHistory((v) => !v)}
-                className={`p-1.5 rounded transition-colors ${showHistory ? 'bg-surface text-foreground' : 'hover:bg-surface text-surface-contrast'}`}
-                title={showHistory ? 'Back to results' : 'Execution history'}
+                onClick={handleNewQuery}
+                className="flex items-center gap-1 px-2 py-1.5 rounded hover:bg-surface transition-colors text-xs text-surface-contrast"
+                title="Create a new query draft file"
               >
-                <ClockIcon className="w-4 h-4" />
+                <PlusIcon className="w-4 h-4" />
+                New Query
               </button>
             )}
-            {hasContent && !showHistory && (
+            {hasContent && (
               <button
                 onClick={() => void handleExecuteQuery()}
                 disabled={isExecuting}
@@ -295,7 +294,7 @@ export default function QueryPreview({ onClose }: QueryPreviewProps) {
                 />
               </button>
             )}
-            {(hasContent || showHistory) && (
+            {hasContent && (
               <button
                 onClick={onClose ?? handleClearResults}
                 className="p-1.5 rounded hover:bg-surface transition-colors"
@@ -314,20 +313,49 @@ export default function QueryPreview({ onClose }: QueryPreviewProps) {
 
       {/* Content */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {showHistory ? (
-          /* History View */
+        {/* Error State */}
+        {error && (
+          <div className="m-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+            <div className="flex items-start gap-3">
+              <ExclamationTriangleIcon className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <h4 className="text-sm font-medium text-red-800 dark:text-red-200 mb-1">
+                  Query Execution Failed
+                </h4>
+                <p className="text-sm text-red-700 dark:text-red-300 font-mono whitespace-pre-wrap">
+                  {error}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {isExecuting && !results ? (
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center">
+              <Spinner size={32} />
+              <p className="mt-4 text-sm text-surface-contrast">
+                Executing query against Trino...
+              </p>
+            </div>
+          </div>
+        ) : results ? (
+          <div className="flex-1 overflow-hidden">
+            <QueryResults
+              results={results}
+              isExecuting={isExecuting}
+              onClose={handleClearResults}
+              onRerun={(limit) => void handleExecuteQuery(limit)}
+              onOpenFile={handleOpenDraftFile}
+            />
+          </div>
+        ) : !error && history.length > 0 ? (
+          /* History View (default idle view when queries have been run) */
           <div className="flex-1 flex flex-col overflow-hidden">
-            <div className="flex items-center justify-between px-3 py-2 border-b border-neutral bg-surface/50">
+            <div className="px-3 py-2 border-b border-neutral bg-surface/50">
               <span className="text-xs font-semibold text-foreground uppercase tracking-wide">
                 Execution History
               </span>
-              <button
-                onClick={() => setShowHistory(false)}
-                className="p-1 rounded hover:bg-surface transition-colors"
-                title="Close history"
-              >
-                <XMarkIcon className="w-3.5 h-3.5 text-surface-contrast" />
-              </button>
             </div>
             <div className="flex-1 overflow-y-auto">
               {history.map((entry) => (
@@ -380,80 +408,37 @@ export default function QueryPreview({ onClose }: QueryPreviewProps) {
               ))}
             </div>
           </div>
-        ) : (
-          <>
-            {/* Error State */}
-            {error && (
-              <div className="m-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-                <div className="flex items-start gap-3">
-                  <ExclamationTriangleIcon className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
-                  <div className="flex-1">
-                    <h4 className="text-sm font-medium text-red-800 dark:text-red-200 mb-1">
-                      Query Execution Failed
-                    </h4>
-                    <p className="text-sm text-red-700 dark:text-red-300 font-mono whitespace-pre-wrap">
-                      {error}
-                    </p>
-                  </div>
-                </div>
+        ) : !error ? (
+          /* Empty State (first-ever visit, no history yet) */
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center max-w-md px-4">
+              <div className="w-16 h-16 mx-auto mb-4 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center">
+                <DocumentTextIcon className="w-8 h-8 text-blue-600 dark:text-blue-400" />
               </div>
-            )}
-
-            {/* Loading State (priority over empty state to prevent flash) */}
-            {isExecuting && !results ? (
-              <div className="flex-1 flex items-center justify-center">
-                <div className="text-center">
-                  <Spinner size={32} />
-                  <p className="mt-4 text-sm text-surface-contrast">
-                    Executing query against Trino...
-                  </p>
-                </div>
+              <h3 className="text-lg font-semibold text-foreground mb-2">
+                Adhoc Query
+              </h3>
+              <p className="text-sm text-surface-contrast mb-6">
+                Create a query draft file to write and test SQL queries against
+                Trino. Once validated, convert your query to a DJ model.
+              </p>
+              <div className="flex flex-col gap-3 items-center">
+                <button
+                  onClick={handleNewQuery}
+                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors inline-flex items-center gap-2"
+                >
+                  <PlusIcon className="w-4 h-4" />
+                  New Query
+                </button>
+                <p className="text-xs text-surface-contrast">
+                  Or right-click a{' '}
+                  <code className="bg-surface px-1 rounded">.draft.sql</code>{' '}
+                  file and select <strong>DJ: Run Query</strong>
+                </p>
               </div>
-            ) : results ? (
-              <div className="flex-1 overflow-hidden">
-                <QueryResults
-                  results={results}
-                  isExecuting={isExecuting}
-                  onClose={handleClearResults}
-                  onRerun={(limit) => void handleExecuteQuery(limit)}
-                />
-              </div>
-            ) : !error ? (
-              /* Empty State */
-              <div className="flex-1 flex items-center justify-center">
-                <div className="text-center max-w-md px-4">
-                  <div className="w-16 h-16 mx-auto mb-4 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center">
-                    <DocumentTextIcon className="w-8 h-8 text-blue-600 dark:text-blue-400" />
-                  </div>
-                  <h3 className="text-lg font-semibold text-foreground mb-2">
-                    Adhoc Query
-                  </h3>
-                  <p className="text-sm text-surface-contrast mb-6">
-                    Create a query draft file to write and test SQL queries
-                    against Trino. Once validated, convert your query to a DJ
-                    model.
-                  </p>
-                  <div className="flex flex-col gap-3 items-center">
-                    <button
-                      onClick={handleNewQuery}
-                      className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors inline-flex items-center gap-2"
-                    >
-                      <PlusIcon className="w-4 h-4" />
-                      New Query
-                    </button>
-                    <p className="text-xs text-surface-contrast">
-                      Or right-click a{' '}
-                      <code className="bg-surface px-1 rounded">
-                        .draft.sql
-                      </code>{' '}
-                      file and select <strong>DJ: Run Query</strong>
-                    </p>
-                  </div>
-                </div>
-              </div>
-            ) : null}
-          </>
-        )}
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );
