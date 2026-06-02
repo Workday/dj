@@ -48,6 +48,7 @@ export class Coder {
   gitPending: boolean;
   private gitPendingTimer: NodeJS.Timeout | null = null;
   private gitPendingStartedAt: number | null = null;
+  private fullSyncSettleTimer: NodeJS.Timeout | null = null;
   lastFileChange: Date | null;
   lastGitLog: { action: GitAction | null; line: string };
   lightdash: Lightdash;
@@ -758,6 +759,27 @@ export class Coder {
     }, remaining);
   }
 
+  private static readonly FULL_SYNC_SETTLE_MS = 750;
+
+  /**
+   * Coalesce all full-sync triggers (git ops, bulk changes) into a single
+   * enqueue. Each call resets the timer; the full sync is enqueued only
+   * after FULL_SYNC_SETTLE_MS of quiescence, i.e. once the change burst
+   * (e.g. a git checkout writing many files) has settled. This prevents
+   * a sync from starting mid-burst and another being queued behind it.
+   */
+  private scheduleFullSync(): void {
+    if (this.fullSyncSettleTimer !== null) {
+      clearTimeout(this.fullSyncSettleTimer);
+    }
+    this.fullSyncSettleTimer = setTimeout(() => {
+      this.fullSyncSettleTimer = null;
+      this.clearAllPendingTimers();
+      this.log.info(`SETTLE: Burst quiet, enqueuing single full sync`);
+      this.framework.syncQueue.enqueueFullSync();
+    }, Coder.FULL_SYNC_SETTLE_MS);
+  }
+
   /**
    * Get the sync debounce delay from configuration.
    * Defaults to 1500ms if not configured.
@@ -791,9 +813,16 @@ export class Coder {
   private static readonly BULK_CHANGE_THRESHOLD = 5;
 
   debounceFrameworkSync(filePath: string) {
-    // Extend the git-pending window while file events keep arriving.
+    // Git path: defer to a single settle-timer-driven full sync. Do NOT
+    // schedule a per-file debounce timer — they would otherwise fire during
+    // the git burst, race the settle timer, and produce a second sync.
     if (this.gitPending) {
       this.extendGitPending();
+      this.log.info(
+        `DEBOUNCE: Git operation pending, scheduling settled full sync for ${filePath}`,
+      );
+      this.scheduleFullSync();
+      return;
     }
 
     // Clear any existing pending sync for this file path
@@ -808,11 +837,13 @@ export class Coder {
         this.pendingModelSyncs.delete(filePath);
 
         try {
+          // Re-check gitPending: a git op may have started after this timer
+          // was scheduled. Route through the settle timer for consistency.
           if (this.gitPending) {
             this.log.info(
-              `DEBOUNCE: Git operation pending, enqueuing full sync`,
+              `DEBOUNCE: Git operation pending, scheduling settled full sync`,
             );
-            this.framework.syncQueue.enqueueFullSync();
+            this.scheduleFullSync();
             return;
           }
 
@@ -862,14 +893,14 @@ export class Coder {
     );
 
     // Bulk-change detection: many simultaneous debounce timers indicate a
-    // mass file change (git restore, external tooling, etc.). Short-circuit
-    // to a full sync instead of waiting for each timer individually.
+    // mass file change (git restore, external tooling, etc.). Route through
+    // the settle scheduler so the full sync waits for the burst to quiet,
+    // avoiding the start-mid-burst + queued-second-sync pattern.
     if (this.pendingModelSyncs.size > Coder.BULK_CHANGE_THRESHOLD) {
       this.log.info(
-        `DEBOUNCE: Bulk change detected (${this.pendingModelSyncs.size} pending timers > ${Coder.BULK_CHANGE_THRESHOLD}), escalating to full sync`,
+        `DEBOUNCE: Bulk change detected (${this.pendingModelSyncs.size} pending timers > ${Coder.BULK_CHANGE_THRESHOLD}), scheduling settled full sync`,
       );
-      this.clearAllPendingTimers();
-      this.framework.syncQueue.enqueueFullSync();
+      this.scheduleFullSync();
     }
   }
 
@@ -1627,6 +1658,18 @@ export class Coder {
       clearTimeout(timer);
     }
     this.pendingModelSyncs.clear();
+
+    if (this.gitPendingTimer !== null) {
+      clearTimeout(this.gitPendingTimer);
+      this.gitPendingTimer = null;
+    }
+    this.gitPendingStartedAt = null;
+    this.gitPending = false;
+
+    if (this.fullSyncSettleTimer !== null) {
+      clearTimeout(this.fullSyncSettleTimer);
+      this.fullSyncSettleTimer = null;
+    }
 
     this.watcher?.dispose();
     this.projectWatcher?.dispose();
