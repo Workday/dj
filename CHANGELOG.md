@@ -18,6 +18,10 @@
 
 - **Optional `.gitignore` helper on the Download tab** — new `Add path to .gitignore` checkbox (default off) idempotently appends the configured `dj.lightdash.dashboardsAsCodePath` to the workspace `.gitignore` before the download starts, so generated YAML stays out of version control. Entries land inside a short managed block (`# dj` … `# /dj`) so future DJ-managed paths can share the same region. Skips the write when the entry is already present and streams a single status line into the download log panel.
 
+### Sync engine
+
+- **Sync coalesces during bulk file changes** — large `git checkout`, `git pull`, `git restore .`, and other mass file operations now batch into a single sync run instead of triggering many partial syncs, preventing inconsistent intermediate state. Sync also detects `git rebase`, `git reset`, and fast-forward operations the same way it already handles `checkout` and `pull`.
+
 ## 1.5.0
 
 ### Lightdash
