@@ -97,8 +97,6 @@ export const VIEW_ID = {
   QUERY_PREVIEW: 'dj.view.queryPreview',
   QUERY_PREVIEW_FOCUS: 'dj.view.queryPreview.focus',
   EDIT_DRAFTS: 'dj.view.editDrafts',
-  COLUMN_LINEAGE: 'dj.view.columnLineage',
-  COLUMN_LINEAGE_FOCUS: 'dj.view.columnLineage.focus',
   MODEL_CREATE: 'dj.view.modelCreate',
   MODEL_EDIT: 'dj.view.modelEdit',
   MODEL_RUN: 'dj.view.modelRun',
@@ -108,8 +106,6 @@ export const VIEW_ID = {
   SOURCE_CREATE: 'dj.view.sourceCreate',
   LIGHTDASH_DASHBOARDS_AS_CODE: 'dj.view.lightdashDashboardsAsCode',
   LIGHTDASH_PREVIEW_MANAGER: 'dj.view.lightdashPreviewManager',
-  // VS Code built-in commands for focusing view containers
-  COLUMN_LINEAGE_CONTAINER_FOCUS: 'workbench.view.extension.dj-column-lineage',
 } as const;
 
 // Lightdash Dashboards-as-Code JSON schema URLs (used by the

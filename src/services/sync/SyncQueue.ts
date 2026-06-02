@@ -6,7 +6,9 @@
  * event-driven architecture.
  *
  * Key features:
- * - Event-driven: processes next item immediately when current sync finishes
+ * - Event-driven: processes next item when current sync finishes
+ * - Coalescing: batches rapid-fire enqueues (bulk file changes, git ops) via
+ *   a resettable delay window before starting, with a hard time cap
  * - Deduplication: same resource ID enqueued multiple times = single sync
  * - Fresh pathJson: queue stores resource IDs with optional pathJson from watcher
  * - Timestamp-based watcher suppression (narrow window, not blanket)
@@ -21,6 +23,16 @@ import type { DetectedRename, SyncLogger, SyncResult, SyncRoot } from './types';
 
 /** How long to suppress watcher events after a file operation (ms). */
 const SUPPRESS_WINDOW_MS = 2000;
+
+/**
+ * How long to wait for more items before starting a sync (ms).
+ * Each new enqueue resets this window so rapid-fire changes coalesce
+ * into a single sync run instead of triggering partial syncs.
+ */
+const COALESCING_DELAY_MS = 500;
+
+/** Hard cap on total coalescing time to prevent indefinite delay (ms). */
+const MAX_COALESCING_MS = 3000;
 
 /**
  * SyncQueue manages the lifecycle of sync operations.
@@ -51,6 +63,9 @@ export class SyncQueue {
 
   /** If more than this many roots are pending, escalate to full sync */
   private readonly ESCALATION_THRESHOLD = 20;
+
+  private coalescingTimer: NodeJS.Timeout | null = null;
+  private coalescingStartedAt: number | null = null;
 
   constructor(
     private readonly onRunSync: (roots?: SyncRoot[]) => Promise<SyncResult>,
@@ -100,7 +115,7 @@ export class SyncQueue {
     }
 
     this.updateStatus();
-    void this.processNext();
+    this.scheduleProcessNext();
   }
 
   /** Queue a full sync (all files). Subsumes individual roots. */
@@ -108,7 +123,7 @@ export class SyncQueue {
     this.fullSyncPending = true;
     this.pendingRoots.clear();
     this.updateStatus();
-    void this.processNext();
+    this.scheduleProcessNext();
   }
 
   /**
@@ -181,6 +196,53 @@ export class SyncQueue {
   /** Are there items waiting? */
   hasPending(): boolean {
     return this.fullSyncPending || this.pendingRoots.size > 0;
+  }
+
+  /**
+   * Schedule processNext with a coalescing delay. Each call resets the
+   * delay so rapid-fire enqueues batch into one sync. If a sync is already
+   * running, new items simply accumulate and will be picked up when the
+   * current run finishes (processNext re-calls itself in `finally`).
+   */
+  private scheduleProcessNext(): void {
+    if (this.state === 'running') {
+      return;
+    }
+
+    const now = Date.now();
+
+    if (this.coalescingStartedAt === null) {
+      this.coalescingStartedAt = now;
+    }
+
+    const elapsed = now - this.coalescingStartedAt;
+    if (elapsed >= MAX_COALESCING_MS) {
+      this.clearCoalescingTimer();
+      void this.processNext();
+      return;
+    }
+
+    if (this.coalescingTimer !== null) {
+      clearTimeout(this.coalescingTimer);
+    }
+
+    const remaining = Math.min(
+      COALESCING_DELAY_MS,
+      MAX_COALESCING_MS - elapsed,
+    );
+
+    this.coalescingTimer = setTimeout(() => {
+      this.clearCoalescingTimer();
+      void this.processNext();
+    }, remaining);
+  }
+
+  private clearCoalescingTimer(): void {
+    if (this.coalescingTimer !== null) {
+      clearTimeout(this.coalescingTimer);
+      this.coalescingTimer = null;
+    }
+    this.coalescingStartedAt = null;
   }
 
   /**
@@ -273,7 +335,8 @@ export class SyncQueue {
       this.log.error('SyncQueue: Error during sync', err);
     } finally {
       this.state = 'idle';
-      // Event-driven: immediately check for more pending work
+      // Drain any work enqueued during this run. Use processNext directly
+      // (no coalescing) since items have already been waiting.
       void this.processNext();
     }
   }
@@ -304,7 +367,7 @@ export class SyncQueue {
     this.fullSyncPending = true;
     this.pendingRoots.clear();
     this.updateStatus();
-    void this.processNext();
+    this.scheduleProcessNext();
   }
 
   /** Update the status bar with current queue state. */
@@ -361,6 +424,7 @@ export class SyncQueue {
 
   /** Clean up on deactivation. */
   dispose(): void {
+    this.clearCoalescingTimer();
     this.pendingRoots.clear();
     this.managedOps.clear();
   }

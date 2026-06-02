@@ -4,8 +4,10 @@ import {
   ChevronRightIcon,
   CubeIcon,
   MagnifyingGlassIcon,
+  PlusIcon,
   ShieldCheckIcon,
 } from '@heroicons/react/24/outline';
+import { useEnvironment } from '@web/context';
 import { Spinner } from '@web/elements';
 import { useEffect, useMemo, useState } from 'react';
 
@@ -134,6 +136,7 @@ export default function ProjectOverview({
     fetchProjectOverview,
     _apiHandler,
   } = useDataExplorerStore();
+  const { vscode } = useEnvironment();
 
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -195,6 +198,19 @@ export default function ProjectOverview({
               title="Refresh"
             >
               <ArrowPathIcon className="w-3.5 h-3.5 text-surface-contrast" />
+            </button>
+            <button
+              onClick={() =>
+                vscode?.postMessage({
+                  type: 'execute-command',
+                  command: 'dj.command.queryDraftCreate',
+                })
+              }
+              className="flex items-center gap-1 px-2 py-1 rounded hover:bg-surface transition-colors text-xs text-surface-contrast"
+              title="Create a new query draft file"
+            >
+              <PlusIcon className="w-3.5 h-3.5" />
+              New Query
             </button>
             <button
               onClick={onDetectActiveModel}

@@ -23,17 +23,17 @@ The generated `.model.json` MUST use these DJ fields — no other structure is v
 
 ```jsonc
 {
-  "type": "<model_type>",        // from decision table below
-  "group": "<group>",            // ask the user
-  "topic": "<topic>",            // ask the user
-  "name": "<name>",              // ask the user
+  "type": "<model_type>", // from decision table below
+  "group": "<group>", // ask the user
+  "topic": "<topic>", // ask the user
+  "name": "<name>", // ask the user
   "from": {
-    "source": "<db>__<schema>.<table>"   // OR "model": "<layer>__<group>__<topic>__<name>"
+    "source": "<db>__<schema>.<table>", // OR "model": "<layer>__<group>__<topic>__<name>"
   },
   "select": [
-    { "name": "col_a" },                          // dim (default)
-    { "name": "col_b", "type": "fct", "expr": "SUM(amount)" }  // fact with expression
-  ]
+    { "name": "col_a" }, // dim (default)
+    { "name": "col_b", "type": "fct", "expr": "SUM(amount)" }, // fact with expression
+  ],
 }
 ```
 
@@ -41,29 +41,29 @@ The generated `.model.json` MUST use these DJ fields — no other structure is v
 
 ## SQL pattern → model `type`
 
-| SQL Pattern | DJ Model Type |
-| --- | --- |
-| `SELECT ... FROM <raw_table>` (source data) | `stg_select_source` |
+| SQL Pattern                                  | DJ Model Type                             |
+| -------------------------------------------- | ----------------------------------------- |
+| `SELECT ... FROM <raw_table>` (source data)  | `stg_select_source`                       |
 | `SELECT ... FROM <dbt_model>` (single model) | `int_select_model` or `mart_select_model` |
-| `SELECT ... FROM a JOIN b` | `int_join_models` or `mart_join_models` |
-| `SELECT ... UNION ALL SELECT ...` (sources) | `stg_union_sources` |
-| `SELECT ... UNION ALL SELECT ...` (models) | `int_union_models` |
-| `SELECT ... FROM UNNEST(...)` | `int_join_column` |
-| Time-windowed lookback patterns | `int_lookback_model` |
+| `SELECT ... FROM a JOIN b`                   | `int_join_models` or `mart_join_models`   |
+| `SELECT ... UNION ALL SELECT ...` (sources)  | `stg_union_sources`                       |
+| `SELECT ... UNION ALL SELECT ...` (models)   | `int_union_models`                        |
+| `SELECT ... FROM UNNEST(...)`                | `int_join_column`                         |
+| Time-windowed lookback patterns              | `int_lookback_model`                      |
 
 ## Column mapping (SQL → DJ `select`)
 
 - **`dim`** (default): categorical, descriptive — IDs, names, dates, statuses, strings
 - **`fct`**: numeric measures that can be aggregated — amounts, counts, quantities
 
-| SQL column | DJ `select` entry |
-| --- | --- |
-| `col_name` (passthrough) | `{ "name": "col_name" }` |
-| `col_name` (with type) | `{ "name": "col_name", "type": "fct" }` |
-| `expr AS alias` | `{ "name": "alias", "expr": "expr" }` |
-| `SUM(x) AS total` | `{ "name": "total", "type": "fct", "expr": "SUM(x)" }` |
-| `CAST(x AS DATE) AS d` | `{ "name": "d", "expr": "CAST(x AS DATE)" }` |
-| `COALESCE(...)` | `{ "name": "alias", "expr": "COALESCE(...)" }` |
+| SQL column               | DJ `select` entry                                      |
+| ------------------------ | ------------------------------------------------------ |
+| `col_name` (passthrough) | `{ "name": "col_name" }`                               |
+| `col_name` (with type)   | `{ "name": "col_name", "type": "fct" }`                |
+| `expr AS alias`          | `{ "name": "alias", "expr": "expr" }`                  |
+| `SUM(x) AS total`        | `{ "name": "total", "type": "fct", "expr": "SUM(x)" }` |
+| `CAST(x AS DATE) AS d`   | `{ "name": "d", "expr": "CAST(x AS DATE)" }`           |
+| `COALESCE(...)`          | `{ "name": "alias", "expr": "COALESCE(...)" }`         |
 
 Use `expr` only when the column is transformed, renamed, or aggregated. Plain passthrough columns need only `name`.
 
@@ -89,10 +89,10 @@ If the SQL has `WITH` clauses, convert to the `ctes` array. CTEs must be ordered
 
 1. **Read the SQL query** provided by the user
 2. **Always ask the user** for the new model's naming before creating anything:
-   - `group` — must be one of: `ml`, `capeng`, `perftools`, `mlde`, `ai_platform`, `ibp`
+   - `group` — must be one of the groups defined in your project (e.g., `analytics`, `finops`, `marketing`, `engineering`, `sales`, `platform`)
    - `topic` (e.g., aws_cur, billing, salesforce)
    - `name` (e.g., daily_summary, accounts)
-   Do NOT infer or reuse names from the SQL query — the user must confirm the name.
+     Do NOT infer or reuse names from the SQL query — the user must confirm the name.
 3. **Determine the model type** from the SQL pattern table above
 4. **Read the schema** at `.dj/schemas/model.type.<type>.schema.json` — follow all `$ref` links
 5. **Read `.agents/dj/AGENTS.md`** Model Types section for the selected type's example
@@ -129,20 +129,28 @@ FROM gsheets_opus.default.savings_tracker
 ```jsonc
 {
   "type": "stg_select_source",
-  "group": "ibp",
+  "group": "finops",
   "topic": "savings_tracker",
   "name": "costs",
   "from": {
-    "source": "gsheets_opus__default.savings_tracker"
+    "source": "gsheets_opus__default.savings_tracker",
   },
   "select": [
     { "name": "fiscal_year" },
     { "name": "quarter_number" },
     { "name": "fy_year_month", "expr": "CAST(fy_year_month AS DATE)" },
     { "name": "fy_qtr" },
-    { "name": "annual_target", "type": "fct", "expr": "COALESCE(CAST(REGEXP_REPLACE(annual_target, '[^0-9.]', '') AS DOUBLE), 0)" },
-    { "name": "actual_amount", "type": "fct", "expr": "COALESCE(CAST(REGEXP_REPLACE(actual_amount, '[^0-9.]', '') AS DOUBLE), 0)" }
-  ]
+    {
+      "name": "annual_target",
+      "type": "fct",
+      "expr": "COALESCE(CAST(REGEXP_REPLACE(annual_target, '[^0-9.]', '') AS DOUBLE), 0)",
+    },
+    {
+      "name": "actual_amount",
+      "type": "fct",
+      "expr": "COALESCE(CAST(REGEXP_REPLACE(actual_amount, '[^0-9.]', '') AS DOUBLE), 0)",
+    },
+  ],
 }
 ```
 
@@ -171,24 +179,22 @@ GROUP BY customer_id, customer_name
   "topic": "orders",
   "name": "customer_order_summary",
   "from": {
-    "model": "int__analytics__orders__details"
+    "model": "int__analytics__orders__details",
   },
   "select": [
     { "name": "customer_id" },
     { "name": "customer_name" },
     { "name": "total_orders", "type": "fct", "expr": "SUM(order_amount)" },
-    { "name": "order_count", "type": "fct", "expr": "COUNT(*)" }
+    { "name": "order_count", "type": "fct", "expr": "COUNT(*)" },
   ],
   "join": [
     {
       "model": "int__analytics__customers__base",
-      "on": [{ "left": "customer_id", "op": "=", "right": "customer_id" }]
-    }
+      "on": [{ "left": "customer_id", "op": "=", "right": "customer_id" }],
+    },
   ],
-  "where": [
-    { "expr": "order_date >= DATE '2024-01-01'" }
-  ],
-  "group_by": "dims"
+  "where": [{ "expr": "order_date >= DATE '2024-01-01'" }],
+  "group_by": "dims",
 }
 ```
 

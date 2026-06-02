@@ -82,7 +82,9 @@ class DataExplorerViewProvider implements vscode.WebviewViewProvider {
             nodeType,
           );
 
-          await vscode.commands.executeCommand(VIEW_ID.COLUMN_LINEAGE_FOCUS);
+          // Column Lineage is rendered inside the Data Explorer panel.
+          // The webview switches to the Column view automatically when it
+          // receives column-lineage-init / column-lineage-source-init.
 
           if (nodeType === 'source') {
             // For sources, normalize path to .source.json and use source init
@@ -198,6 +200,10 @@ class DataExplorerViewProvider implements vscode.WebviewViewProvider {
     return this._view;
   }
 
+  public isReady(): boolean {
+    return this._isReady && !!this._view;
+  }
+
   public focus() {
     if (this._view) {
       this._view.show(true);
@@ -265,6 +271,10 @@ export class DataExplorer
       case 'data-explorer-get-compiled-sql':
       case 'data-explorer-detect-active-model':
       case 'data-explorer-get-project-overview':
+      case 'data-explorer-open-lightdash-url':
+      case 'data-explorer-set-lightdash-toggle':
+      case 'data-explorer-open-dashboards-as-code':
+      case 'data-explorer-open-lightdash-yaml':
         return await this.modelLineage.handleApi(payload);
     }
   }
@@ -595,6 +605,10 @@ export class DataExplorer
 
   public sendMessage(message: any): void {
     this.viewProvider?.sendMessage(message);
+  }
+
+  public isViewReady(): boolean {
+    return this.viewProvider?.isReady() ?? false;
   }
 
   public focusView(): void {
