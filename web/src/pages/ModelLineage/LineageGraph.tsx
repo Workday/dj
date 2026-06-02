@@ -14,17 +14,35 @@ import {
 import { useCallback, useEffect, useRef } from 'react';
 
 import { useDataExplorerStore } from '../../stores/dataExplorerStore';
+import LightdashNode from './LightdashNode';
 import ModelNode from './ModelNode';
-import type { LineageNode, ModelNodeData } from './types';
+import type {
+  LightdashLineageNode,
+  LightdashNodeData,
+  LineageNode,
+  ModelNodeData,
+} from './types';
 
 const nodeTypes = {
   lineageNode: ModelNode,
+  lightdashNode: LightdashNode,
+};
+
+// Lightdash edges are intentionally softer than the dbt-model edges so the
+// "data lineage" path stays visually dominant over the "BI consumer" path.
+const LIGHTDASH_EDGE_COLOR = '#a78bfa'; // purple-400
+const lightdashEdgeStyle = {
+  strokeWidth: 1.5,
+  stroke: LIGHTDASH_EDGE_COLOR,
+  strokeDasharray: '4 4',
+  opacity: 0.55,
 };
 
 interface LineageGraphProps {
   currentNode: LineageNode;
   upstreamNodes: LineageNode[];
   downstreamNodes: LineageNode[];
+  lightdashDownstream?: LightdashLineageNode[];
   projectName: string;
   selectedNodeForQuery: string | null;
   selectedNodeName: string | null;
@@ -40,6 +58,8 @@ interface LineageGraphProps {
     modelName: string,
     type: 'model' | 'source' | 'seed',
   ) => void;
+  onOpenLightdash: (url: string) => void;
+  onOpenLightdashYaml: (filePath: string) => void;
 }
 
 const EDGE_COLOR = 'var(--color-border-contrast)';
@@ -55,7 +75,7 @@ const HORIZONTAL_SPACING = 500;
 const VERTICAL_SPACING = 210;
 
 // Build a graph structure to calculate node levels
-const buildGraph = (nodes: Node<ModelNodeData>[], edges: Edge[]) => {
+const buildGraph = (nodes: Node[], edges: Edge[]) => {
   const graph: Map<string, { upstream: string[]; downstream: string[] }> =
     new Map();
 
@@ -75,7 +95,7 @@ const buildGraph = (nodes: Node<ModelNodeData>[], edges: Edge[]) => {
 
 // Calculate level (distance from current node) for each node
 const calculateLevels = (
-  nodes: Node<ModelNodeData>[],
+  nodes: Node[],
   edges: Edge[],
   currentNodeId: string,
 ) => {
@@ -131,7 +151,7 @@ const calculateLevels = (
 
 // Horizontal layout algorithm with multi-level support
 const getLayoutedElements = (
-  nodes: Node<ModelNodeData>[],
+  nodes: Node[],
   edges: Edge[],
   currentNodeId: string,
 ) => {
@@ -140,7 +160,7 @@ const getLayoutedElements = (
   const levels = calculateLevels(nodes, edges, currentNodeId);
 
   // Group nodes by level
-  const nodesByLevel: Map<number, Node<ModelNodeData>[]> = new Map();
+  const nodesByLevel: Map<number, Node[]> = new Map();
   nodes.forEach((node) => {
     const level = levels.get(node.id) ?? 0;
     if (!nodesByLevel.has(level)) {
@@ -187,6 +207,7 @@ export default function LineageGraph({
   currentNode,
   upstreamNodes,
   downstreamNodes,
+  lightdashDownstream,
   projectName,
   selectedNodeForQuery,
   selectedNodeName,
@@ -194,6 +215,8 @@ export default function LineageGraph({
   onCompile,
   onNodeClick,
   onViewColumns,
+  onOpenLightdash,
+  onOpenLightdashYaml,
 }: LineageGraphProps) {
   const {
     checkModelOutdated,
@@ -206,9 +229,11 @@ export default function LineageGraph({
     additionalEdges,
   } = useDataExplorerStore();
   const { fitView } = useReactFlow();
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node<ModelNodeData>>(
-    [],
-  );
+  // Mixed node store: ModelNodeData (lineageNode) and LightdashNodeData
+  // (lightdashNode). Both interfaces extend Record<string, unknown>, so
+  // typing the React Flow store as `Node` (any data) keeps everything
+  // type-safe at the call sites without losing per-node strictness.
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const layoutVersionRef = useRef(0);
 
@@ -244,7 +269,7 @@ export default function LineageGraph({
 
   // Build nodes and edges from lineage data
   useEffect(() => {
-    const newNodes: Node<ModelNodeData>[] = [];
+    const newNodes: Node[] = [];
     const newEdges: Edge[] = [];
 
     // Combine all nodes including additional ones from expansion
@@ -496,6 +521,47 @@ export default function LineageGraph({
       newEdges.push(edge);
     });
 
+    // Lightdash content nodes - placed level+1 from current (right-most
+    // column when current is a mart). Distinct dashed purple edges visually
+    // separate "data lineage" from "BI consumer" relationships.
+    if (lightdashDownstream && lightdashDownstream.length > 0) {
+      lightdashDownstream.forEach((ld) => {
+        const flowNode: Node<LightdashNodeData> = {
+          id: ld.id,
+          type: 'lightdashNode',
+          position: { x: 0, y: 0 },
+          data: {
+            id: ld.id,
+            slug: ld.slug,
+            name: ld.name,
+            kind: ld.kind,
+            url: ld.url,
+            charts: ld.charts,
+            filePath: ld.filePath,
+            onOpen: onOpenLightdash,
+            onOpenYaml: onOpenLightdashYaml,
+          },
+        };
+        newNodes.push(flowNode);
+
+        const edge: Edge = {
+          id: `${currentNode.id}-${ld.id}`,
+          source: currentNode.id,
+          target: ld.id,
+          sourceHandle: 'output',
+          targetHandle: 'input',
+          style: lightdashEdgeStyle,
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            width: 16,
+            height: 16,
+            color: LIGHTDASH_EDGE_COLOR,
+          },
+        };
+        newEdges.push(edge);
+      });
+    }
+
     // Apply layout
     const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
       newNodes,
@@ -510,9 +576,12 @@ export default function LineageGraph({
     currentNode,
     upstreamNodes,
     downstreamNodes,
+    lightdashDownstream,
     projectName,
     onRunQuery,
     onNodeClick,
+    onOpenLightdash,
+    onOpenLightdashYaml,
     setNodes,
     setEdges,
     additionalNodes,

@@ -161,10 +161,12 @@ export class SyncEngine {
     let project = initialProject;
     let manifest = await params.fetchManifest(project);
 
+    const rootCount = roots?.length ?? 0;
     const shouldParse = this.manifestManager.shouldReparse({
       manifest,
       lastFileChange: params.lastFileChange ?? null,
-      hasRoots: (roots?.length ?? 0) > 0,
+      hasRoots: rootCount > 0,
+      rootCount,
       forceReparse: params.forceReparse,
     });
 
