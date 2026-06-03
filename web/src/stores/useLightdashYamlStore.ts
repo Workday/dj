@@ -20,6 +20,12 @@ export type LightdashYamlDownloadOptions = {
    * `lightdash-yaml-set-default-path`; otherwise it is a one-off override.
    */
   setAsDefault: boolean;
+  /**
+   * When true, the download flow appends the configured path to the
+   * workspace `.gitignore` (idempotent, scoped to a managed marker block)
+   * before the CLI runs. Default false.
+   */
+  addToGitignore: boolean;
 };
 
 export type LightdashYamlUploadOptions = {
@@ -150,6 +156,7 @@ const initialState = {
     charts: [] as string[],
     project: '',
     setAsDefault: false,
+    addToGitignore: false,
   },
 
   uploadOptions: {

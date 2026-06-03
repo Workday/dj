@@ -117,6 +117,18 @@ export function DownloadView() {
     clearDownloadLogs();
     setActiveLogChannel('download');
     try {
+      // Optionally manage .gitignore BEFORE the CLI run so any
+      // newly-downloaded files are immediately ignored. Failures here are
+      // non-fatal - they're already streamed to the LogPanel and shouldn't
+      // abort the download.
+      if (downloadOptions.addToGitignore) {
+        const gitignorePath = currentPath.trim() || defaultPath;
+        await api.post({
+          type: 'lightdash-yaml-ensure-gitignore',
+          request: { path: gitignorePath },
+        });
+      }
+
       const resp = await api.post({
         type: 'lightdash-yaml-download',
         request: {
@@ -205,12 +217,12 @@ export function DownloadView() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-full min-h-0">
       <section className="lg:col-span-2 flex flex-col gap-4 h-full min-h-0">
-        <header className="flex items-center justify-between gap-4 shrink-0">
+        <header className="flex items-center justify-between gap-4 shrink-0 flex-col md:flex-row">
           <h2 className="text-surface-contrast">
             Provide Lightdash dashboard or chart SLUG, UUID, or the URL to the
             dashboard or chart to download local YAML files.
           </h2>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
             <Button
               variant="error"
               label="Clear local files"
@@ -265,7 +277,7 @@ export function DownloadView() {
             <label className="text-sm/6 font-semibold text-background-contrast">
               Save to Path
             </label>
-            <div className="mt-3 flex items-center gap-3">
+            <div className="flex items-center gap-3">
               <div className="relative flex-1">
                 <FolderIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500 pointer-events-none" />
                 <input
@@ -284,6 +296,23 @@ export function DownloadView() {
                   setDownloadOption('setAsDefault', Boolean(checked))
                 }
               />
+            </div>
+            <div className="flex flex-col gap-2">
+              <Checkbox
+                label="Add path to .gitignore"
+                checked={downloadOptions.addToGitignore}
+                onChange={(checked) =>
+                  setDownloadOption('addToGitignore', Boolean(checked))
+                }
+              />
+              <p className="text-xs text-surface-contrast opacity-70">
+                When enabled, appends{' '}
+                <code className="font-mono">
+                  {(currentPath.trim() || defaultPath).replace(/\/$/, '') + '/'}
+                </code>{' '}
+                to the workspace .gitignore (inside a managed marker block) so
+                downloaded YAML files stay out of git. Idempotent.
+              </p>
             </div>
           </div>
 

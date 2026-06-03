@@ -1,5 +1,27 @@
 # Change Log
 
+## 1.6.0
+
+### Agent Skills
+
+- **Migrate legacy ephemeral models into inline CTEs through your AI assistant.** When `dj.codingAgent` is enabled, a new skill at `.agents/skills/dj-migrate-ephemerals-to-ctes/SKILL.md` walks an IDE agent through finding ephemeral `.model.json` files, deciding which ones can safely fold into their downstream consumers, applying the rewrite, and prompting you before any deletion. Ephemerals carrying Lightdash metadata or staging models that read from sources are flagged as unsafe so nothing is silently lost. Lets you say "audit the ephemerals under the sales group and migrate the qualifying ones" to dissolve redundant intermediate layers in one pass.
+- **Modernize legacy `.model.json` shapes through your AI assistant.** When `dj.codingAgent` is enabled, a new skill at `.agents/skills/dj-review-and-refactor-model/SKILL.md` audits a single model file (or a folder, dependency tree, or the whole workspace) and renders every finding upfront in two buckets — safe rewrites the agent can apply confidently, and judgment calls where it gives you the context and lets you pick. Nothing is edited until you confirm. Lets you say "review this model and modernize whatever's safe" and get a confirmation-driven cleanup pass that round-trips your existing Lightdash metadata, AI hints, tags, and free-form `meta` keys.
+- **Agent skills can bundle nested subdirectories.** A skill template's `references/`, `scripts/`, and `assets/` subdirectories are copied to `.agents/skills/<skill>/` alongside its `SKILL.md`, matching the [agentskills.io](https://agentskills.io) progressive-disclosure layout.
+
+### Data Explorer — Lightdash lineage
+
+- **Lightdash dashboards now show as downstream nodes for `mart_*` models** in the Data Explorer lineage graph. Each dashboard node lists its embedded charts in a popover, and saved charts that aren't part of any dashboard are bundled into a single **Standalone Charts** node per mart so the canvas stays tidy. Both nodes expose **Open YAML** (jump to the source file) and **Open in Lightdash** (deep link to the dashboard or chart in the Lightdash UI, when `LIGHTDASH_URL` and `LIGHTDASH_PROJECT` are set). Lineage is built locally from Dashboards-as-Code YAML under `dj.lightdash.dashboardsAsCodePath` and refreshes when the files change — no API calls, no extra `dbt` work.
+- **New setting `dj.dataExplorer.showLightdashLineage`** (default `false`) and a matching **header toggle in the Data Explorer panel** opt into the Lightdash lineage layer, so projects that don't use Lightdash incur zero cost.
+- **Empty-state CTA on the lineage graph** — when the toggle is on but no local content is found, an inline banner offers one-click access to **`Open Dashboards as Code`** to download the YAML and **`Refresh`** to rebuild the lineage.
+
+### Dashboards as Code
+
+- **Optional `.gitignore` helper on the Download tab** — new `Add path to .gitignore` checkbox (default off) idempotently appends the configured `dj.lightdash.dashboardsAsCodePath` to the workspace `.gitignore` before the download starts, so generated YAML stays out of version control. Entries land inside a short managed block (`# dj` … `# /dj`) so future DJ-managed paths can share the same region. Skips the write when the entry is already present and streams a single status line into the download log panel.
+
+### Sync engine
+
+- **Sync coalesces during bulk file changes** — large `git checkout`, `git pull`, `git restore .`, and other mass file operations now batch into a single sync run instead of triggering many partial syncs, preventing inconsistent intermediate state. Sync also detects `git rebase`, `git reset`, and fast-forward operations the same way it already handles `checkout` and `pull`.
+
 ## 1.5.0
 
 ### Lightdash
