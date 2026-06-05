@@ -11,6 +11,13 @@ export const WORKSPACE_ROOT =
 export const DJ_SCHEMAS_PATH = path.join(WORKSPACE_ROOT, `.dj/schemas`);
 export const DJ_STATE_PATH = path.join(WORKSPACE_ROOT, `.dj/state`);
 export const DJ_SQL_PATH = path.join(WORKSPACE_ROOT, `.dj/sql`);
+export const DJ_PYTHON_TEMP_PATH = path.join(
+  WORKSPACE_ROOT,
+  '.dj',
+  '.python_temp',
+);
+/** @deprecated Use DJ_PYTHON_TEMP_PATH */
+export const DJ_PREDBT_TEMP_PATH = DJ_PYTHON_TEMP_PATH;
 
 /**
  * Get Trino connection configuration with precedence: VS Code > Environment > Default

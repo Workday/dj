@@ -2,6 +2,7 @@
 import type { ApiRequest, ApiResponse } from '@shared/api/types';
 import type {
   LightdashDimension,
+  LightdashMetric,
   LightdashMetrics,
   LightdashTable,
 } from '@shared/lightdash/types';
@@ -31,6 +32,62 @@ import type { SchemaModelWhere } from '@shared/schema/types/model.where.schema';
 import type { SchemaSourcePartition } from '@shared/schema/types/source.schema';
 import type { SchemaSource } from '@shared/schema/types/source.schema';
 
+export type PythonModelGroup = 'ml' | 'perftools' | 'capeng' | 'others';
+
+export type PythonModelOutputType = 'iceberg' | 's3';
+
+export type PythonModelWriteMode =
+  | 'append'
+  | 'overwrite'
+  | 'overwrite_partitions';
+
+export interface PythonModelOutputConfig {
+  database?: string;
+  schema?: string;
+  table?: string;
+  partition_by?: string[];
+  write_mode?: PythonModelWriteMode;
+}
+
+export interface PythonModelCell {
+  cell_type: 'markdown' | 'code' | 'raw';
+  metadata?: Record<string, unknown>;
+  source: string[] | string;
+  outputs?: unknown[];
+  execution_count?: number | null;
+}
+
+export interface PythonModelConfig {
+  name: string;
+  group: PythonModelGroup;
+  topic: string;
+  description?: string;
+  model_type: 'python';
+  dags?: string[];
+  depends_on?: string[];
+  output_type?: PythonModelOutputType;
+  output?: PythonModelOutputConfig;
+  enable_notebook?: boolean;
+  dependencies?: string[];
+  tags?: string[];
+  owner?: string;
+  namespace?: string;
+  table_name?: string;
+  cells?: PythonModelCell[];
+  variables?: Record<string, string>;
+}
+
+/** @deprecated Use PythonModelGroup */
+export type PredbtGroup = PythonModelGroup;
+/** @deprecated Use PythonModelConfig */
+export type PredbtConfig = PythonModelConfig;
+/** @deprecated Use PythonModelCell */
+export type PredbtCell = PythonModelCell;
+/** @deprecated Use PythonModelOutputType */
+export type PredbtOutputType = PythonModelOutputType;
+/** @deprecated Use PythonModelOutputConfig */
+export type PredbtOutputConfig = PythonModelOutputConfig;
+
 export type FrameworkApi =
   | {
       type: 'framework-model-create';
@@ -53,8 +110,6 @@ export type FrameworkApi =
         partitioned_by?: [string, ...string[]];
         exclude_daily_filter?: boolean;
         exclude_date_filter?: boolean;
-        exclude_datetime?: boolean;
-        exclude_framework_artifacts?: 'all' | 'columns';
         exclude_portal_partition_columns?: boolean;
         exclude_portal_source_count?: boolean;
         from?: {
@@ -88,7 +143,7 @@ export type FrameworkApi =
             group_details?: any;
             required_attributes?: any;
             required_filters?: any;
-            sql_filter?: string | null;
+            sql_filter?: string;
             sql_where?: string;
           };
           metrics?: Array<{
@@ -122,6 +177,44 @@ export type FrameworkApi =
         trinoCatalog: string;
         trinoSchema: string;
         trinoTable: string;
+      };
+      response: string;
+    }
+  | {
+      type: 'framework-python-model-create';
+      service: 'framework';
+      request: {
+        projectName: string;
+        name: string;
+        group: PythonModelGroup;
+        topic: string;
+        description?: string;
+        model_type: 'python';
+        dags?: string[];
+        depends_on?: string[];
+        output_type?: PythonModelOutputType;
+        enable_notebook?: boolean;
+        tags?: string[];
+        namespace?: string;
+        table_name?: string;
+        create_dag?: boolean;
+        dag_config?: {
+          name: string;
+          schedule?: string;
+          tags?: string[];
+        };
+      };
+      response: string;
+    }
+  | {
+      type: 'framework-dag-create';
+      service: 'framework';
+      request: {
+        projectName: string;
+        name: string;
+        schedule?: string;
+        tags?: string[];
+        description?: string;
       };
       response: string;
     }
@@ -204,14 +297,13 @@ export type FrameworkApi =
           | 'switch-to-source-column'
           | 'get-source-tables'
           | 'get-source-columns'
-          | 'get-seed-columns'
           | 'compute-source-lineage'
           | 'export-lineage'
           | 'export-source-lineage'
           | 'save-csv';
         /**
-         * Path to model/source/seed file (.model.json, .source.json, .sql, .yml, or .csv).
-         * Required for validate/get-columns/compute/switch-to-model-column/switch-to-source-column/export-lineage/get-source-tables/get-source-columns/get-seed-columns/compute-source-lineage.
+         * Path to model/source file (.model.json, .source.json, .sql, or .yml).
+         * Required for validate/get-columns/compute/switch-to-model-column/switch-to-source-column/export-lineage/get-source-tables/get-source-columns/compute-source-lineage.
          * */
         filePath?: string;
         /**
@@ -222,8 +314,6 @@ export type FrameworkApi =
         columnName?: string;
         /** Table name within source. Required for 'get-source-columns' and 'compute-source-lineage'. */
         tableName?: string;
-        /** Seed name. Required for 'get-seed-columns'. */
-        seedName?: string;
         /** Number of upstream levels to trace (-1 for unlimited, default: 2) */
         upstreamLevels?: number;
         /** Number of downstream levels to trace (-1 for unlimited, default: 2) */
@@ -240,11 +330,9 @@ export type FrameworkApi =
         error?: string;
         /** Model name (returned by 'validate' action) */
         modelName?: string;
-        /** Source name (returned by 'get-source-tables' and 'get-source-columns' actions) */
+        /** Source name (returned by 'get-source-tables' action) */
         sourceName?: string;
-        /** Seed name (returned by 'get-seed-columns' action) */
-        seedName?: string;
-        /** Column list with metadata (returned by 'get-columns', 'get-source-columns', and 'get-seed-columns' actions) */
+        /** Column list with metadata (returned by 'get-columns' and 'get-source-columns' action) */
         columns?: FrameworkColumn[];
         /** Table list with column counts (returned by 'get-source-tables' action) */
         tables?: Array<{ name: string; columnCount: number }>;
@@ -255,7 +343,12 @@ export type FrameworkApi =
             id: string;
             columnName: string;
             modelName: string;
-            modelLayer: 'source' | 'staging' | 'intermediate' | 'mart';
+            modelLayer:
+              | 'source'
+              | 'staging'
+              | 'intermediate'
+              | 'mart'
+              | 'python';
             modelType: string;
             dataType?: string;
             description?: string;
@@ -312,6 +405,12 @@ export type FrameworkApi =
         fileName: string;
         filePath: string;
       };
+    }
+  | {
+      type: 'framework-get-available-dags';
+      service: 'framework';
+      request: { projectName: string };
+      response: { dags: string[] };
     };
 
 async function apiHandler(p: {
@@ -326,6 +425,14 @@ async function apiHandler(p: {
   type: 'framework-source-create';
   request: ApiRequest<'framework-source-create'>;
 }): Promise<ApiResponse<'framework-source-create'>>;
+async function apiHandler(p: {
+  type: 'framework-python-model-create';
+  request: ApiRequest<'framework-python-model-create'>;
+}): Promise<ApiResponse<'framework-python-model-create'>>;
+async function apiHandler(p: {
+  type: 'framework-dag-create';
+  request: ApiRequest<'framework-dag-create'>;
+}): Promise<ApiResponse<'framework-dag-create'>>;
 async function apiHandler(p: {
   type: 'framework-get-current-model-data';
   request: ApiRequest<'framework-get-current-model-data'>;
@@ -362,6 +469,10 @@ async function apiHandler(p: {
   type: 'framework-check-model-exists';
   request: ApiRequest<'framework-check-model-exists'>;
 }): Promise<ApiResponse<'framework-check-model-exists'>>;
+async function apiHandler(p: {
+  type: 'framework-get-available-dags';
+  request: ApiRequest<'framework-get-available-dags'>;
+}): Promise<ApiResponse<'framework-get-available-dags'>>;
 function apiHandler(
   _p: Omit<FrameworkApi, 'response' | 'service'>,
 ): Promise<unknown> {
@@ -371,21 +482,6 @@ export type FrameworkApiHandler = typeof apiHandler;
 
 export type FrameworkColumnAgg = SchemaColumnAgg;
 
-/**
- * Internal runtime representation of a column flowing between framework
- * processing stages (select parsing → inheritance → SQL generation → YAML
- * emission).
- *
- * `meta` is the public user-facing bag — it lands verbatim in the emitted
- * dbt YAML. `internal` is the private framework bag — it drives SQL
- * generation and column-name / inheritance resolution, and is NEVER
- * emitted. The split is enforced structurally (separate fields) rather
- * than via a deny-list at emit time.
- *
- * The two buckets move together through `mergeDeep`-based inheritance, so
- * child columns inherit both user-facing and internal state from their
- * upstream parent without any extra plumbing.
- */
 export type FrameworkColumn = {
   name: string;
   data_tests?: FrameworkColumnDataTests;
@@ -393,59 +489,23 @@ export type FrameworkColumn = {
   description?: string;
   tags?: string[];
   meta: FrameworkColumnMeta;
-  internal: FrameworkColumnInternal;
 };
-
-/**
- * Public column meta — lands verbatim in the emitted dbt YAML's
- * `columns[].meta`. All fields here are either:
- *   - **Populated-reserved**: `type`, `origin`, `dimension`, `metrics`,
- *     `case_sensitive` — the framework writes these from structured
- *     sibling fields on the select item (`type`, `lightdash.*`). User-
- *     authored values of the same name under `meta` are silently
- *     overwritten; the reserved-key lint (see `meta-lint.ts`) surfaces
- *     the collision as a Warning diagnostic.
- *   - **Free-form user keys**: any arbitrary key the user authors under
- *     `select[i].meta`. These flow through `mergeDeep` during inheritance
- *     and emit to YAML untouched.
- *
- * SQL-internal reserved keys (agg, aggs, expr, prefix, etc.) live on
- * `FrameworkColumn.internal` instead — authoring them under `meta` has no
- * effect on SQL and is lint-warned.
- */
 export type FrameworkColumnMeta = {
   type: 'dim' | 'fct';
-  case_sensitive?: boolean;
-  origin?: { id: string };
-  dimension?: LightdashDimension;
-  metrics?: LightdashMetrics;
-  // Free-form user-authored keys flow through here verbatim. We do NOT
-  // declare a string index signature because doing so would break
-  // RecursivePartial<FrameworkColumnMeta> at every existing mergeDeep
-  // call site. The few places that write user-authored keys cast to
-  // `Record<string, unknown>` locally.
-};
-
-/**
- * Framework-private column state. Never emitted to YAML.
- *
- * Each field here has a typed sibling on the user-authored select item
- * (`select[i].agg`, `.expr`, `.prefix`, `.interval`, etc.). The framework
- * copies those top-level siblings into `column.internal.*` during
- * `frameworkProcessSelected` and reads them back during SQL line /
- * GROUP BY / column-name generation and column inheritance.
- *
- * Authoring these keys under `select[i].meta` has no effect on generated
- * SQL; the reserved-key lint flags those collisions.
- */
-export type FrameworkColumnInternal = {
+  // Only used for datetime column
+  interval?: 'day' | 'hour' | 'month' | 'year';
+  // Should get stripped out when inherited
   agg?: FrameworkColumnAgg;
   aggs?: FrameworkColumnAgg[];
-  expr?: string;
-  prefix?: string;
   exclude_from_group_by?: boolean;
-  interval?: 'day' | 'hour' | 'month' | 'year';
+  expr?: string;
+  origin?: { id: string };
   override_suffix_agg?: boolean;
+  prefix?: string;
+  // Meta for Lightdash
+  dimension?: LightdashDimension;
+  metrics?: LightdashMetrics;
+  metrics_merge?: LightdashMetric;
 };
 
 export type FrameworkColumnLightdashMetric = SchemaLightdashMetric;
@@ -484,11 +544,6 @@ export type FrameworkModelMeta = LightdashTable & {
   local_tags?: string[];
   metrics?: LightdashMetrics;
   portal_partition_columns?: string[];
-  // Free-form user-authored keys flow through verbatim at YAML emit time
-  // (see frameworkModelProperties). We intentionally do NOT declare a string
-  // index signature here -- that would break RecursivePartial / mergeDeep at
-  // every existing caller. The handful of places that write user-authored
-  // keys cast to `Record<string, unknown>` locally instead.
 };
 export type FrameworkModelWhere = SchemaModelWhere;
 
@@ -598,10 +653,6 @@ export type FrameworkSourceMeta = {
   where?: {
     expr?: string;
   };
-  // Free-form custom meta keys (e.g. owner, owner_slack, freshness_sla).
-  // dbt treats `meta` as an open object, so users may add arbitrary entries
-  // alongside the typed keys above.
-  [key: string]: unknown;
 };
 export type FrameworkSourceTableMeta = FrameworkSourceMeta & {
   // If there are any meta keys specific to tables, we can add them here

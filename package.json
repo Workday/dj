@@ -228,6 +228,15 @@
       {
         "command": "dj.command.testTrinoConnection",
         "title": "DJ: Test Trino Connection"
+      },
+      {
+        "command": "dj.command.pythonModelOpenNotebook",
+        "title": "DJ: Open Python Model Notebook",
+        "icon": "$(notebook)"
+      },
+      {
+        "command": "dj.command.dagCreate",
+        "title": "DJ: Create DAG"
       }
     ],
     "submenus": [
@@ -641,6 +650,11 @@
           "command": "dj.command.openTargetRunSql",
           "group": "navigation",
           "when": "resourceFilename =~ /[.]((model)[.](json)|sql|yml)$/"
+        },
+        {
+          "command": "dj.command.pythonModelOpenNotebook",
+          "group": "navigation",
+          "when": "resourceFilename =~ /[.](python)[.](json|py)$/"
         }
       ],
       "explorer/context": [
@@ -668,6 +682,11 @@
           "command": "dj.command.openTargetRunSql",
           "group": "navigation",
           "when": "resourceFilename =~ /[.]((model)[.](json)|sql|yml)$/"
+        },
+        {
+          "command": "dj.command.pythonModelOpenNotebook",
+          "group": "navigation",
+          "when": "resourceFilename =~ /[.](python)[.](json|py)$/"
         }
       ],
       "view/item/context": [

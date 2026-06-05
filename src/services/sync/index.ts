@@ -45,9 +45,23 @@ export { SyncQueue } from './SyncQueue';
 
 export { ManifestManager } from './ManifestManager';
 export { ModelProcessor } from './ModelProcessor';
+export { PythonModelSyncService } from './PythonModelSyncService';
+/** @deprecated Use PythonModelSyncService */
+export type {
+  PythonModelFileSet,
+  PythonModelSyncLogger,
+  PythonModelSyncSource,
+} from './PythonModelSyncService';
+export { PythonModelSyncService as PredbtSyncService } from './PythonModelSyncService';
 export { RenameHandler } from './RenameHandler';
 export { SourceProcessor } from './SourceProcessor';
 export { ValidationService } from './ValidationService';
+/** @deprecated Use PythonModel* types */
+export type {
+  PythonModelFileSet as PredbtFileSet,
+  PythonModelSyncLogger as PredbtSyncLogger,
+  PythonModelSyncSource as PredbtSyncSource,
+} from './PythonModelSyncService';
 
 // Support Utilities
 
@@ -77,6 +91,8 @@ export type {
   ModelProcessingResult,
   // Validation results
   ModelValidationResult,
+  PredbtValidationResult,
+  PythonModelValidationResult,
   RenameConflictResult,
   ResourceProcessingResult,
   SourceProcessingResult,

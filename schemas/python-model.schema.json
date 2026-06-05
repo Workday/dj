@@ -1,0 +1,144 @@
+{
+  "$id": "python-model.schema.json",
+  "title": "Schema Python Model",
+  "description": "Validates schema for Python model configuration files",
+  "allowTrailingCommas": true,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "group", "topic"],
+  "properties": {
+    "name": {
+      "$ref": "python-model.name.schema.json"
+    },
+    "group": {
+      "$ref": "python-model.group.schema.json"
+    },
+    "topic": {
+      "$ref": "python-model.topic.schema.json"
+    },
+    "description": {
+      "$ref": "python-model.description.schema.json"
+    },
+    "model_type": {
+      "type": "string",
+      "const": "python",
+      "default": "python",
+      "description": "Model execution type (always python)"
+    },
+    "dags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": "DAGs to integrate this model with (e.g., source_etl). Leave empty for importable utility models."
+    },
+    "depends_on": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [],
+      "description": "Names of other Python models that must complete before this model runs"
+    },
+    "output_type": {
+      "type": "string",
+      "enum": ["iceberg", "s3"],
+      "default": "iceberg",
+      "description": "Output backend type for data writes"
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "database": {
+          "type": "string",
+          "description": "Target database name (optional)"
+        },
+        "schema": {
+          "type": "string",
+          "description": "Target schema name (optional)"
+        },
+        "table": {
+          "type": "string",
+          "description": "Target table name (optional)"
+        },
+        "partition_by": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": ["portal_partition_daily"],
+          "description": "Partition columns"
+        },
+        "write_mode": {
+          "type": "string",
+          "enum": ["append", "overwrite", "overwrite_partitions"],
+          "default": "overwrite_partitions",
+          "description": "Write mode for data loading"
+        }
+      }
+    },
+    "enable_notebook": {
+      "type": "boolean",
+      "default": false,
+      "description": "Generate .python.ipynb notebook file"
+    },
+    "dependencies": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Python package dependencies (e.g., requests>=2.28.0)"
+    },
+    "tags": {
+      "$ref": "python-model.tags.schema.json"
+    },
+    "owner": {
+      "type": "string",
+      "description": "Owner team or individual"
+    },
+    "namespace": {
+      "type": "string",
+      "default": "python",
+      "description": "Iceberg namespace for the output table (default: python)"
+    },
+    "table_name": {
+      "type": "string",
+      "description": "Iceberg table name (default: same as model name)"
+    },
+    "cells": {
+      "type": "array",
+      "description": "Notebook-format cells containing ETL code and documentation",
+      "items": {
+        "type": "object",
+        "properties": {
+          "cell_type": {
+            "type": "string",
+            "enum": ["markdown", "code", "raw"]
+          },
+          "metadata": {
+            "type": "object"
+          },
+          "source": {
+            "oneOf": [
+              { "type": "array", "items": { "type": "string" } },
+              { "type": "string" }
+            ]
+          },
+          "outputs": {
+            "type": "array"
+          },
+          "execution_count": {}
+        },
+        "required": ["cell_type", "source"]
+      }
+    },
+    "variables": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "default": {},
+      "description": "Environment variables (e.g., S3 bucket, API endpoints)"
+    }
+  }
+}

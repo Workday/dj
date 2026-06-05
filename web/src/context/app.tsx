@@ -4,17 +4,17 @@ import { apiResponse } from '@shared/api/utils';
 import type { DbtProjectManifest } from '@shared/dbt/types';
 import { DEFAULT_INCREMENTAL_STRATEGY } from '@shared/framework/constants';
 import type { FrameworkModel } from '@shared/framework/types';
-import type { LightdashYamlNode } from '@shared/lightdash/types';
 import { TrinoProvider } from '@web/context/trino';
 import { useEnvironment } from '@web/context/useEnvironment';
 import { ColumnLineage } from '@web/pages/ColumnLineage';
+import { DagCreate } from '@web/pages/DagCreate';
 import DataExplorer from '@web/pages/DataExplorer';
 import { Home } from '@web/pages/Home';
-import { LightdashDashboardsAsCode } from '@web/pages/LightdashDashboardsAsCode';
 import { LightdashPreviewManager } from '@web/pages/LightdashPreviewManager';
 import { ModelCreate } from '@web/pages/ModelCreate';
 import { ModelRun } from '@web/pages/ModelRun';
 import { ModelTest } from '@web/pages/ModelTest';
+import { PythonModelCreate } from '@web/pages/PythonModelCreate';
 import { QueryView } from '@web/pages/QueryView';
 import { SourceCreate } from '@web/pages/SourceCreate';
 import { useCallback, useMemo, useState } from 'react';
@@ -89,16 +89,22 @@ const routeConfigs: WebRoute[] = [
     regex: /^\/source\/create$/,
   },
   {
+    element: <PythonModelCreate />,
+    label: 'Python Model Create',
+    path: '/python-model/create',
+    regex: /^\/python-model\/create$/,
+  },
+  {
+    element: <DagCreate />,
+    label: 'Create DAG',
+    path: '/dag/create',
+    regex: /^\/dag\/create$/,
+  },
+  {
     element: <LightdashPreviewManager />,
     label: 'Lightdash Preview Manager',
     path: '/lightdash/preview-manager',
     regex: /^\/lightdash\/preview-manager$/,
-  },
-  {
-    element: <LightdashDashboardsAsCode />,
-    label: 'Lightdash Dashboards as Code',
-    path: '/lightdash/dashboards-as-code',
-    regex: /^\/lightdash\/dashboards-as-code$/,
   },
   {
     element: <ColumnLineage />,
@@ -114,89 +120,6 @@ const apiChannels: {
     reject: (err: unknown) => void;
   };
 } = {};
-
-/**
- * Shared mock file tree used by the Lightdash Dashboards-as-Code mocks so the
- * Explorer keeps showing files after a simulated download/upload.
- */
-const MOCK_LIGHTDASH_TREE: LightdashYamlNode[] = [
-  {
-    name: 'charts',
-    type: 'dir',
-    path: 'lightdash/charts',
-    children: [
-      {
-        name: 'sales_by_region.yml',
-        type: 'file',
-        path: 'lightdash/charts/sales_by_region.yml',
-      },
-      {
-        name: 'top_customers.yml',
-        type: 'file',
-        path: 'lightdash/charts/top_customers.yml',
-      },
-    ],
-  },
-  {
-    name: 'dashboards',
-    type: 'dir',
-    path: 'lightdash/dashboards',
-    children: [
-      {
-        name: 'executive_overview.yml',
-        type: 'file',
-        path: 'lightdash/dashboards/executive_overview.yml',
-      },
-    ],
-  },
-];
-
-/**
- * Mutable mock tree state so the dev server can model the
- * delete-files / list-files / download cycle realistically: clearing local
- * files empties the tree, downloading repopulates it.
- */
-let mockTreeState: LightdashYamlNode[] = MOCK_LIGHTDASH_TREE;
-
-/**
- * Streams a sequence of fake CLI log entries via `window` message events
- * (mirroring how the real extension host pushes `lightdash-yaml-log`
- * messages) and resolves once the last entry has been dispatched.
- */
-function streamMockLightdashYamlLogs(
-  entries: {
-    message: string;
-    level?: 'info' | 'success' | 'warning' | 'error';
-  }[],
-  stepMs = 120,
-): Promise<void> {
-  return new Promise((resolve) => {
-    let elapsed = 0;
-    entries.forEach((entry, idx) => {
-      elapsed += stepMs;
-      setTimeout(() => {
-        window.dispatchEvent(
-          new MessageEvent('message', {
-            data: {
-              type: 'lightdash-yaml-log',
-              log: {
-                level: entry.level ?? 'info',
-                message: entry.message,
-                timestamp: new Date().toISOString(),
-              },
-            },
-          }),
-        );
-        if (idx === entries.length - 1) {
-          resolve();
-        }
-      }, elapsed);
-    });
-    if (entries.length === 0) {
-      resolve();
-    }
-  });
-}
 
 export function AppProvider() {
   const { environment, route, vscode } = useEnvironment();
@@ -333,6 +256,18 @@ export function AppProvider() {
                     ),
                   );
                 }
+                case 'framework-python-model-create': {
+                  return resolve(
+                    apiResponse<typeof payloadType>(
+                      'Python Model created successfully',
+                    ),
+                  );
+                }
+                case 'framework-dag-create': {
+                  return resolve(
+                    apiResponse<typeof payloadType>('DAG created successfully'),
+                  );
+                }
                 case 'lightdash-fetch-models': {
                   return resolve(
                     apiResponse<typeof payloadType>([
@@ -399,148 +334,6 @@ export function AppProvider() {
                 case 'lightdash-add-log': {
                   return resolve(
                     apiResponse<typeof payloadType>({ success: true }),
-                  );
-                }
-                case 'lightdash-yaml-list-files': {
-                  return resolve(
-                    apiResponse<typeof payloadType>({
-                      success: true,
-                      path: 'lightdash',
-                      absolutePath: '/mock/workspace/lightdash',
-                      tree: mockTreeState,
-                    }),
-                  );
-                }
-                case 'lightdash-yaml-read-file': {
-                  const filePath = (payload.request as { path: string }).path;
-                  return resolve(
-                    apiResponse<typeof payloadType>({
-                      success: true,
-                      content: `# ${filePath}\nversion: 1\nslug: ${filePath
-                        .split('/')
-                        .pop()
-                        ?.replace(/\.ya?ml$/, '')}\n`,
-                      absolutePath: `/mock/workspace/${filePath}`,
-                    }),
-                  );
-                }
-                case 'lightdash-yaml-edit-file': {
-                  return resolve(
-                    apiResponse<typeof payloadType>({ success: true }),
-                  );
-                }
-                case 'lightdash-yaml-download': {
-                  const req = payload.request as {
-                    scope?: 'all' | 'specific';
-                    dashboardIds?: string[];
-                    chartIds?: string[];
-                  };
-                  const args = ['download', '-p', 'lightdash'];
-                  for (const id of req.dashboardIds ?? []) {
-                    args.push('-d', id);
-                  }
-                  for (const id of req.chartIds ?? []) {
-                    args.push('-c', id);
-                  }
-                  // Stream first, resolve only after the last log fires —
-                  // matching the real extension flow where the CLI completes
-                  // before the API response, so `activeLogChannel` stays set
-                  // long enough for the streamed logs to land.
-                  void streamMockLightdashYamlLogs([
-                    { message: `$ lightdash ${args.join(' ')}` },
-                    {
-                      message:
-                        req.scope === 'specific'
-                          ? `Downloading ${(req.dashboardIds?.length ?? 0) + (req.chartIds?.length ?? 0)} resource(s)…`
-                          : 'Downloading entire project…',
-                    },
-                    {
-                      level: 'success',
-                      message: 'Downloaded 3 charts and 1 dashboard.',
-                    },
-                  ]).then(() => {
-                    // A mock download always restores the canonical tree so
-                    // the Explorer re-populates after a clear.
-                    mockTreeState = MOCK_LIGHTDASH_TREE;
-                    resolve(
-                      apiResponse<typeof payloadType>({
-                        success: true,
-                        tree: mockTreeState,
-                        absolutePath: '/mock/workspace/lightdash',
-                      }),
-                    );
-                  });
-                  return;
-                }
-                case 'lightdash-yaml-upload': {
-                  const req = payload.request as {
-                    chartSlugs?: string[];
-                    dashboardSlugs?: string[];
-                    force?: boolean;
-                    includeCharts?: boolean;
-                  };
-                  const args = ['upload', '-p', 'lightdash'];
-                  for (const slug of req.dashboardSlugs ?? []) {
-                    args.push('-d', slug);
-                  }
-                  for (const slug of req.chartSlugs ?? []) {
-                    args.push('-c', slug);
-                  }
-                  if (req.includeCharts) {
-                    args.push('--include-charts');
-                  }
-                  if (req.force) {
-                    args.push('--force');
-                  }
-                  const uploaded = [
-                    ...(req.dashboardSlugs ?? []),
-                    ...(req.chartSlugs ?? []),
-                  ];
-                  void streamMockLightdashYamlLogs([
-                    { message: `$ lightdash ${args.join(' ')}` },
-                    {
-                      message:
-                        uploaded.length === 0
-                          ? 'Uploading entire project…'
-                          : `Uploading ${uploaded.length} resource(s)…`,
-                    },
-                    {
-                      level: 'success',
-                      message: `Uploaded ${uploaded.length === 0 ? 'entire project' : `${uploaded.length} file(s)`}.`,
-                    },
-                  ]).then(() =>
-                    resolve(
-                      apiResponse<typeof payloadType>({
-                        success: true,
-                        uploadedFiles: uploaded,
-                      }),
-                    ),
-                  );
-                  return;
-                }
-                case 'lightdash-yaml-delete-files': {
-                  // Clear the mocked working directory so the next list-files
-                  // returns "No files yet." until a download repopulates it.
-                  mockTreeState = [];
-                  return resolve(
-                    apiResponse<typeof payloadType>({ success: true }),
-                  );
-                }
-                case 'lightdash-yaml-get-default-path': {
-                  return resolve(
-                    apiResponse<typeof payloadType>({
-                      path: 'lightdash',
-                      absolutePath: '/mock/workspace/lightdash',
-                    }),
-                  );
-                }
-                case 'lightdash-yaml-set-default-path': {
-                  const newPath = (payload.request as { path: string }).path;
-                  return resolve(
-                    apiResponse<typeof payloadType>({
-                      success: true,
-                      absolutePath: `/mock/workspace/${newPath}`,
-                    }),
                   );
                 }
                 case 'data-explorer-get-model-lineage': {
@@ -635,136 +428,6 @@ export function AppProvider() {
                           hasOwnDownstream: false, // No further downstream
                         },
                       ],
-                      // Mock Lightdash data so the new node can be exercised in
-                      // browser dev mode. The mocked current model is named
-                      // `int_orders`, not a mart, so the production extension
-                      // would suppress these - but in dev mode we surface them
-                      // to make the UI testable end-to-end.
-                      lightdashEnabled: true,
-                      lightdashAvailable: true,
-                      lightdashResolvedPath: 'lightdash',
-                      lightdashDownstream: [
-                        {
-                          id: 'lightdash::dashboard::executive-overview',
-                          slug: 'executive-overview',
-                          name: 'Executive Overview',
-                          kind: 'dashboard',
-                          // Mock charts cover all three popover row
-                          // states so the Eye / EyeSlash / Warning icons,
-                          // italic muted name, and per-row action button
-                          // overrides can be exercised without a real
-                          // Lightdash content directory:
-                          // - `tile`    → Eye icon, default styling
-                          // - `hidden`  → EyeSlash icon (saved-within)
-                          // - `missing` → amber warning, italic name,
-                          //               Open YAML hidden, Open in
-                          //               Lightdash tooltip warns the
-                          //               chart may have been removed.
-                          charts: [
-                            {
-                              slug: 'orders-by-region',
-                              name: 'Orders by Region',
-                              url: 'https://example.lightdash.cloud/projects/mock/saved/orders-by-region',
-                              filePath: 'lightdash/charts/orders-by-region.yml',
-                              embeddedAsTile: true,
-                              hasYaml: true,
-                            },
-                            {
-                              slug: 'top-customers',
-                              name: 'Top Customers',
-                              url: 'https://example.lightdash.cloud/projects/mock/saved/top-customers',
-                              filePath: 'lightdash/charts/top-customers.yml',
-                              embeddedAsTile: true,
-                              hasYaml: true,
-                            },
-                            {
-                              slug: 'orders-by-region-drilldown',
-                              name: 'Orders by Region (Drill-down)',
-                              url: 'https://example.lightdash.cloud/projects/mock/saved/orders-by-region-drilldown',
-                              filePath:
-                                'lightdash/charts/orders-by-region-drilldown.yml',
-                              embeddedAsTile: false,
-                              hasYaml: true,
-                            },
-                            {
-                              slug: 'removed-chart',
-                              name: 'Removed Chart',
-                              url: 'https://example.lightdash.cloud/projects/mock/saved/removed-chart',
-                              filePath: '',
-                              embeddedAsTile: true,
-                              hasYaml: false,
-                            },
-                          ],
-                          url: 'https://example.lightdash.cloud/projects/mock/dashboards/executive-overview/view',
-                          filePath:
-                            'lightdash/dashboards/executive-overview.yml',
-                        },
-                        {
-                          id: 'lightdash::standalone-charts::int_orders',
-                          slug: 'int_orders::standalone-charts',
-                          name: 'Standalone Charts',
-                          kind: 'standalone-charts',
-                          filePath: '',
-                          charts: [
-                            {
-                              slug: 'orders-funnel-debug',
-                              name: 'Orders Funnel (Debug)',
-                              url: 'https://example.lightdash.cloud/projects/mock/saved/orders-funnel-debug',
-                              filePath:
-                                'lightdash/charts/orders-funnel-debug.yml',
-                            },
-                            {
-                              slug: 'one-off-revenue-spike',
-                              name: 'One-off Revenue Spike Investigation',
-                              url: 'https://example.lightdash.cloud/projects/mock/saved/one-off-revenue-spike',
-                              filePath:
-                                'lightdash/charts/one-off-revenue-spike.yml',
-                            },
-                          ],
-                        },
-                      ],
-                    }),
-                  );
-                }
-                case 'data-explorer-open-lightdash-url': {
-                  console.log(
-                    '[Mock] Opening Lightdash URL:',
-                    (payload.request as { url: string }).url,
-                  );
-                  return resolve(
-                    apiResponse<typeof payloadType>({ success: true }),
-                  );
-                }
-                case 'data-explorer-set-lightdash-toggle': {
-                  const enabled = (payload.request as { enabled: boolean })
-                    .enabled;
-                  console.log('[Mock] Setting Lightdash toggle:', enabled);
-                  return resolve(apiResponse<typeof payloadType>({ enabled }));
-                }
-                case 'data-explorer-open-dashboards-as-code': {
-                  console.log('[Mock] Opening Dashboards as Code panel');
-                  return resolve(
-                    apiResponse<typeof payloadType>({ success: true }),
-                  );
-                }
-                case 'data-explorer-open-lightdash-yaml': {
-                  console.log(
-                    '[Mock] Opening Lightdash YAML file:',
-                    (payload.request as { filePath: string }).filePath,
-                  );
-                  return resolve(
-                    apiResponse<typeof payloadType>({ success: true }),
-                  );
-                }
-                case 'lightdash-yaml-ensure-gitignore': {
-                  const path = (payload.request as { path: string }).path;
-                  console.log('[Mock] Ensuring .gitignore contains:', path);
-                  return resolve(
-                    apiResponse<typeof payloadType>({
-                      success: true,
-                      added: true,
-                      alreadyPresent: false,
-                      gitignorePath: '/mock/workspace/.gitignore',
                     }),
                   );
                 }
@@ -863,53 +526,6 @@ SELECT * FROM final`,
                 case 'data-explorer-open-model-file': {
                   return resolve(
                     apiResponse<typeof payloadType>({ success: true }),
-                  );
-                }
-                case 'data-explorer-get-project-overview': {
-                  return resolve(
-                    apiResponse<typeof payloadType>({
-                      projectName: 'mock_project',
-                      groups: [
-                        {
-                          layer: 'staging',
-                          label: 'Staging Models',
-                          items: [
-                            {
-                              id: 'model.mock_project.stg__customers',
-                              name: 'stg__customers',
-                              type: 'model',
-                              testCount: 3,
-                            },
-                          ],
-                        },
-                        {
-                          layer: 'intermediate',
-                          label: 'Intermediate Models',
-                          items: [
-                            {
-                              id: 'model.mock_project.int__customer_orders',
-                              name: 'int__customer_orders',
-                              type: 'model',
-                              materialized: 'ephemeral',
-                              testCount: 1,
-                            },
-                          ],
-                        },
-                        {
-                          layer: 'mart',
-                          label: 'Mart Models',
-                          items: [
-                            {
-                              id: 'model.mock_project.mart__customers',
-                              name: 'mart__customers',
-                              type: 'model',
-                              materialized: 'incremental',
-                              testCount: 5,
-                            },
-                          ],
-                        },
-                      ],
-                    }),
                   );
                 }
                 case 'data-explorer-open-with-model': {
@@ -1239,7 +855,6 @@ where a = 1
                             description: 'Customer identifier',
                             tags: [],
                             meta: { type: 'dim' as const },
-                            internal: {},
                           },
                           {
                             name: 'order_count',
@@ -1247,7 +862,6 @@ where a = 1
                             description: 'Total number of orders',
                             tags: [],
                             meta: { type: 'fct' as const },
-                            internal: {},
                           },
                         ],
                       }),
@@ -1323,7 +937,6 @@ where a = 1
                             description: 'Primary key',
                             tags: [],
                             meta: { type: 'dim' as const },
-                            internal: {},
                           },
                           {
                             name: 'name',
@@ -1331,7 +944,6 @@ where a = 1
                             description: 'Customer name',
                             tags: [],
                             meta: { type: 'dim' as const },
-                            internal: {},
                           },
                           {
                             name: 'email',
@@ -1339,7 +951,6 @@ where a = 1
                             description: 'Customer email',
                             tags: [],
                             meta: { type: 'dim' as const },
-                            internal: {},
                           },
                         ],
                       }),
@@ -1474,6 +1085,14 @@ where a = 1
                       exists,
                       fileName,
                       filePath,
+                    }),
+                  );
+                }
+                case 'framework-get-available-dags': {
+                  // Mock response for web development
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      dags: ['source_etl', 'pharos_etl', 'ml_feature_etl'],
                     }),
                   );
                 }

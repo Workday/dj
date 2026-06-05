@@ -5,6 +5,8 @@ import { apiResponse } from '@shared/api/utils';
 import type { FrameworkColumn } from '@shared/framework/types';
 import {
   type ColumnLineageDAG,
+  type ColumnLineageEdge,
+  type ColumnLineageNode,
   generateAllColumnsCSV,
   generateLineageCSV,
 } from '@shared/lineage';
@@ -189,51 +191,18 @@ export class ColumnLineageHandler {
             error: result.error,
           });
         }
+        // Convert source columns to FrameworkColumn format
         const columns: FrameworkColumn[] = (result.columns ?? []).map(
           (col) => ({
             name: col.name,
             data_type: col.data_type as FrameworkColumn['data_type'],
             description: col.description || '',
             meta: { type: col.type ?? 'dim' },
-            internal: {},
           }),
         );
         return apiResponse<typeof payload.type>({
           success: true,
           modelName: `${result.sourceName}.${tableName}`,
-          columns,
-        });
-      }
-
-      if (action === 'get-seed-columns') {
-        const { seedName } = payload.request;
-        if (!seedName) {
-          return apiResponse<typeof payload.type>({
-            success: false,
-            error: 'seedName is required for get-seed-columns',
-          });
-        }
-        const result = await lineageService.getSeedColumns(filePath, seedName);
-        if (!result.success) {
-          return apiResponse<typeof payload.type>({
-            success: false,
-            error: result.error,
-          });
-        }
-        // Convert seed columns to FrameworkColumn format
-        const columns: FrameworkColumn[] = (result.columns ?? []).map(
-          (col) => ({
-            name: col.name,
-            data_type: col.data_type as FrameworkColumn['data_type'],
-            description: col.description || '',
-            meta: { type: col.type ?? 'dim' },
-            internal: {},
-          }),
-        );
-        return apiResponse<typeof payload.type>({
-          success: true,
-          seedName: result.seedName,
-          modelName: result.seedName,
           columns,
         });
       }
@@ -261,17 +230,21 @@ export class ColumnLineageHandler {
         }
         // Serialize DAG for response
         const dag = result.dag;
+        const serializedDag = {
+          targetColumn: dag.targetColumn,
+          nodes: Array.from(dag.nodes.values()),
+          edges: dag.edges,
+          roots: dag.roots,
+          leaves: dag.leaves,
+          hasMoreUpstream: dag.hasMoreUpstream,
+          hasMoreDownstream: dag.hasMoreDownstream,
+        };
+
+        await this.injectPythonModelColumnNodes(serializedDag, filePath);
+
         return apiResponse<typeof payload.type>({
           success: true,
-          dag: {
-            targetColumn: dag.targetColumn,
-            nodes: Array.from(dag.nodes.values()),
-            edges: dag.edges,
-            roots: dag.roots,
-            leaves: dag.leaves,
-            hasMoreUpstream: dag.hasMoreUpstream,
-            hasMoreDownstream: dag.hasMoreDownstream,
-          },
+          dag: serializedDag,
         });
       }
 
@@ -503,18 +476,22 @@ export class ColumnLineageHandler {
 
         // Serialize DAG for response
         const dag = result.dag;
+        const serializedDag = {
+          targetColumn: dag.targetColumn,
+          nodes: Array.from(dag.nodes.values()),
+          edges: dag.edges,
+          roots: dag.roots,
+          leaves: dag.leaves,
+          hasMoreUpstream: dag.hasMoreUpstream,
+          hasMoreDownstream: dag.hasMoreDownstream,
+        };
+
+        await this.injectPythonModelColumnNodes(serializedDag, filePath);
+
         return apiResponse<typeof payload.type>({
           success: true,
           modelName,
-          dag: {
-            targetColumn: dag.targetColumn,
-            nodes: Array.from(dag.nodes.values()),
-            edges: dag.edges,
-            roots: dag.roots,
-            leaves: dag.leaves,
-            hasMoreUpstream: dag.hasMoreUpstream,
-            hasMoreDownstream: dag.hasMoreDownstream,
-          },
+          dag: serializedDag,
         });
       }
 
@@ -623,5 +600,166 @@ export class ColumnLineageHandler {
         error: errorMessage,
       });
     }
+  }
+
+  /**
+   * Inject synthetic python model column nodes upstream of source nodes in the DAG.
+   * Queries Trino $properties on each source table for python.model.* Iceberg metadata.
+   */
+  private async injectPythonModelColumnNodes(
+    dag: {
+      nodes: ColumnLineageNode[];
+      edges: ColumnLineageEdge[];
+      roots: string[];
+    },
+    filePath: string,
+  ): Promise<void> {
+    const sourceNodes = dag.nodes.filter((n) => n.modelLayer === 'source');
+    if (sourceNodes.length === 0) {
+      return;
+    }
+
+    const project = this.ctx.dbt.getProjectFromPath(filePath);
+    if (!project) {
+      return;
+    }
+
+    // Collect unique source tables (multiple columns may share the same source)
+    const sourceTableMap = new Map<
+      string,
+      { catalog: string; schema: string; table: string }
+    >();
+
+    for (const node of sourceNodes) {
+      const modelName = node.modelName;
+      if (sourceTableMap.has(modelName)) {
+        continue;
+      }
+
+      // Look up source in manifest to get catalog (database) and schema
+      const sourceId = this.findSourceInManifest(modelName, project);
+      if (!sourceId) {
+        continue;
+      }
+
+      const source = project.manifest.sources?.[sourceId];
+      if (!source?.database || !source?.schema || !source?.name) {
+        continue;
+      }
+
+      sourceTableMap.set(modelName, {
+        catalog: source.database,
+        schema: source.schema,
+        table: source.name,
+      });
+    }
+
+    // Query Trino for Iceberg table properties per unique source table (python_model_* keys)
+    const pythonModelPropsMap = new Map<string, Record<string, string>>();
+
+    const queries = [...sourceTableMap.entries()].map(
+      async ([modelName, { catalog, schema, table }]) => {
+        try {
+          const sql = `SELECT key, value FROM ${catalog}.${schema}."${table}$properties" WHERE key LIKE 'python_model_%'`;
+          const rows = await this.ctx.coder.trino.handleQuery(sql, {
+            filename: 'data-explorer-query.sql',
+          });
+          if (rows && rows.length > 0) {
+            const props: Record<string, string> = {};
+            for (const row of rows) {
+              props[row['key']] = row['value'];
+            }
+            if (props['python_model_name']) {
+              pythonModelPropsMap.set(modelName, props);
+            }
+          }
+        } catch {
+          // No python model properties for this source -- skip silently
+        }
+      },
+    );
+
+    await Promise.all(queries);
+    if (pythonModelPropsMap.size === 0) {
+      return;
+    }
+
+    // Inject python model nodes and edges for each source column that has metadata
+    for (const sourceNode of sourceNodes) {
+      const props = pythonModelPropsMap.get(sourceNode.modelName);
+      if (!props) {
+        continue;
+      }
+
+      const pythonModelName = props['python_model_name'];
+      const pythonModelNodeId = `python.${pythonModelName}.${sourceNode.columnName}`;
+
+      // Skip if already injected (e.g., multiple computes on same DAG)
+      if (dag.nodes.some((n) => n.id === pythonModelNodeId)) {
+        continue;
+      }
+
+      const pythonModelNode: ColumnLineageNode = {
+        id: pythonModelNodeId,
+        columnName: sourceNode.columnName,
+        modelName: pythonModelName,
+        modelLayer: 'python',
+        modelType: 'python',
+        dataType: sourceNode.dataType,
+        transformation: 'raw',
+      };
+
+      dag.nodes.push(pythonModelNode);
+      dag.edges.push({
+        source: pythonModelNodeId,
+        target: sourceNode.id,
+        transformation: 'raw',
+      });
+
+      // Replace source root with python model root
+      const rootIdx = dag.roots.indexOf(sourceNode.id);
+      if (rootIdx !== -1) {
+        dag.roots[rootIdx] = pythonModelNodeId;
+      }
+    }
+  }
+
+  /**
+   * Look up a source in the dbt manifest by modelName (e.g., "iceberg__python.comments").
+   */
+  private findSourceInManifest(
+    modelName: string,
+    project: { name: string; manifest: Record<string, unknown> },
+  ): string | null {
+    const projectName =
+      ((project.manifest.metadata as Record<string, string> | undefined)
+        ?.project_name as string) ?? project.name;
+    const frameworkSourceId = `source.${projectName}.${modelName}`;
+    const sources = (project.manifest.sources ?? {}) as Record<
+      string,
+      Record<string, unknown> | undefined
+    >;
+
+    if (sources[frameworkSourceId]) {
+      return frameworkSourceId;
+    }
+
+    // Fallback: iterate through sources
+    for (const [sourceId, source] of Object.entries(sources)) {
+      if (!source) {
+        continue;
+      }
+      const srcName = source.source_name as string | undefined;
+      const tblName = source.name as string | undefined;
+      if (srcName && tblName && `${srcName}.${tblName}` === modelName) {
+        return sourceId;
+      }
+      const schema = source.schema as string | undefined;
+      if (schema && tblName && `${schema}.${tblName}` === modelName) {
+        return sourceId;
+      }
+    }
+
+    return null;
   }
 }
