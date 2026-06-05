@@ -1,4 +1,7 @@
 import type { Coder } from '@services/coder';
+import { updateDjSetting } from '@services/config';
+import { COMMAND_ID } from '@services/constants';
+import { openYamlInEditor } from '@services/lightdash/dashboardsAsCode';
 import { assertExhaustive } from '@shared';
 import type { ApiPayload, ApiResponse } from '@shared/api/types';
 import { apiResponse } from '@shared/api/utils';
@@ -10,6 +13,7 @@ import type {
 } from '@shared/dbt/types';
 import { getDbtModelId } from '@shared/dbt/utils';
 import type {
+  LightdashLineageNode,
   LineageData,
   LineageNode,
   ProjectOverviewData,
@@ -113,6 +117,54 @@ export class ModelLineage {
           } catch (error: unknown) {
             this.coder.log.error('Error opening file:', error);
             throw error;
+          }
+        }
+
+        case 'data-explorer-open-lightdash-url': {
+          try {
+            const { url } = payload.request;
+            await vscode.env.openExternal(vscode.Uri.parse(url));
+            return apiResponse<typeof payload.type>({ success: true });
+          } catch (error: unknown) {
+            this.coder.log.error('Error opening Lightdash URL:', error);
+            return apiResponse<typeof payload.type>({ success: false });
+          }
+        }
+
+        case 'data-explorer-set-lightdash-toggle': {
+          try {
+            const { enabled } = payload.request;
+            await updateDjSetting('dataExplorer.showLightdashLineage', enabled);
+            return apiResponse<typeof payload.type>({ enabled });
+          } catch (error: unknown) {
+            this.coder.log.error('Error toggling Lightdash lineage:', error);
+            // Echo back the persisted value so the UI reverts cleanly on error.
+            return apiResponse<typeof payload.type>({
+              enabled: this.coder.lightdashContent.isToggleEnabled(),
+            });
+          }
+        }
+
+        case 'data-explorer-open-dashboards-as-code': {
+          try {
+            await vscode.commands.executeCommand(
+              COMMAND_ID.LIGHTDASH_DASHBOARDS_AS_CODE,
+            );
+            return apiResponse<typeof payload.type>({ success: true });
+          } catch (error: unknown) {
+            this.coder.log.error('Error opening Dashboards-as-Code:', error);
+            return apiResponse<typeof payload.type>({ success: false });
+          }
+        }
+
+        case 'data-explorer-open-lightdash-yaml': {
+          try {
+            const { filePath } = payload.request;
+            await openYamlInEditor(filePath);
+            return apiResponse<typeof payload.type>({ success: true });
+          } catch (error: unknown) {
+            this.coder.log.error('Error opening Lightdash YAML file:', error);
+            return apiResponse<typeof payload.type>({ success: false });
           }
         }
 
@@ -249,10 +301,32 @@ export class ModelLineage {
       }
     }
 
+    const lightdashContent = this.coder.lightdashContent;
+    const lightdashEnabled = lightdashContent.isToggleEnabled();
+    const lightdashAvailable = lightdashEnabled
+      ? lightdashContent.isPopulated()
+      : undefined;
+    const lightdashResolvedPath = lightdashEnabled
+      ? lightdashContent.getResolvedPath()
+      : undefined;
+
+    let lightdashDownstream: LightdashLineageNode[] | undefined;
+    if (lightdashEnabled && currentNode.name.startsWith('mart_')) {
+      const { dashboards, charts } = lightdashContent.getDownstream(
+        currentNode.name,
+      );
+      // Dashboards first so they cluster at the top of the right column.
+      lightdashDownstream = [...dashboards, ...charts];
+    }
+
     return {
       current: currentNode,
       upstream,
       downstream,
+      lightdashDownstream,
+      lightdashAvailable,
+      lightdashResolvedPath,
+      lightdashEnabled,
     };
   }
 
