@@ -78,6 +78,8 @@ export const COMMAND_ID = {
   FRAMEWORK_JUMP_MODEL: 'dj.command.frameworkJumpModel',
   FRAMEWORK_JUMP_YAML: 'dj.command.frameworkYaml',
   JSON_SYNC: 'dj.command.jsonSync',
+  PYTHON_MODEL_OPEN_NOTEBOOK: 'dj.command.pythonModelOpenNotebook',
+  DAG_CREATE: 'dj.command.dagCreate',
   QUERY_VIEW: 'dj.command.queryView',
   TEST_TRINO_CONNECTION: 'dj.command.testTrinoConnection',
 } as const;

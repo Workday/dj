@@ -228,6 +228,15 @@
       {
         "command": "dj.command.testTrinoConnection",
         "title": "DJ: Test Trino Connection"
+      },
+      {
+        "command": "dj.command.pythonModelOpenNotebook",
+        "title": "DJ: Open Python Model Notebook",
+        "icon": "$(notebook)"
+      },
+      {
+        "command": "dj.command.dagCreate",
+        "title": "DJ: Create DAG"
       }
     ],
     "submenus": [
@@ -312,6 +321,19 @@
         "dj.pythonVenvPath": {
           "type": "string",
           "description": "Path to the local Python virtual environment. Takes effect on next command execution."
+        },
+        "dj.pythonModel.groups": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "ml",
+            "etl",
+            "analytics",
+            "others"
+          ],
+          "description": "List of group categories available when creating Python models. Requires 'DJ: Refresh Projects' command or workspace reload to take effect."
         },
         "dj.trinoPath": {
           "type": "string",
@@ -641,6 +663,11 @@
           "command": "dj.command.openTargetRunSql",
           "group": "navigation",
           "when": "resourceFilename =~ /[.]((model)[.](json)|sql|yml)$/"
+        },
+        {
+          "command": "dj.command.pythonModelOpenNotebook",
+          "group": "navigation",
+          "when": "resourceFilename =~ /[.](python)[.](json|py)$/"
         }
       ],
       "explorer/context": [
@@ -668,6 +695,11 @@
           "command": "dj.command.openTargetRunSql",
           "group": "navigation",
           "when": "resourceFilename =~ /[.]((model)[.](json)|sql|yml)$/"
+        },
+        {
+          "command": "dj.command.pythonModelOpenNotebook",
+          "group": "navigation",
+          "when": "resourceFilename =~ /[.](python)[.](json|py)$/"
         }
       ],
       "view/item/context": [

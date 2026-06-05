@@ -1,0 +1,8 @@
+{
+  "$id": "python-model.description.schema.json",
+  "title": "Schema Python Model Description",
+  "description": "Validate Python model description",
+  "type": "string",
+  "minLength": 1,
+  "maxLength": 500
+}

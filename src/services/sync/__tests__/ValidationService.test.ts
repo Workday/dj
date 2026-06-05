@@ -52,13 +52,13 @@ describe('ValidationService - targetFolders', () => {
     test.each([
       {
         name: 'should add tests when model is in targetFolder',
-        targetFolders: ['models/intermediate/capeng'],
-        modelPath: 'models/intermediate/capeng',
+        targetFolders: ['models/intermediate/analytics'],
+        modelPath: 'models/intermediate/analytics',
         expectedTests: 1,
       },
       {
         name: 'should NOT add tests when model is outside targetFolder',
-        targetFolders: ['models/intermediate/capeng'],
+        targetFolders: ['models/intermediate/analytics'],
         modelPath: 'models/intermediate/other',
         expectedTests: 0,
       },
@@ -71,13 +71,13 @@ describe('ValidationService - targetFolders', () => {
       {
         name: 'should match nested paths within targetFolder',
         targetFolders: ['models/intermediate'],
-        modelPath: 'models/intermediate/capeng/subdir',
+        modelPath: 'models/intermediate/analytics/subdir',
         expectedTests: 1,
       },
       {
         name: 'should NOT match sibling folders with similar names',
-        targetFolders: ['models/intermediate/capeng'],
-        modelPath: 'models/intermediate/capeng_v2',
+        targetFolders: ['models/intermediate/analytics'],
+        modelPath: 'models/intermediate/analytics_v2',
         expectedTests: 0,
       },
     ])('$name', ({ targetFolders, modelPath, expectedTests }) => {
@@ -112,12 +112,12 @@ describe('ValidationService - targetFolders', () => {
 
     test('should handle multiple targetFolders correctly', () => {
       const config = createConfig([
-        'models/intermediate/capeng',
+        'models/intermediate/analytics',
         'models/marts/finance',
       ]);
 
       const cases = [
-        { path: 'models/intermediate/capeng', expected: 1 },
+        { path: 'models/intermediate/analytics', expected: 1 },
         { path: 'models/marts/finance', expected: 1 },
         { path: 'models/staging', expected: 0 },
       ];
@@ -140,7 +140,7 @@ describe('ValidationService - targetFolders', () => {
           equalRowCount: {
             enabled: true,
             applyTo: ['left'],
-            targetFolders: ['models/intermediate/capeng'],
+            targetFolders: ['models/intermediate/analytics'],
           },
           equalOrLowerRowCount: {
             enabled: true,
@@ -155,7 +155,7 @@ describe('ValidationService - targetFolders', () => {
         modelJson: model,
         config,
         pathJson:
-          '/project/dags/dbt/models/intermediate/capeng/test_model.model.json',
+          '/project/dags/dbt/models/intermediate/analytics/test_model.model.json',
         projectPath: '/project/dags/dbt',
       });
 

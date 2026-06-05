@@ -14,7 +14,7 @@ For every recipe: drop the ephemeral's identity fields (`type`, `group`, `topic`
 
 ## CTE naming convention
 
-The new CTE's `name` is the **short `"name"` field from the ephemeral's `.model.json`** -- not the full `<layer>__<group>__<topic>__<name>` model name. So for `int__capeng__swh__reportstats_union.model.json` with `"name": "reportstats_union"`, the resulting CTE is named `reportstats_union`. The full model name is only used inside the consumer rewrites to find what to replace.
+The new CTE's `name` is the **short `"name"` field from the ephemeral's `.model.json`** -- not the full `<layer>__<group>__<topic>__<name>` model name. So for `int__analytics__reports__reportstats_union.model.json` with `"name": "reportstats_union"`, the resulting CTE is named `reportstats_union`. The full model name is only used inside the consumer rewrites to find what to replace.
 
 **Collision fallback:** before adopting the short name, check the consumer's existing `ctes[].name` and the other inbound ephemerals' short names in the same pass. On collision, try `<topic>_<name>` → `<group>_<topic>_<name>` → the full model name, picking the shortest form that is unique within the consumer. Names must match the CTE schema pattern `^[a-z][a-z0-9_]*$`.
 

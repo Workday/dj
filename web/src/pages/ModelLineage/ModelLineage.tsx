@@ -92,7 +92,7 @@ export default function ModelLineage() {
   const [showColumns, setShowColumns] = useState(false);
   const [selectedNodeName, setSelectedNodeName] = useState<string | null>(null);
   const [selectedNodeType, setSelectedNodeType] = useState<
-    'model' | 'source' | 'seed' | null
+    'model' | 'source' | 'seed' | 'python' | null
   >(null);
   const [queryViewMode, setQueryViewMode] = useState<QueryViewMode>('data'); // Toggle between data table and SQL view
 
@@ -355,7 +355,7 @@ export default function ModelLineage() {
   const handleNodeClick = (
     modelName: string,
     projectName: string,
-    type: 'model' | 'source' | 'seed',
+    type: 'model' | 'source' | 'seed' | 'python',
   ) => {
     if (!modelName || typeof modelName !== 'string') {
       console.error(
@@ -511,7 +511,7 @@ export default function ModelLineage() {
   const handleViewColumns = (
     filePath: string,
     modelName: string,
-    type: 'model' | 'source' | 'seed',
+    type: 'model' | 'source' | 'seed' | 'python',
   ) => {
     setSplitMode(true);
     setShowColumns(true);

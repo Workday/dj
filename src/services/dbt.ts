@@ -137,6 +137,22 @@ export class Dbt implements ApiEnabledService<'dbt'> {
     iconPath: new vscode.ThemeIcon('add'),
     label: 'Create Source',
   };
+  treeItemPythonModelCreate: TreeItem = {
+    command: {
+      command: 'dj.command.pythonModelCreate',
+      title: 'Create Python Model',
+    },
+    iconPath: new vscode.ThemeIcon('add'),
+    label: 'Create Python Model',
+  };
+  treeItemDagCreate: TreeItem = {
+    command: {
+      command: COMMAND_ID.DAG_CREATE,
+      title: 'Create DAG',
+    },
+    iconPath: new vscode.ThemeIcon('add'),
+    label: 'Create DAG',
+  };
 
   // Webview panels
   webviewPanelSourceCreate: vscode.WebviewPanel | undefined;
@@ -1696,6 +1712,7 @@ ${macro.macro_sql}`;
         'source_etl.py',
         'utils.py',
         'variables.py',
+        'python_models.py',
       ];
 
       // Use Promise.all for parallel file operations
@@ -1884,7 +1901,28 @@ ${macro.macro_sql}`;
               skillDirName,
             );
 
-            await this.copySkillDirectoryRecursive(sourceDir, targetDir);
+            // Read all files in the skill directory and copy them
+            const files = await vscode.workspace.fs.readDirectory(
+              vscode.Uri.file(sourceDir),
+            );
+
+            for (const [fileName, fileType] of files) {
+              if (fileType === vscode.FileType.File) {
+                const sourcePath = vscode.Uri.file(
+                  path.join(sourceDir, fileName),
+                );
+                // Strip leading underscore from template filenames (e.g. _SKILL.md → SKILL.md)
+                // so they aren't interpreted as skills inside this repo's own templates directory.
+                const targetFileName = fileName.startsWith('_')
+                  ? fileName.slice(1)
+                  : fileName;
+                const targetPath = vscode.Uri.file(
+                  path.join(targetDir, targetFileName),
+                );
+                const content = await vscode.workspace.fs.readFile(sourcePath);
+                await vscode.workspace.fs.writeFile(targetPath, content);
+              }
+            }
           } catch (err: unknown) {
             this.log.error(`Error writing skill ${skillDirName}:`, err);
           }
@@ -1893,44 +1931,6 @@ ${macro.macro_sql}`;
       await Promise.all(writePromises);
     } catch (err: unknown) {
       this.log.error('Error writing skill files:', err);
-    }
-  }
-
-  /**
-   * Recursively copy a skill directory (files + subdirectories) into the
-   * workspace target. Subdirectories like `references/`, `scripts/`, `assets/`
-   * are part of the Agent Skills open standard (https://agentskills.io) for
-   * progressive disclosure of skill content.
-   *
-   * Leading underscores on template filenames are stripped (e.g. `_SKILL.md`
-   * → `SKILL.md`) so they aren't picked up as skills inside this repo's own
-   * `templates/skills` directory. Subdirectory names are preserved verbatim.
-   */
-  private async copySkillDirectoryRecursive(
-    sourceDir: string,
-    targetDir: string,
-  ): Promise<void> {
-    const entries = await vscode.workspace.fs.readDirectory(
-      vscode.Uri.file(sourceDir),
-    );
-
-    for (const [entryName, entryType] of entries) {
-      const sourceEntryPath = path.join(sourceDir, entryName);
-      if (entryType === vscode.FileType.File) {
-        const targetFileName = entryName.startsWith('_')
-          ? entryName.slice(1)
-          : entryName;
-        const targetPath = vscode.Uri.file(
-          path.join(targetDir, targetFileName),
-        );
-        const content = await vscode.workspace.fs.readFile(
-          vscode.Uri.file(sourceEntryPath),
-        );
-        await vscode.workspace.fs.writeFile(targetPath, content);
-      } else if (entryType === vscode.FileType.Directory) {
-        const targetSubDir = path.join(targetDir, entryName);
-        await this.copySkillDirectoryRecursive(sourceEntryPath, targetSubDir);
-      }
     }
   }
 
@@ -2234,8 +2234,9 @@ ${macro.macro_sql}`;
       this.treeItemProjectClean,
       this.treeItemModelCreate,
       this.treeItemSourceCreate,
+      this.treeItemPythonModelCreate,
+      this.treeItemDagCreate,
       this.coder.lightdash.treeItemLightdashPreview,
-      this.coder.lightdash.treeItemLightdashDashboardsAsCode,
       this.treeItemModelRun,
       this.treeItemModelTest,
       this.treeItemModelCompile,
@@ -3086,6 +3087,73 @@ ${macro.macro_sql}`;
           // Handle webview messages including state management
           panel.webview.onDidReceiveMessage(
             this.coder.createWebviewMessageHandler(panel, 'source-create'),
+          );
+        }
+      }),
+    );
+
+    // Python model Create Command
+    context.subscriptions.push(
+      vscode.commands.registerCommand(
+        'dj.command.pythonModelCreate',
+        () => {
+          if (this.coder.framework.webviewPanelPythonModelCreate) {
+            this.coder.framework.webviewPanelPythonModelCreate.reveal();
+          } else {
+            const panel = vscode.window.createWebviewPanel(
+              'dj.view.pythonModelCreate',
+              'Create Python Model',
+              vscode.ViewColumn.One,
+              { enableScripts: true },
+            );
+            panel.onDidDispose(() => {
+              this.coder.framework.webviewPanelPythonModelCreate = undefined;
+            });
+            this.coder.framework.webviewPanelPythonModelCreate = panel;
+            const html = getHtml({
+              extensionUri: this.context.extensionUri,
+              route: '/python-model/create',
+              webview: panel.webview,
+            });
+            panel.webview.html = html;
+
+            // Handle webview messages including state management
+            panel.webview.onDidReceiveMessage(
+              this.coder.createWebviewMessageHandler(
+                panel,
+                'python-model-create',
+              ),
+            );
+          }
+        },
+      ),
+    );
+
+    // DAG Create Command
+    context.subscriptions.push(
+      vscode.commands.registerCommand(COMMAND_ID.DAG_CREATE, () => {
+        if (this.coder.framework.webviewPanelDagCreate) {
+          this.coder.framework.webviewPanelDagCreate.reveal();
+        } else {
+          const panel = vscode.window.createWebviewPanel(
+            'dj.view.dagCreate',
+            'Create DAG',
+            vscode.ViewColumn.One,
+            { enableScripts: true },
+          );
+          panel.onDidDispose(() => {
+            this.coder.framework.webviewPanelDagCreate = undefined;
+          });
+          this.coder.framework.webviewPanelDagCreate = panel;
+          const html = getHtml({
+            extensionUri: this.context.extensionUri,
+            route: '/dag/create',
+            webview: panel.webview,
+          });
+          panel.webview.html = html;
+
+          panel.webview.onDidReceiveMessage(
+            this.coder.createWebviewMessageHandler(panel, 'dag-create'),
           );
         }
       }),

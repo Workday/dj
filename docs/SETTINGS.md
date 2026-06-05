@@ -126,7 +126,7 @@ Complete guide to configuring the DJ (Data JSON) Framework VS Code extension.
 
 ```json
 {
-  "dj.lightdash.defaultSqlFilter": "account_project_id in (select id from finops.account_rollup_hierarchy where proj_level_1_cd in (${lightdash.attributes.opus_purpose_level2}))",
+  "dj.lightdash.defaultSqlFilter": "account_project_id in (select id from finops.account_rollup_hierarchy where proj_level_1_cd in (${lightdash.attributes.purpose_level2}))",
   "dj.lightdash.defaultSqlFilterRequiredColumns": ["account_project_id"]
 }
 ```
@@ -157,7 +157,7 @@ Takes effect on next `DJ: Sync to SQL and YML`.
 
 ```json
 {
-  "dj.lightdash.defaultSqlFilter": "account_project_id in (select id from finops.account_rollup_hierarchy where proj_level_1_cd in (${lightdash.attributes.opus_purpose_level2}))",
+  "dj.lightdash.defaultSqlFilter": "account_project_id in (select id from finops.account_rollup_hierarchy where proj_level_1_cd in (${lightdash.attributes.purpose_level2}))",
   "dj.lightdash.defaultSqlFilterRequiredColumns": ["account_project_id"]
 }
 ```

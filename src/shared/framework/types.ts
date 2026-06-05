@@ -31,6 +31,51 @@ import type { SchemaModelWhere } from '@shared/schema/types/model.where.schema';
 import type { SchemaSourcePartition } from '@shared/schema/types/source.schema';
 import type { SchemaSource } from '@shared/schema/types/source.schema';
 
+export type PythonModelGroup = string;
+
+export type PythonModelOutputType = 'iceberg' | 's3';
+
+export type PythonModelWriteMode =
+  | 'append'
+  | 'overwrite'
+  | 'overwrite_partitions';
+
+export interface PythonModelOutputConfig {
+  database?: string;
+  schema?: string;
+  table?: string;
+  partition_by?: string[];
+  write_mode?: PythonModelWriteMode;
+}
+
+export interface PythonModelCell {
+  cell_type: 'markdown' | 'code' | 'raw';
+  metadata?: Record<string, unknown>;
+  source: string[] | string;
+  outputs?: unknown[];
+  execution_count?: number | null;
+}
+
+export interface PythonModelConfig {
+  name: string;
+  group: PythonModelGroup;
+  topic: string;
+  description?: string;
+  model_type: 'python';
+  dags?: string[];
+  depends_on?: string[];
+  output_type?: PythonModelOutputType;
+  output?: PythonModelOutputConfig;
+  enable_notebook?: boolean;
+  dependencies?: string[];
+  tags?: string[];
+  owner?: string;
+  namespace?: string;
+  table_name?: string;
+  cells?: PythonModelCell[];
+  variables?: Record<string, string>;
+}
+
 export type FrameworkApi =
   | {
       type: 'framework-model-create';
@@ -255,7 +300,7 @@ export type FrameworkApi =
             id: string;
             columnName: string;
             modelName: string;
-            modelLayer: 'source' | 'staging' | 'intermediate' | 'mart';
+            modelLayer: 'source' | 'staging' | 'intermediate' | 'mart' | 'python';
             modelType: string;
             dataType?: string;
             description?: string;
@@ -312,6 +357,58 @@ export type FrameworkApi =
         fileName: string;
         filePath: string;
       };
+    }
+  | {
+      type: 'framework-python-model-create';
+      service: 'framework';
+      request: {
+        projectName: string;
+        name: string;
+        group: PythonModelGroup;
+        topic: string;
+        description?: string;
+        model_type: 'python';
+        dags?: string[];
+        depends_on?: string[];
+        output_type?: PythonModelOutputType;
+        enable_notebook?: boolean;
+        tags?: string[];
+        namespace?: string;
+        table_name?: string;
+        variables?: Record<string, string>;
+        create_dag?: boolean;
+        dag_config?: {
+          name: string;
+          schedule: string;
+          tags?: string[];
+          description?: string;
+        };
+      };
+      response: string;
+    }
+  | {
+      type: 'framework-dag-create';
+      service: 'framework';
+      request: {
+        projectName: string;
+        name: string;
+        schedule: string;
+        tags?: string[];
+        description?: string;
+      };
+      response: string;
+    }
+  | {
+      type: 'framework-get-available-dags';
+      service: 'framework';
+      request: { projectName: string };
+      response: { dags: string[] };
+    }
+  | {
+      type: 'framework-get-python-model-groups';
+      service: 'framework';
+      request: null;
+      response: { groups: string[] };
     };
 
 async function apiHandler(p: {
@@ -362,6 +459,22 @@ async function apiHandler(p: {
   type: 'framework-check-model-exists';
   request: ApiRequest<'framework-check-model-exists'>;
 }): Promise<ApiResponse<'framework-check-model-exists'>>;
+async function apiHandler(p: {
+  type: 'framework-python-model-create';
+  request: ApiRequest<'framework-python-model-create'>;
+}): Promise<ApiResponse<'framework-python-model-create'>>;
+async function apiHandler(p: {
+  type: 'framework-dag-create';
+  request: ApiRequest<'framework-dag-create'>;
+}): Promise<ApiResponse<'framework-dag-create'>>;
+async function apiHandler(p: {
+  type: 'framework-get-available-dags';
+  request: ApiRequest<'framework-get-available-dags'>;
+}): Promise<ApiResponse<'framework-get-available-dags'>>;
+async function apiHandler(p: {
+  type: 'framework-get-python-model-groups';
+  request: ApiRequest<'framework-get-python-model-groups'>;
+}): Promise<ApiResponse<'framework-get-python-model-groups'>>;
 function apiHandler(
   _p: Omit<FrameworkApi, 'response' | 'service'>,
 ): Promise<unknown> {

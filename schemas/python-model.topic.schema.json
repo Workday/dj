@@ -1,0 +1,7 @@
+{
+  "$id": "python-model.topic.schema.json",
+  "title": "Schema Python Model Topic",
+  "description": "Validate Python model topic",
+  "type": "string",
+  "pattern": "^[a-z][a-z0-9_]*$"
+}

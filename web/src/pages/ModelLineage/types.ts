@@ -9,7 +9,7 @@ export type MaterializationType =
 export interface LineageNode {
   id: string;
   name: string;
-  type: 'model' | 'source' | 'seed';
+  type: 'model' | 'source' | 'seed' | 'python';
   description?: string;
   tags?: string[];
   path: string;
@@ -53,7 +53,7 @@ export interface LightdashNodeData
 export interface ModelNodeData extends Record<string, unknown> {
   id: string;
   name: string;
-  type: 'model' | 'source' | 'seed';
+  type: 'model' | 'source' | 'seed' | 'python';
   description?: string;
   tags?: string[];
   path?: string;
@@ -77,14 +77,14 @@ export interface ModelNodeData extends Record<string, unknown> {
   onNodeClick: (
     modelName: string,
     projectName: string,
-    type: 'model' | 'source' | 'seed',
+    type: 'model' | 'source' | 'seed' | 'python',
   ) => void;
   onExpandUpstream?: (modelName: string, projectName: string) => void;
   onExpandDownstream?: (modelName: string, projectName: string) => void;
   onViewColumns?: (
     filePath: string,
     modelName: string,
-    type: 'model' | 'source' | 'seed',
+    type: 'model' | 'source' | 'seed' | 'python',
   ) => void;
 }
 

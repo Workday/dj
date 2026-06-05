@@ -1,0 +1,7 @@
+{
+  "$id": "python-model.group.schema.json",
+  "title": "Schema Python Model Group",
+  "description": "Validate Python model group (team/project)",
+  "type": "string",
+  "minLength": 1
+}

@@ -57,6 +57,12 @@ export function getDjConfig(): CoderConfig {
     dbtGenericTestsPath: config.get('dbtGenericTestsPath', undefined),
     dbtMacroPath: config.get('dbtMacroPath', undefined),
     pythonVenvPath: config.get('pythonVenvPath', undefined),
+    pythonModelGroups: config.get<string[]>('pythonModel.groups', [
+      'ml',
+      'etl',
+      'analytics',
+      'others',
+    ]),
     trinoPath: config.get('trinoPath', undefined),
     lightdashProjectPath: config.get('lightdashProjectPath', undefined),
     lightdashProfilesPath: config.get('lightdashProfilesPath', undefined),

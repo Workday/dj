@@ -7,7 +7,7 @@ export type MaterializationType =
 export interface LineageNode {
   id: string; // manifest unique_id
   name: string; // model name
-  type: 'model' | 'source' | 'seed';
+  type: 'model' | 'source' | 'seed' | 'python';
   description?: string;
   tags?: string[];
   path: string; // relative file path
@@ -112,6 +112,8 @@ export interface LineageData {
   lightdashResolvedPath?: string;
   /** Echo of the toggle setting so the webview can drive its UI. */
   lightdashEnabled?: boolean;
+  /** Python model edges connecting python model nodes to source nodes */
+  pythonModelEdges?: { pythonModelNodeId: string; sourceNodeId: string }[];
 }
 
 export type ModelLineageApi =
