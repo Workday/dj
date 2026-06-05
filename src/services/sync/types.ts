@@ -465,3 +465,17 @@ export interface SourceValidationResult {
   /** Individual errors with JSON paths for diagnostic positioning */
   errors?: ValidationErrorDetail[];
 }
+
+/**
+ * Result of python model JSON validation.
+ */
+export interface PythonModelValidationResult {
+  /** Whether validation passed */
+  valid: boolean;
+  /** Path to the JSON file being validated */
+  pathJson: string;
+  /** Error message if validation failed */
+  error?: string;
+  /** Individual errors with JSON paths for diagnostic positioning */
+  errors?: ValidationErrorDetail[];
+}

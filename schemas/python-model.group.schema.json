@@ -3,5 +3,5 @@
   "title": "Schema Python Model Group",
   "description": "Validate Python model group (team/project)",
   "type": "string",
-  "enum": ["ml", "perftools", "capeng", "others"]
+  "minLength": 1
 }

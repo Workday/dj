@@ -198,6 +198,7 @@ export class ColumnLineageHandler {
             data_type: col.data_type as FrameworkColumn['data_type'],
             description: col.description || '',
             meta: { type: col.type ?? 'dim' },
+            internal: {},
           }),
         );
         return apiResponse<typeof payload.type>({

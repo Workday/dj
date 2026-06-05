@@ -503,6 +503,9 @@ export class Framework implements ApiEnabledService<'framework'> {
       case 'framework-get-available-dags':
         return await this.handleGetAvailableDags(payload);
 
+      case 'framework-get-python-model-groups':
+        return { groups: getDjConfig().pythonModelGroups };
+
       default:
         return assertExhaustive<ApiResponse>(payload);
     }

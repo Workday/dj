@@ -91,8 +91,6 @@ export type {
   ModelProcessingResult,
   // Validation results
   ModelValidationResult,
-  PredbtValidationResult,
-  PythonModelValidationResult,
   RenameConflictResult,
   ResourceProcessingResult,
   SourceProcessingResult,

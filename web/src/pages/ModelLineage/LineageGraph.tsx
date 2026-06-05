@@ -51,12 +51,12 @@ interface LineageGraphProps {
   onNodeClick: (
     modelName: string,
     projectName: string,
-    type: 'model' | 'source' | 'seed',
+    type: 'model' | 'source' | 'seed' | 'python',
   ) => void;
   onViewColumns?: (
     filePath: string,
     modelName: string,
-    type: 'model' | 'source' | 'seed',
+    type: 'model' | 'source' | 'seed' | 'python',
   ) => void;
   onOpenLightdash: (url: string) => void;
   onOpenLightdashYaml: (filePath: string) => void;

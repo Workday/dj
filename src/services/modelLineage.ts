@@ -1,4 +1,7 @@
 import type { Coder } from '@services/coder';
+import { updateDjSetting } from '@services/config';
+import { COMMAND_ID } from '@services/constants';
+import { openYamlInEditor } from '@services/lightdash/dashboardsAsCode';
 import { assertExhaustive } from '@shared';
 import type { ApiPayload, ApiResponse } from '@shared/api/types';
 import { apiResponse } from '@shared/api/utils';
@@ -9,7 +12,14 @@ import type {
   DbtProjectManifestSource,
 } from '@shared/dbt/types';
 import { getDbtModelId } from '@shared/dbt/utils';
-import type { LineageData, LineageNode } from '@shared/modellineage/types';
+import type {
+  LightdashLineageNode,
+  LineageData,
+  LineageNode,
+  ProjectOverviewData,
+  ProjectOverviewGroup,
+  ProjectOverviewItem,
+} from '@shared/modellineage/types';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -32,10 +42,7 @@ export class ModelLineage {
               `Fetching lineage for model: ${modelName} in project: ${projectName}`,
             );
 
-            const lineageData = await this.getModelLineage(
-              modelName,
-              projectName,
-            );
+            const lineageData = await this.getModelLineage(modelName, projectName);
 
             return apiResponse<typeof payload.type>(lineageData);
           } catch (error: unknown) {
@@ -94,12 +101,70 @@ export class ModelLineage {
 
         case 'data-explorer-open-model-file': {
           try {
-            const { modelName, projectName } = payload.request;
-            await this.openModelFile(modelName, projectName);
+            const { modelName, projectName, nodeType } = payload.request as {
+              modelName: string;
+              projectName: string;
+              nodeType?: string;
+            };
+            if (nodeType === 'source') {
+              await this.openSourceFile(modelName, projectName);
+            } else if (nodeType === 'seed') {
+              await this.openSeedFile(modelName, projectName);
+            } else {
+              await this.openModelFile(modelName, projectName);
+            }
             return apiResponse<typeof payload.type>({ success: true });
           } catch (error: unknown) {
-            this.coder.log.error('Error opening model file:', error);
+            this.coder.log.error('Error opening file:', error);
             throw error;
+          }
+        }
+
+        case 'data-explorer-open-lightdash-url': {
+          try {
+            const { url } = payload.request;
+            await vscode.env.openExternal(vscode.Uri.parse(url));
+            return apiResponse<typeof payload.type>({ success: true });
+          } catch (error: unknown) {
+            this.coder.log.error('Error opening Lightdash URL:', error);
+            return apiResponse<typeof payload.type>({ success: false });
+          }
+        }
+
+        case 'data-explorer-set-lightdash-toggle': {
+          try {
+            const { enabled } = payload.request;
+            await updateDjSetting('dataExplorer.showLightdashLineage', enabled);
+            return apiResponse<typeof payload.type>({ enabled });
+          } catch (error: unknown) {
+            this.coder.log.error('Error toggling Lightdash lineage:', error);
+            // Echo back the persisted value so the UI reverts cleanly on error.
+            return apiResponse<typeof payload.type>({
+              enabled: this.coder.lightdashContent.isToggleEnabled(),
+            });
+          }
+        }
+
+        case 'data-explorer-open-dashboards-as-code': {
+          try {
+            await vscode.commands.executeCommand(
+              COMMAND_ID.LIGHTDASH_DASHBOARDS_AS_CODE,
+            );
+            return apiResponse<typeof payload.type>({ success: true });
+          } catch (error: unknown) {
+            this.coder.log.error('Error opening Dashboards-as-Code:', error);
+            return apiResponse<typeof payload.type>({ success: false });
+          }
+        }
+
+        case 'data-explorer-open-lightdash-yaml': {
+          try {
+            const { filePath } = payload.request;
+            await openYamlInEditor(filePath);
+            return apiResponse<typeof payload.type>({ success: true });
+          } catch (error: unknown) {
+            this.coder.log.error('Error opening Lightdash YAML file:', error);
+            return apiResponse<typeof payload.type>({ success: false });
           }
         }
 
@@ -162,6 +227,16 @@ export class ModelLineage {
           }
         }
 
+        case 'data-explorer-get-project-overview': {
+          try {
+            const overview = this.getProjectOverview();
+            return apiResponse<typeof payload.type>(overview);
+          } catch (error: unknown) {
+            this.coder.log.error('Error fetching project overview:', error);
+            return apiResponse<typeof payload.type>(null);
+          }
+        }
+
         default:
           return assertExhaustive<any>(payload);
       }
@@ -169,13 +244,9 @@ export class ModelLineage {
   }
 
   /**
-   * Get the lineage (upstream and downstream) for a specific model.
-   * For upstream source nodes, queries Trino $properties to discover python model lineage.
+   * Get the lineage (upstream and downstream) for a specific model
    */
-  private async getModelLineage(
-    modelName: string,
-    projectName: string,
-  ): Promise<LineageData> {
+  private async getModelLineage(modelName: string, projectName: string): Promise<LineageData> {
     const project = this.coder.framework.dbt.projects.get(projectName);
     if (!project) {
       throw new Error(`Project ${projectName} not found`);
@@ -205,6 +276,7 @@ export class ModelLineage {
     const upstream: LineageNode[] = [];
 
     for (const parentId of parentIds) {
+      // Skip test nodes - they start with 'test.'
       if (parentId.startsWith('test.')) {
         continue;
       }
@@ -219,6 +291,7 @@ export class ModelLineage {
     const downstream: LineageNode[] = [];
 
     for (const childId of childIds) {
+      // Skip test nodes - they start with 'test.'
       if (childId.startsWith('test.')) {
         continue;
       }
@@ -226,6 +299,24 @@ export class ModelLineage {
       if (node) {
         downstream.push(this.manifestNodeToLineageNode(childId, node, project));
       }
+    }
+
+    const lightdashContent = this.coder.lightdashContent;
+    const lightdashEnabled = lightdashContent.isToggleEnabled();
+    const lightdashAvailable = lightdashEnabled
+      ? lightdashContent.isPopulated()
+      : undefined;
+    const lightdashResolvedPath = lightdashEnabled
+      ? lightdashContent.getResolvedPath()
+      : undefined;
+
+    let lightdashDownstream: LightdashLineageNode[] | undefined;
+    if (lightdashEnabled && currentNode.name.startsWith('mart_')) {
+      const { dashboards, charts } = lightdashContent.getDownstream(
+        currentNode.name,
+      );
+      // Dashboards first so they cluster at the top of the right column.
+      lightdashDownstream = [...dashboards, ...charts];
     }
 
     // For upstream source nodes, check Trino $properties for python model metadata
@@ -239,19 +330,15 @@ export class ModelLineage {
       current: currentNode,
       upstream,
       downstream,
+      lightdashDownstream,
+      lightdashAvailable,
+      lightdashResolvedPath,
+      lightdashEnabled,
       pythonModelEdges:
         pythonModelEdges.length > 0 ? pythonModelEdges : undefined,
     };
   }
 
-  /**
-   * For each source node in the upstream list, query the Trino $properties
-   * virtual table to check for python.model.* metadata. If found, synthesize
-   * a python LineageNode that sits upstream of the source.
-   *
-   * The catalog is read from the source's `database` field (e.g. "iceberg"),
-   * NOT hardcoded.
-   */
   private async discoverPythonModelUpstream(
     upstreamNodes: LineageNode[],
   ): Promise<{
@@ -310,7 +397,8 @@ export class ModelLineage {
               .filter(Boolean)
           : [];
 
-        const pythonModelTable = props['python_model_table'] ?? pythonModelName;
+        const pythonModelTable =
+          props['python_model_table'] ?? pythonModelName;
         const pythonModelId = `python.${pythonModelTable}`;
         const pythonModelNode: LineageNode = {
           id: pythonModelId,
@@ -323,19 +411,10 @@ export class ModelLineage {
           path: '',
           schema,
           database: catalog,
-          pythonModelMetadata: {
-            modelName: pythonModelName,
-            modelType: props['python_model_type'] ?? 'python',
-            namespace: props['python_model_namespace'],
-            tableName: props['python_model_table'],
-            description: props['python_model_description'],
-            upstreamSources,
-          },
           hasOwnUpstream: upstreamSources.length > 0,
           hasOwnDownstream: true,
         };
 
-        // Create source nodes for each upstream source
         const upstreamSourceNodes: LineageNode[] = [];
         for (const sourceId of upstreamSources) {
           const parts = sourceId.split('.');
@@ -380,7 +459,6 @@ export class ModelLineage {
           sourceNodeId: result.sourceNodeId,
         });
 
-        // Add upstream source nodes and edges connecting them to the python model
         for (const upstreamNode of result.upstreamSourceNodes) {
           pythonModelNodes.push(upstreamNode);
           pythonModelEdges.push({
@@ -496,6 +574,113 @@ export class ModelLineage {
       }
     }
     return count;
+  }
+
+  /**
+   * Build a project overview with all models/sources grouped by layer
+   */
+  private getProjectOverview(): ProjectOverviewData | null {
+    // Use the first project
+    let projectName: string | undefined;
+    let project: DbtProject | undefined;
+
+    for (const [name, proj] of this.coder.framework.dbt.projects) {
+      projectName = name;
+      project = proj;
+      break;
+    }
+
+    if (!project || !projectName) {
+      return null;
+    }
+
+    const manifest = project.manifest;
+    if (!manifest) {
+      return null;
+    }
+
+    const staging: ProjectOverviewItem[] = [];
+    const intermediate: ProjectOverviewItem[] = [];
+    const mart: ProjectOverviewItem[] = [];
+
+    // Process models
+    for (const [modelId, node] of Object.entries(manifest.nodes || {})) {
+      if (!modelId.startsWith(`model.${projectName}.`)) {
+        continue;
+      }
+      if (node?.resource_type !== 'model') {
+        continue;
+      }
+
+      const modelName = node.name ?? modelId.split('.').pop() ?? modelId;
+      const [layerPrefix] = modelName.split('__');
+
+      // @ts-expect-error - config may have materialized field
+      const rawMaterialized = node.config?.materialized;
+      let materialized: 'ephemeral' | 'incremental' | undefined;
+      if (
+        rawMaterialized === 'ephemeral' ||
+        rawMaterialized === 'incremental'
+      ) {
+        materialized = rawMaterialized;
+      }
+
+      const testCount = this.countTestsForNode(modelId, project);
+
+      const item: ProjectOverviewItem = {
+        id: modelId,
+        name: modelName,
+        type: 'model',
+        description: node.description ?? '',
+        materialized,
+        testCount,
+      };
+
+      switch (layerPrefix) {
+        case 'stg':
+          staging.push(item);
+          break;
+        case 'int':
+          intermediate.push(item);
+          break;
+        case 'mart':
+          mart.push(item);
+          break;
+        default:
+          // Models without standard prefix go to staging as fallback
+          staging.push(item);
+          break;
+      }
+    }
+
+    const sortByName = (a: ProjectOverviewItem, b: ProjectOverviewItem) =>
+      a.name.localeCompare(b.name);
+
+    staging.sort(sortByName);
+    intermediate.sort(sortByName);
+    mart.sort(sortByName);
+
+    const groups: ProjectOverviewGroup[] = [];
+
+    if (staging.length > 0) {
+      groups.push({
+        layer: 'staging',
+        label: 'Staging Models',
+        items: staging,
+      });
+    }
+    if (intermediate.length > 0) {
+      groups.push({
+        layer: 'intermediate',
+        label: 'Intermediate Models',
+        items: intermediate,
+      });
+    }
+    if (mart.length > 0) {
+      groups.push({ layer: 'mart', label: 'Mart Models', items: mart });
+    }
+
+    return { projectName, groups };
   }
 
   /**
@@ -657,47 +842,93 @@ export class ModelLineage {
   }
 
   /**
-   * Open the model or source file in the editor
+   * Open the model file in the editor
    */
   private async openModelFile(
     modelName: string,
     projectName: string,
   ): Promise<void> {
-    // Try models first
     const modelId = getDbtModelId({ modelName, projectName });
     const model = this.coder.framework.dbt.models.get(modelId);
 
-    if (model) {
-      const sqlFilePath = model.pathSystemFile;
-      if (!sqlFilePath) {
-        throw new Error(`File path not found for model ${modelName}`);
-      }
-      const jsonFilePath = sqlFilePath.replace(/\.sql$/, '.model.json');
-      const targetPath = fs.existsSync(jsonFilePath)
-        ? jsonFilePath
-        : sqlFilePath;
-      await vscode.window.showTextDocument(vscode.Uri.file(targetPath));
-      return;
+    if (!model) {
+      throw new Error(`Model ${modelName} not found in project ${projectName}`);
     }
 
-    // Try sources: search by table name match
-    for (const [, source] of this.coder.framework.dbt.sources) {
-      if (source.name === modelName) {
-        const ymlPath = source.pathSystemFile;
-        if (ymlPath) {
-          const sourceJsonPath = ymlPath.replace(/\.yml$/, '.source.json');
-          const targetPath = fs.existsSync(sourceJsonPath)
-            ? sourceJsonPath
-            : ymlPath;
-          await vscode.window.showTextDocument(vscode.Uri.file(targetPath));
+    const sqlFilePath = model.pathSystemFile;
+    if (!sqlFilePath) {
+      throw new Error(`File path not found for model ${modelName}`);
+    }
+
+    // Open the .model.json file instead of the .sql file
+    const jsonFilePath = sqlFilePath.replace(/\.sql$/, '.model.json');
+
+    // Check if JSON file exists, fall back to SQL if not
+    const targetPath = fs.existsSync(jsonFilePath) ? jsonFilePath : sqlFilePath;
+
+    await vscode.window.showTextDocument(vscode.Uri.file(targetPath));
+  }
+
+  /**
+   * Open the source file (.source.json) in the editor
+   */
+  private async openSourceFile(
+    sourceName: string,
+    projectName: string,
+  ): Promise<void> {
+    // Search for the source in dbt sources
+    for (const [sourceId, source] of this.coder.framework.dbt.sources) {
+      const tableName = source.name;
+      const sourceParentName = source.source_name;
+
+      if (
+        (tableName === sourceName || sourceParentName === sourceName) &&
+        sourceId.startsWith(`source.${projectName}.`)
+      ) {
+        const project = this.coder.framework.dbt.projects.get(projectName);
+        if (!project || !source.original_file_path) {
+          break;
+        }
+
+        const ymlPath = path.join(
+          project.pathSystem,
+          source.original_file_path,
+        );
+        const sourceJsonPath = ymlPath.replace(/\.yml$/, '.source.json');
+
+        // Prefer .source.json, fall back to .yml
+        const targetPath = fs.existsSync(sourceJsonPath)
+          ? sourceJsonPath
+          : ymlPath;
+
+        await vscode.window.showTextDocument(vscode.Uri.file(targetPath));
+        return;
+      }
+    }
+
+    throw new Error(`Source ${sourceName} not found in project ${projectName}`);
+  }
+
+  /**
+   * Open the seed file (.csv) in the editor
+   */
+  private async openSeedFile(
+    seedName: string,
+    projectName: string,
+  ): Promise<void> {
+    // Find seed in dbt.seeds map
+    for (const [seedId, seed] of this.coder.framework.dbt.seeds) {
+      if (seed.name === seedName && seedId.startsWith(`seed.${projectName}.`)) {
+        if (seed.pathSystemFile) {
+          await vscode.window.showTextDocument(
+            vscode.Uri.file(seed.pathSystemFile),
+          );
           return;
         }
       }
     }
 
-    throw new Error(
-      `Model or source ${modelName} not found in project ${projectName}`,
-    );
+    throw new Error(`Seed ${seedName} not found in project ${projectName}`);
   }
 
   activate(_context: vscode.ExtensionContext): void {

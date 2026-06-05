@@ -59,7 +59,7 @@ export function getValidatorForType(
  */
 export function formatValidationErrors(
   errors: ErrorObject[] | null | undefined,
-  context: 'model' | 'source',
+  context: 'model' | 'source' | 'python-model',
   type?: string,
 ): string[] {
   if (!errors || errors.length === 0) {

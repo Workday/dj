@@ -32,12 +32,7 @@ import { stateSync } from '../utils/stateSync';
 
 type Values = Api<'framework-python-model-create'>['request'];
 
-const GROUP_OPTIONS: { label: string; value: PythonModelGroup }[] = [
-  { label: 'ML', value: 'ml' },
-  { label: 'PerfTools', value: 'perftools' },
-  { label: 'CapEng', value: 'capeng' },
-  { label: 'Others', value: 'others' },
-];
+const DEFAULT_GROUPS: string[] = ['ml', 'etl', 'analytics', 'others'];
 
 const PREDEFINED_TAGS = [
   'python-model',
@@ -76,6 +71,9 @@ export function PythonModelCreate() {
   const [isProjectsLoading, setIsProjectsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [availableDags, setAvailableDags] = useState<string[]>([]);
+  const [groupOptions, setGroupOptions] = useState<
+    { label: string; value: PythonModelGroup }[]
+  >(DEFAULT_GROUPS.map((g) => ({ label: g.charAt(0).toUpperCase() + g.slice(1), value: g })));
 
   const projectName = watch('projectName');
   const name = watch('name');
@@ -178,6 +176,26 @@ export function PythonModelCreate() {
       }
     };
     void fetchProjects();
+
+    const fetchGroups = async () => {
+      try {
+        const response = await api.post({
+          type: 'framework-get-python-model-groups',
+          request: null,
+        });
+        if (response.groups.length > 0) {
+          setGroupOptions(
+            response.groups.map((g) => ({
+              label: g.charAt(0).toUpperCase() + g.slice(1),
+              value: g,
+            })),
+          );
+        }
+      } catch {
+        // Fall back to defaults
+      }
+    };
+    void fetchGroups();
   });
 
   // Fetch available DAGs when project changes
@@ -361,7 +379,7 @@ export function PythonModelCreate() {
                 {...field}
                 error={errors.group}
                 label="Group"
-                options={GROUP_OPTIONS}
+                options={groupOptions}
                 tooltipText="The team or project group this Python Model belongs to."
               />
             )}

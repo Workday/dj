@@ -139,7 +139,7 @@ export class Dbt implements ApiEnabledService<'dbt'> {
   };
   treeItemPythonModelCreate: TreeItem = {
     command: {
-      command: 'perftools.command.pythonModelCreate',
+      command: 'dj.command.pythonModelCreate',
       title: 'Create Python Model',
     },
     iconPath: new vscode.ThemeIcon('add'),
@@ -3095,13 +3095,13 @@ ${macro.macro_sql}`;
     // Python model Create Command
     context.subscriptions.push(
       vscode.commands.registerCommand(
-        'perftools.command.pythonModelCreate',
+        'dj.command.pythonModelCreate',
         () => {
           if (this.coder.framework.webviewPanelPythonModelCreate) {
             this.coder.framework.webviewPanelPythonModelCreate.reveal();
           } else {
             const panel = vscode.window.createWebviewPanel(
-              'perftools.view.pythonModelCreate',
+              'dj.view.pythonModelCreate',
               'Create Python Model',
               vscode.ViewColumn.One,
               { enableScripts: true },
@@ -3136,7 +3136,7 @@ ${macro.macro_sql}`;
           this.coder.framework.webviewPanelDagCreate.reveal();
         } else {
           const panel = vscode.window.createWebviewPanel(
-            'perftools.view.dagCreate',
+            'dj.view.dagCreate',
             'Create DAG',
             vscode.ViewColumn.One,
             { enableScripts: true },

@@ -32,6 +32,23 @@ export interface LineageNode {
   hasOwnDownstream?: boolean;
 }
 
+export interface LightdashLineageNode {
+  id: string;
+  slug: string;
+  name: string;
+  kind: 'dashboard' | 'standalone-charts';
+  url?: string;
+  charts?: {
+    slug: string;
+    name: string;
+    url?: string;
+    filePath: string;
+    embeddedAsTile?: boolean;
+    hasYaml?: boolean;
+  }[];
+  filePath: string;
+}
+
 export interface PythonModelEdge {
   pythonModelNodeId: string;
   sourceNodeId: string;
@@ -41,6 +58,10 @@ export interface LineageData {
   current: LineageNode;
   upstream: LineageNode[];
   downstream: LineageNode[];
+  lightdashDownstream?: LightdashLineageNode[];
+  lightdashAvailable?: boolean;
+  lightdashResolvedPath?: string;
+  lightdashEnabled?: boolean;
   pythonModelEdges?: PythonModelEdge[];
 }
 
@@ -66,6 +87,26 @@ export interface ModelColumn {
   description?: string;
 }
 
+export interface ProjectOverviewItem {
+  id: string;
+  name: string;
+  type: 'model';
+  description?: string;
+  materialized?: MaterializationType;
+  testCount?: number;
+}
+
+export interface ProjectOverviewGroup {
+  layer: 'staging' | 'intermediate' | 'mart';
+  label: string;
+  items: ProjectOverviewItem[];
+}
+
+export interface ProjectOverviewData {
+  projectName: string;
+  groups: ProjectOverviewGroup[];
+}
+
 interface DataExplorerStore {
   // State
   activeModel: { modelName: string; projectName: string } | null;
@@ -75,6 +116,12 @@ interface DataExplorerStore {
   isExecutingQuery: boolean;
   error: string | null;
   selectedNodeForQuery: string | null;
+  /**
+   * True while the Lightdash toggle write + lineage re-fetch are in
+   * flight. Drives a spinner alongside the toggle to indicate the rebuild
+   * is in progress.
+   */
+  isLightdashRefreshing: boolean;
 
   // Compilation state
   compilationLogs: CompilationLog[];
@@ -105,6 +152,10 @@ interface DataExplorerStore {
   isSplitMode: boolean;
   selectedModelFilePath: string | null;
 
+  // Project overview state
+  projectOverview: ProjectOverviewData | null;
+  isLoadingOverview: boolean;
+
   // Actions
   setActiveModel: (
     model: { modelName: string; projectName: string } | null,
@@ -116,7 +167,11 @@ interface DataExplorerStore {
     limit?: number,
   ) => Promise<void>;
   compileModel: (modelName: string, projectName: string) => Promise<void>;
-  openModelFile: (modelName: string, projectName: string) => Promise<void>;
+  openModelFile: (
+    modelName: string,
+    projectName: string,
+    type?: 'model' | 'source' | 'seed' | 'python',
+  ) => Promise<void>;
   clearResults: () => void;
   clearError: () => void;
   notifyReady: () => Promise<void>;
@@ -162,8 +217,11 @@ interface DataExplorerStore {
   resetExpansion: () => void;
 
   // Model columns actions
-  fetchModelColumns: (filePath: string, modelName: string) => Promise<void>;
-  fetchSourceColumns: (filePath: string, tableName: string) => Promise<void>;
+  fetchModelColumns: (
+    filePath: string,
+    modelName: string,
+    nodeType?: 'model' | 'source' | 'seed' | 'python',
+  ) => Promise<void>;
   clearModelColumns: () => void;
 
   // Compiled SQL actions
@@ -172,6 +230,14 @@ interface DataExplorerStore {
 
   // Split mode actions
   setSplitMode: (value: boolean) => void;
+
+  // Project overview actions
+  fetchProjectOverview: () => Promise<void>;
+  // Lightdash lineage actions
+  openLightdashUrl: (url: string) => Promise<void>;
+  setLightdashEnabled: (enabled: boolean) => Promise<void>;
+  openDashboardsAsCode: () => Promise<void>;
+  openLightdashYaml: (filePath: string) => Promise<void>;
 
   // Store the API handler
 
@@ -189,6 +255,7 @@ export const useDataExplorerStore = create<DataExplorerStore>((set, get) => ({
   isExecutingQuery: false,
   error: null,
   selectedNodeForQuery: null,
+  isLightdashRefreshing: false,
   _apiHandler: null,
 
   // Compilation state
@@ -220,6 +287,10 @@ export const useDataExplorerStore = create<DataExplorerStore>((set, get) => ({
   // Split mode state - default to true (split mode on)
   isSplitMode: true,
 
+  // Project overview state
+  projectOverview: null,
+  isLoadingOverview: false,
+
   // Actions
 
   setApiHandler: (handler: any) => {
@@ -228,7 +299,24 @@ export const useDataExplorerStore = create<DataExplorerStore>((set, get) => ({
   },
 
   setActiveModel: (model) => {
-    set({ activeModel: model, error: null });
+    if (model === null) {
+      set({
+        activeModel: null,
+        lineageData: null,
+        queryResults: null,
+        error: null,
+        selectedNodeForQuery: null,
+        modelColumns: null,
+        selectedModelForColumns: null,
+        selectedModelFilePath: null,
+        compiledSql: null,
+        compiledSqlModelName: null,
+        compilationLogs: [],
+        compilationSuccess: null,
+      });
+    } else {
+      set({ activeModel: model, error: null });
+    }
   },
 
   fetchLineage: async (modelName: string, projectName: string) => {
@@ -374,7 +462,11 @@ export const useDataExplorerStore = create<DataExplorerStore>((set, get) => ({
     }
   },
 
-  openModelFile: async (modelName: string, projectName: string) => {
+  openModelFile: async (
+    modelName: string,
+    projectName: string,
+    type: 'model' | 'source' | 'seed' | 'python' = 'model',
+  ) => {
     const { _apiHandler } = get();
     if (!_apiHandler) {
       console.error('API handler not set');
@@ -384,13 +476,13 @@ export const useDataExplorerStore = create<DataExplorerStore>((set, get) => ({
     try {
       await _apiHandler({
         type: 'data-explorer-open-model-file',
-        request: { modelName, projectName },
+        request: { modelName, projectName, nodeType: type },
       });
     } catch (error) {
       const errorMessage =
-        error instanceof Error ? error.message : 'Failed to open model file';
+        error instanceof Error ? error.message : 'Failed to open file';
       set({ error: errorMessage });
-      console.error('Error opening model file:', error);
+      console.error('Error opening file:', error);
     }
   },
 
@@ -655,6 +747,7 @@ export const useDataExplorerStore = create<DataExplorerStore>((set, get) => ({
         request: { modelName, projectName },
       })) as LineageData;
 
+      // Add new upstream nodes that don't already exist
       const existingNodeIds = new Set([
         ...additionalNodes.map((n) => n.id),
         get().lineageData?.current.id,
@@ -665,27 +758,12 @@ export const useDataExplorerStore = create<DataExplorerStore>((set, get) => ({
       const newNodes = response.upstream.filter(
         (n) => !existingNodeIds.has(n.id),
       );
+      const newEdges = response.upstream.map((upstream) => ({
+        source: upstream.id,
+        target: response.current.id,
+      }));
 
-      // Build python model edge lookup so python nodes connect to their source, not current
-      const pythonModelEdgeMap = new Map<string, string>();
-      if (response.pythonModelEdges) {
-        for (const pe of response.pythonModelEdges) {
-          pythonModelEdgeMap.set(pe.pythonModelNodeId, pe.sourceNodeId);
-        }
-      }
-
-      const newEdges = response.upstream
-        .filter((n) => n.type !== 'python')
-        .map((upstream) => ({
-          source: upstream.id,
-          target: response.current.id,
-        }));
-
-      // Add python model -> source edges
-      for (const [pythonModelId, sourceId] of pythonModelEdgeMap) {
-        newEdges.push({ source: pythonModelId, target: sourceId });
-      }
-
+      // Mark this node as expanded
       const newExpandedUpstream = new Set(expandedUpstream);
       newExpandedUpstream.add(response.current.id);
 
@@ -766,7 +844,11 @@ export const useDataExplorerStore = create<DataExplorerStore>((set, get) => ({
   },
 
   // Model columns actions
-  fetchModelColumns: async (filePath: string, modelName: string) => {
+  fetchModelColumns: async (
+    filePath: string,
+    modelName: string,
+    nodeType: 'model' | 'source' | 'seed' | 'python' = 'model',
+  ) => {
     const { _apiHandler } = get();
     if (!_apiHandler) {
       console.error('[DataExplorerStore] API handler not set');
@@ -778,6 +860,8 @@ export const useDataExplorerStore = create<DataExplorerStore>((set, get) => ({
       modelName,
       'filePath:',
       filePath,
+      'nodeType:',
+      nodeType,
     );
     set({
       isLoadingColumns: true,
@@ -787,12 +871,28 @@ export const useDataExplorerStore = create<DataExplorerStore>((set, get) => ({
     });
 
     try {
+      const request =
+        nodeType === 'source'
+          ? {
+              action: 'get-source-columns' as const,
+              filePath,
+              tableName: modelName,
+            }
+          : nodeType === 'seed'
+            ? {
+                action: 'get-seed-columns' as const,
+                filePath,
+                seedName: modelName,
+              }
+            : { action: 'get-columns' as const, filePath };
+
       const response = (await _apiHandler({
         type: 'framework-column-lineage',
-        request: { action: 'get-columns', filePath },
+        request,
       })) as {
         success: boolean;
         modelName?: string;
+        seedName?: string;
         columns?: ModelColumn[];
         error?: string;
       };
@@ -815,60 +915,6 @@ export const useDataExplorerStore = create<DataExplorerStore>((set, get) => ({
       const errorMessage =
         error instanceof Error ? error.message : 'Failed to fetch columns';
       console.error('[DataExplorerStore] Error fetching columns:', error);
-      set({
-        error: errorMessage,
-        isLoadingColumns: false,
-        modelColumns: null,
-      });
-    }
-  },
-
-  fetchSourceColumns: async (filePath: string, tableName: string) => {
-    const { _apiHandler } = get();
-    if (!_apiHandler) {
-      console.error('[DataExplorerStore] API handler not set');
-      return;
-    }
-
-    set({
-      isLoadingColumns: true,
-      error: null,
-      selectedModelForColumns: tableName,
-      selectedModelFilePath: filePath,
-    });
-
-    try {
-      const response = (await _apiHandler({
-        type: 'framework-column-lineage',
-        request: { action: 'get-source-columns', filePath, tableName },
-      })) as {
-        success: boolean;
-        modelName?: string;
-        columns?: ModelColumn[];
-        error?: string;
-      };
-
-      if (response.success && response.columns) {
-        set({
-          modelColumns: response.columns,
-          isLoadingColumns: false,
-        });
-      } else {
-        set({
-          error: response.error || 'Failed to fetch source columns',
-          isLoadingColumns: false,
-          modelColumns: null,
-        });
-      }
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error
-          ? error.message
-          : 'Failed to fetch source columns';
-      console.error(
-        '[DataExplorerStore] Error fetching source columns:',
-        error,
-      );
       set({
         error: errorMessage,
         isLoadingColumns: false,
@@ -944,5 +990,122 @@ export const useDataExplorerStore = create<DataExplorerStore>((set, get) => ({
   // Split mode actions
   setSplitMode: (value: boolean) => {
     set({ isSplitMode: value });
+  },
+
+  // Project overview actions
+  fetchProjectOverview: async () => {
+    const { _apiHandler } = get();
+    if (!_apiHandler) {
+      console.error('[DataExplorerStore] API handler not set');
+      return;
+    }
+
+    set({ isLoadingOverview: true });
+    try {
+      const response = (await _apiHandler({
+        type: 'data-explorer-get-project-overview',
+        request: null,
+      })) as ProjectOverviewData | null;
+
+      set({ projectOverview: response, isLoadingOverview: false });
+    } catch (error) {
+      console.error(
+        '[DataExplorerStore] Error fetching project overview:',
+        error,
+      );
+      set({ isLoadingOverview: false });
+    }
+  },
+
+  // Lightdash lineage actions
+  openLightdashUrl: async (url: string) => {
+    const { _apiHandler } = get();
+    if (!_apiHandler || !url) {
+      return;
+    }
+    try {
+      await _apiHandler({
+        type: 'data-explorer-open-lightdash-url',
+        request: { url },
+      });
+    } catch (error) {
+      console.error('[DataExplorerStore] Error opening Lightdash URL:', error);
+    }
+  },
+
+  setLightdashEnabled: async (enabled: boolean) => {
+    const { _apiHandler, activeModel, fetchLineage, lineageData } = get();
+    if (!_apiHandler) {
+      return;
+    }
+
+    const previousEnabled = lineageData?.lightdashEnabled === true;
+    if (lineageData) {
+      set({
+        lineageData: { ...lineageData, lightdashEnabled: enabled },
+        isLightdashRefreshing: true,
+      });
+    } else {
+      set({ isLightdashRefreshing: true });
+    }
+
+    try {
+      await _apiHandler({
+        type: 'data-explorer-set-lightdash-toggle',
+        request: { enabled },
+      });
+      if (activeModel) {
+        await fetchLineage(activeModel.modelName, activeModel.projectName);
+      }
+    } catch (error) {
+      console.error(
+        '[DataExplorerStore] Error setting Lightdash toggle:',
+        error,
+      );
+      const current = get().lineageData;
+      if (current) {
+        set({
+          lineageData: { ...current, lightdashEnabled: previousEnabled },
+        });
+      }
+    } finally {
+      set({ isLightdashRefreshing: false });
+    }
+  },
+
+  openDashboardsAsCode: async () => {
+    const { _apiHandler } = get();
+    if (!_apiHandler) {
+      return;
+    }
+    try {
+      await _apiHandler({
+        type: 'data-explorer-open-dashboards-as-code',
+        request: null,
+      });
+    } catch (error) {
+      console.error(
+        '[DataExplorerStore] Error opening Dashboards as Code:',
+        error,
+      );
+    }
+  },
+
+  openLightdashYaml: async (filePath: string) => {
+    const { _apiHandler } = get();
+    if (!_apiHandler || !filePath) {
+      return;
+    }
+    try {
+      await _apiHandler({
+        type: 'data-explorer-open-lightdash-yaml',
+        request: { filePath },
+      });
+    } catch (error) {
+      console.error(
+        '[DataExplorerStore] Error opening Lightdash YAML file:',
+        error,
+      );
+    }
   },
 }));
