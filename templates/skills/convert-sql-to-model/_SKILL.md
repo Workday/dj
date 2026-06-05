@@ -80,6 +80,8 @@ When the SQL has `GROUP BY`, add `"group_by": "dims"` to the model. Every `fct` 
 
 If the SQL has `WITH` clauses, convert to the `ctes` array. CTEs must be ordered: a CTE can only reference CTEs defined before it. The main query becomes the model's primary `from` and `select`. Read `model.cte.schema.json` for the exact shape.
 
+Before writing CTEs, search for existing `.model.json` files in the project that use `"ctes"` and study their structure — they are the best reference for how CTEs are applied in this project (bulk selects, `group_by`, `from.cte` chaining, rollup, exclude flags).
+
 ## Filter conditions
 
 - `WHERE` → `"where": [{ "expr": "..." }]` or `"where": { "and": [{ "expr": "..." }] }`
@@ -96,10 +98,11 @@ If the SQL has `WITH` clauses, convert to the `ctes` array. CTEs must be ordered
 3. **Determine the model type** from the SQL pattern table above
 4. **Read the schema** at `.dj/schemas/model.type.<type>.schema.json` — follow all `$ref` links
 5. **Read `.agents/dj/AGENTS.md`** Model Types section for the selected type's example
-6. **Verify upstream sources/models exist** by reading their JSON files (read-only — do NOT modify them)
-7. **Confirm the target file path does not already exist** — if it does, ask the user for a different name
-8. **Create a new `.model.json`** file at the correct path — never overwrite an existing file
-9. **Validate** the output against the schema
+6. **Scan existing `.model.json` files** in the project's `models/` directory — especially models of the same type — to learn naming conventions, CTE patterns, `select` structure, `group_by` usage, and other structural patterns. Use these as reference when creating the new model. Pay particular attention to models that use `ctes`, `join`, `where`, and `group_by` to understand how the project applies these features
+7. **Verify upstream sources/models exist** by reading their JSON files (read-only — do NOT modify them)
+8. **Confirm the target file path does not already exist** — if it does, ask the user for a different name
+9. **Create a new `.model.json`** file at the correct path — never overwrite an existing file
+10. **Validate** the output against the schema
 
 ## File path convention
 

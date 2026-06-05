@@ -235,6 +235,8 @@ export default function QueryPreview({ onClose }: QueryPreviewProps) {
 
   const hasContent = results || error;
 
+  console.log('history', history);
+
   return (
     <div className="h-screen flex flex-col bg-background">
       {/* Header */}
@@ -272,7 +274,7 @@ export default function QueryPreview({ onClose }: QueryPreviewProps) {
                 Convert to DJ Model
               </button>
             )}
-            {results && (
+            {history.length > 0 && (
               <button
                 onClick={handleNewQuery}
                 className="flex items-center gap-1 px-2 py-1.5 rounded hover:bg-surface transition-colors text-xs text-surface-contrast"
