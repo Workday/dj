@@ -64,6 +64,12 @@ export class ManifestManager {
   private static readonly FRESHNESS_THRESHOLD_MS = 30000;
 
   /**
+   * When a targeted sync contains more roots than this, treat the
+   * freshness check as if it were a full sync (allow reparse).
+   */
+  static readonly BULK_ROOT_THRESHOLD = 5;
+
+  /**
    * Check if the manifest is fresh enough to use without reparsing.
    *
    * The manifest is considered fresh if:
@@ -78,9 +84,11 @@ export class ManifestManager {
     manifest: DbtProjectManifest | null;
     lastFileChange: Date | null;
     hasRoots: boolean;
+    rootCount?: number;
     forceReparse?: boolean;
   }): ManifestFreshnessResult {
-    const { manifest, lastFileChange, hasRoots, forceReparse } = params;
+    const { manifest, lastFileChange, hasRoots, rootCount, forceReparse } =
+      params;
 
     // No manifest - definitely not fresh
     if (!manifest) {
@@ -99,8 +107,13 @@ export class ManifestManager {
       };
     }
 
-    // If syncing specific roots, use existing manifest
-    if (hasRoots) {
+    // Small targeted syncs can reuse the existing manifest.
+    // Large targeted syncs (bulk changes) fall through to the
+    // same freshness checks as a full sync.
+    const isBulkRoots =
+      rootCount !== undefined &&
+      rootCount > ManifestManager.BULK_ROOT_THRESHOLD;
+    if (hasRoots && !isBulkRoots) {
       return {
         isFresh: true,
         reason: 'Using existing manifest for specific roots',
@@ -295,6 +308,7 @@ export class ManifestManager {
     manifest: DbtProjectManifest | null;
     lastFileChange: Date | null;
     hasRoots: boolean;
+    rootCount?: number;
     forceReparse?: boolean;
   }): boolean {
     const freshness = this.checkFreshness(params);
