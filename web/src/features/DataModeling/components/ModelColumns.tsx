@@ -82,7 +82,7 @@ const ColumnSection: React.FC<ColumnSectionProps> = ({
             <InformationCircleIcon className="w-4 h-4 text-muted-foreground cursor-help" />
           </Tooltip>
         </div>
-        <span className="text-xs text-gray-500">
+        <span className="text-xs text-muted-foreground">
           selected {selectedCount} of {columns.length}
         </span>
       </div>
@@ -135,7 +135,7 @@ const ColumnSection: React.FC<ColumnSectionProps> = ({
                 />
                 {onColumnLineageClick && (
                   <>
-                    <div className="w-px h-4 bg-gray-200" />
+                    <div className="w-px h-4 bg-border" />
                     <Tooltip content="View column lineage">
                       <Button
                         onClick={(e) => {
@@ -489,7 +489,7 @@ export const ModelColumns: React.FC<ModelColumnsProps> = ({
           <Button
             onClick={handleClear}
             variant="iconButton"
-            className="text-xs font-medium hover:bg-list-item-hover hover:text-gray-600 text-gray-600 m-0 py-1 px-1"
+            className="text-xs font-medium hover:bg-list-item-hover hover:text-muted-foreground text-muted-foreground m-0 py-1 px-1"
             label="Reset"
             //icon={<XMarkIcon className="w-3 h-3" />}
           />

@@ -70,6 +70,12 @@ class DataExplorerViewProvider implements vscode.WebviewViewProvider {
           return;
         }
 
+        // Handle open-last-draft message to open the most recent .draft.sql file
+        if ((message as any).type === 'open-last-draft') {
+          await this._coder.queryDraft.openLatestDraft();
+          return;
+        }
+
         // Handle open-column-lineage message to navigate to Column Lineage panel
         if ((message as any).type === 'open-column-lineage') {
           const { filePath, modelName, columnName, columns, nodeType } =
@@ -82,7 +88,9 @@ class DataExplorerViewProvider implements vscode.WebviewViewProvider {
             nodeType,
           );
 
-          await vscode.commands.executeCommand(VIEW_ID.COLUMN_LINEAGE_FOCUS);
+          // Column Lineage is rendered inside the Data Explorer panel.
+          // The webview switches to the Column view automatically when it
+          // receives column-lineage-init / column-lineage-source-init.
 
           if (nodeType === 'source') {
             // For sources, normalize path to .source.json and use source init
@@ -196,6 +204,10 @@ class DataExplorerViewProvider implements vscode.WebviewViewProvider {
 
   public getView(): vscode.WebviewView | undefined {
     return this._view;
+  }
+
+  public isReady(): boolean {
+    return this._isReady && !!this._view;
   }
 
   public focus() {
@@ -599,6 +611,10 @@ export class DataExplorer
 
   public sendMessage(message: any): void {
     this.viewProvider?.sendMessage(message);
+  }
+
+  public isViewReady(): boolean {
+    return this.viewProvider?.isReady() ?? false;
   }
 
   public focusView(): void {
