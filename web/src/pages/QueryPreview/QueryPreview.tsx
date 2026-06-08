@@ -235,8 +235,6 @@ export default function QueryPreview({ onClose }: QueryPreviewProps) {
 
   const hasContent = results || error;
 
-  console.log('history', history);
-
   return (
     <div className="h-screen flex flex-col bg-background">
       {/* Header */}
