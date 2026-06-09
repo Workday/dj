@@ -4,9 +4,8 @@
 
 ### Bug fixes
 
-- **YAML reserved boolean tokens are now quoted in generated YAML** — values like `OFF`, `NO`, `YES`, `ON` (and lowercase variants) round-trip through the dbt manifest as strings instead of being silently coerced to booleans by dbt's PyYAML loader. Fixes downstream crashes when reading e.g. `time_intervals: OFF` back from the manifest.
-- **`time_intervals: "OFF"` no longer crashes sync on legacy YAML** — projects whose YAML was written before the emit-side fix may have a boolean `false` (PyYAML's interpretation of unquoted `OFF`) sitting in the manifest. The framework now defensively coerces that value back to `"OFF"` instead of throwing `false is not iterable`, and works for any lightdash dimension column (not just `datetime`). Per-column meta build failures also now report the offending column name.
-- **Sync error messages no longer misdirect users to check `expr`** — the generic wrapper for failed SQL/YML generation was rewritten so non-`expr` errors (e.g. a malformed inherited dimension) surface the actual underlying message instead of blaming `expr` syntax.
+- **YAML reserved tokens round-trip safely.** Values like `OFF`, `ON`, `YES`, `NO` (and lowercase variants) are now quoted on emit and tolerated on load, so `time_intervals: OFF` no longer turns into `false` in the manifest and crashes sync. Per-column meta failures also name the offending column.
+- **Sync errors surface the real cause.** SQL/YML generation failures now show the underlying message instead of always pointing at `expr` syntax.
 
 ## 1.7.1
 
