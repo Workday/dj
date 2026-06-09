@@ -1,5 +1,12 @@
 # Change Log
 
+## 1.7.1
+
+### Iceberg write strategy update
+
+- **Write strategy** — Iceberg incremental writes now use an event-date literal directly instead of creating and querying a temporary table, improving write performance
+
+
 ## 1.7.0
 
 ### Adhoc SQL Editor / Query Draft
