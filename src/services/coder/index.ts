@@ -20,6 +20,8 @@ import {
 } from '@services/framework/utils';
 import { Lightdash } from '@services/lightdash';
 import { LightdashContent } from '@services/lightdash/content';
+import { QueryDraftService } from '@services/queryDraft';
+import { QueryPreview } from '@services/queryPreview';
 import { SERVICE_NAMES, ServiceLocator } from '@services/ServiceLocator';
 import { StateManager } from '@services/statemanager';
 import { Trino } from '@services/trino';
@@ -54,6 +56,8 @@ export class Coder {
   lightdash: Lightdash;
   lightdashContent: LightdashContent;
   log: DJLogger;
+  queryDraft: QueryDraftService;
+  queryPreview: QueryPreview;
   stateManager: StateManager;
   trino: Trino;
   watcher?: vscode.FileSystemWatcher; // Created later in activateFileWatchers()
@@ -150,6 +154,11 @@ export class Coder {
               this.locator
                 .get<Lightdash>(SERVICE_NAMES.Lightdash)
                 .handleApi(payload),
+            // Lazy getter - QueryDraft handler is resolved only when needed
+            () => (payload) =>
+              this.locator
+                .get<QueryDraftService>(SERVICE_NAMES.QueryDraft)
+                .handleApi(payload),
           ),
       );
 
@@ -165,6 +174,16 @@ export class Coder {
                 .get<Api>(SERVICE_NAMES.Api)
                 .handleApi(payload as never),
           ),
+      );
+
+      this.locator.register(
+        SERVICE_NAMES.QueryDraft,
+        () => new QueryDraftService({ coder: this }),
+      );
+
+      this.locator.register(
+        SERVICE_NAMES.QueryPreview,
+        () => new QueryPreview({ coder: this }),
       );
 
       this.locator.register(
@@ -191,6 +210,10 @@ export class Coder {
       this.log.info('Api resolved');
       this.lightdash = this.locator.get(SERVICE_NAMES.Lightdash);
       this.log.info('Lightdash resolved');
+      this.queryDraft = this.locator.get(SERVICE_NAMES.QueryDraft);
+      this.log.info('QueryDraft resolved');
+      this.queryPreview = this.locator.get(SERVICE_NAMES.QueryPreview);
+      this.log.info('QueryPreview resolved');
       this.lightdashContent = this.locator.get(SERVICE_NAMES.LightdashContent);
       this.log.info('LightdashContent resolved');
     } catch (error: unknown) {
@@ -345,6 +368,12 @@ export class Coder {
       this.log.info('Starting Column Lineage activation...');
       this.columnLineage.activate(this.context);
       this.log.info('Column Lineage activation completed');
+
+      trackProgress('Activating query draft features');
+      this.log.info('Starting Query Draft activation...');
+      this.registerQueryDraftCommands();
+      void this.queryDraft.detectAiAssistants();
+      this.log.info('Query Draft activation completed');
 
       this.servicesActivated = true;
       return true;
@@ -690,6 +719,7 @@ export class Coder {
           this.framework.dbt.treeItemProjectClean,
           this.framework.dbt.treeItemModelCreate,
           this.framework.dbt.treeItemSourceCreate,
+          this.framework.dbt.treeItemQueryCreate,
           this.lightdash.treeItemLightdashPreview,
           this.lightdash.treeItemLightdashDashboardsAsCode,
           this.framework.dbt.treeItemModelRun,
@@ -1326,6 +1356,73 @@ export class Coder {
   }
 
   /**
+   * Register Query Draft related commands
+   */
+  private registerQueryDraftCommands(): void {
+    // Create new query draft
+    this.context.subscriptions.push(
+      vscode.commands.registerCommand(
+        COMMAND_ID.QUERY_DRAFT_CREATE,
+        async () => {
+          try {
+            await this.queryDraft.createDraft();
+          } catch (error: unknown) {
+            this.log.error('Error creating query draft:', error);
+            vscode.window.showErrorMessage('Failed to create query draft');
+          }
+        },
+      ),
+    );
+
+    // Convert draft to model (auto-detect agent)
+    this.context.subscriptions.push(
+      vscode.commands.registerCommand(
+        COMMAND_ID.CONVERT_DRAFT_TO_MODEL,
+        async () => {
+          await this.queryDraft.convertDraftToModelAuto();
+        },
+      ),
+    );
+
+    // Convert draft to model using Copilot
+    this.context.subscriptions.push(
+      vscode.commands.registerCommand(
+        COMMAND_ID.CONVERT_DRAFT_TO_MODEL_COPILOT,
+        async () => {
+          await this.queryDraft.convertDraftToModel('copilot');
+        },
+      ),
+    );
+
+    // Convert draft to model using Cursor
+    this.context.subscriptions.push(
+      vscode.commands.registerCommand(
+        COMMAND_ID.CONVERT_DRAFT_TO_MODEL_CURSOR,
+        async () => {
+          await this.queryDraft.convertDraftToModel('cursor');
+        },
+      ),
+    );
+
+    // Convert draft to model using Claude
+    this.context.subscriptions.push(
+      vscode.commands.registerCommand(
+        COMMAND_ID.CONVERT_DRAFT_TO_MODEL_CLAUDE,
+        async () => {
+          await this.queryDraft.convertDraftToModel('claude');
+        },
+      ),
+    );
+
+    // Run query from draft SQL file
+    this.context.subscriptions.push(
+      vscode.commands.registerCommand(COMMAND_ID.QUERY_DRAFT_RUN, async () => {
+        await this.queryDraft.runQueryFromEditor();
+      }),
+    );
+  }
+
+  /**
    * Handle when a new dbt_project.yml is created.
    * This triggers project discovery and potentially full service activation.
    */
@@ -1568,6 +1665,7 @@ export class Coder {
         this.framework.dbt.treeItemProjectClean,
         this.framework.dbt.treeItemModelCreate,
         this.framework.dbt.treeItemSourceCreate,
+        this.framework.dbt.treeItemQueryCreate,
         this.lightdash.treeItemLightdashPreview,
         this.lightdash.treeItemLightdashDashboardsAsCode,
         this.framework.dbt.treeItemModelRun,
