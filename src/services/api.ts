@@ -14,6 +14,14 @@ type LightdashHandler = (
   payload: ApiPayload<'lightdash'>,
 ) => Promise<ApiResponse>;
 
+/**
+ * Handler function for QueryDraft API calls.
+ * This is a lazy getter to break the circular dependency with QueryDraftService.
+ */
+type QueryDraftHandler = (
+  payload: ApiPayload<'query-draft'>,
+) => Promise<ApiResponse>;
+
 export class Api {
   constructor(
     private readonly dbt: Dbt,
@@ -26,6 +34,11 @@ export class Api {
      * This is called only when a lightdash-* message needs to be routed.
      */
     private readonly getLightdashHandler: () => LightdashHandler,
+    /**
+     * Lazy getter for QueryDraft handler to break circular dependency.
+     * This is called only when a query-draft-* message needs to be routed.
+     */
+    private readonly getQueryDraftHandler: () => QueryDraftHandler,
   ) {}
 
   /**
@@ -94,6 +107,7 @@ export class Api {
       case 'lightdash-yaml-delete-files':
       case 'lightdash-yaml-get-default-path':
       case 'lightdash-yaml-set-default-path':
+      case 'lightdash-yaml-ensure-gitignore':
         // Lazy resolution - gets handler only when needed
         return (await this.getLightdashHandler()(
           payload as any,
@@ -106,6 +120,10 @@ export class Api {
       case 'data-explorer-ready':
       case 'data-explorer-detect-active-model':
       case 'data-explorer-get-project-overview':
+      case 'data-explorer-open-lightdash-url':
+      case 'data-explorer-set-lightdash-toggle':
+      case 'data-explorer-open-dashboards-as-code':
+      case 'data-explorer-open-lightdash-yaml':
         return (await this.dataExplorer.handleApi(
           payload as any,
         )) as ApiResponse<T>;
@@ -124,6 +142,11 @@ export class Api {
       case 'state-save':
       case 'state-clear':
         return (await this.stateManager.handleApi(
+          payload as any,
+        )) as ApiResponse<T>;
+      case 'query-draft-create':
+      case 'query-draft-execute':
+        return (await this.getQueryDraftHandler()(
           payload as any,
         )) as ApiResponse<T>;
       default:

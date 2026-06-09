@@ -23,6 +23,24 @@ export function updateVSCodeJsonSchemas(
 }
 
 /**
+ * Write a value to a `dj.*` setting. Centralizes the write so call sites
+ * don't need to remember the namespace or the configuration target.
+ *
+ * @param key       Setting key WITHOUT the `dj.` prefix (e.g.
+ *                  `'dataExplorer.showLightdashLineage'`).
+ * @param value     New value.
+ * @param target    VS Code config scope. Defaults to `Workspace` so the
+ *                  change persists with the project rather than per-user.
+ */
+export function updateDjSetting(
+  key: string,
+  value: unknown,
+  target: vscode.ConfigurationTarget = vscode.ConfigurationTarget.Workspace,
+): Thenable<void> {
+  return vscode.workspace.getConfiguration('dj').update(key, value, target);
+}
+
+/**
  * Get the complete DJ configuration object
  * @returns CoderConfig with all settings from package.json
  */

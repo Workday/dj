@@ -3,7 +3,7 @@ import type { AutoGenerateTestsConfig } from '@services/framework/utils';
 import type { FrameworkModel } from '@shared/framework/types';
 import type { Ajv } from 'ajv';
 
-import { ValidationService } from './ValidationService';
+import { ValidationService } from '../ValidationService';
 
 describe('ValidationService - targetFolders', () => {
   let mockAjv: Ajv | null;

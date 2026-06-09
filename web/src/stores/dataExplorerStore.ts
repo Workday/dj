@@ -1,5 +1,14 @@
 import { create } from 'zustand';
 
+// Sidebar drawer dimensions (in px)
+export const SIDEBAR_MIN_WIDTH = 48;
+export const SIDEBAR_MAX_WIDTH = 70;
+export const SIDEBAR_DEFAULT_WIDTH = 70;
+// Below this width, render icon-only (no label under the icon).
+export const SIDEBAR_LABEL_THRESHOLD = 60;
+
+export type ActiveView = 'home' | 'model' | 'column' | 'sql';
+
 export type MaterializationType =
   | 'ephemeral'
   | 'incremental'
@@ -23,10 +32,31 @@ export interface LineageNode {
   hasOwnDownstream?: boolean;
 }
 
+export interface LightdashLineageNode {
+  id: string;
+  slug: string;
+  name: string;
+  kind: 'dashboard' | 'standalone-charts';
+  url?: string;
+  charts?: {
+    slug: string;
+    name: string;
+    url?: string;
+    filePath: string;
+    embeddedAsTile?: boolean;
+    hasYaml?: boolean;
+  }[];
+  filePath: string;
+}
+
 export interface LineageData {
   current: LineageNode;
   upstream: LineageNode[];
   downstream: LineageNode[];
+  lightdashDownstream?: LightdashLineageNode[];
+  lightdashAvailable?: boolean;
+  lightdashResolvedPath?: string;
+  lightdashEnabled?: boolean;
 }
 
 export interface QueryResults {
@@ -80,6 +110,12 @@ interface DataExplorerStore {
   isExecutingQuery: boolean;
   error: string | null;
   selectedNodeForQuery: string | null;
+  /**
+   * True while the Lightdash toggle write + lineage re-fetch are in
+   * flight. Drives a spinner alongside the toggle to indicate the rebuild
+   * is in progress.
+   */
+  isLightdashRefreshing: boolean;
 
   // Compilation state
   compilationLogs: CompilationLog[];
@@ -113,6 +149,10 @@ interface DataExplorerStore {
   // Project overview state
   projectOverview: ProjectOverviewData | null;
   isLoadingOverview: boolean;
+
+  // Sidebar / nav state (in-memory only — resets on reload)
+  activeView: ActiveView;
+  sidebarWidth: number;
 
   // Actions
   setActiveModel: (
@@ -191,6 +231,16 @@ interface DataExplorerStore {
 
   // Project overview actions
   fetchProjectOverview: () => Promise<void>;
+  // Lightdash lineage actions
+  openLightdashUrl: (url: string) => Promise<void>;
+  setLightdashEnabled: (enabled: boolean) => Promise<void>;
+  openDashboardsAsCode: () => Promise<void>;
+  openLightdashYaml: (filePath: string) => Promise<void>;
+
+  // Sidebar / nav actions
+  setActiveView: (view: ActiveView) => void;
+  setSidebarWidth: (width: number) => void;
+  toggleSidebar: () => void;
 
   // Store the API handler
 
@@ -208,6 +258,7 @@ export const useDataExplorerStore = create<DataExplorerStore>((set, get) => ({
   isExecutingQuery: false,
   error: null,
   selectedNodeForQuery: null,
+  isLightdashRefreshing: false,
   _apiHandler: null,
 
   // Compilation state
@@ -242,6 +293,10 @@ export const useDataExplorerStore = create<DataExplorerStore>((set, get) => ({
   // Project overview state
   projectOverview: null,
   isLoadingOverview: false,
+
+  // Sidebar / nav state - default to icon-only rail
+  activeView: 'home',
+  sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
 
   // Actions
 
@@ -968,4 +1023,119 @@ export const useDataExplorerStore = create<DataExplorerStore>((set, get) => ({
       set({ isLoadingOverview: false });
     }
   },
+
+  // Sidebar / nav actions
+  setActiveView: (view) => {
+    set({ activeView: view });
+  },
+
+  setSidebarWidth: (width) => {
+    const clamped = Math.min(
+      SIDEBAR_MAX_WIDTH,
+      Math.max(SIDEBAR_MIN_WIDTH, width),
+    );
+    set({ sidebarWidth: clamped });
+  },
+
+  toggleSidebar: () => {
+    const { sidebarWidth } = get();
+    const midpoint = (SIDEBAR_MIN_WIDTH + SIDEBAR_MAX_WIDTH) / 2;
+    set({
+      sidebarWidth:
+        sidebarWidth > midpoint ? SIDEBAR_MIN_WIDTH : SIDEBAR_MAX_WIDTH,
+    });
+  },
+
+  // Lightdash lineage actions
+  openLightdashUrl: async (url: string) => {
+    const { _apiHandler } = get();
+    if (!_apiHandler || !url) {
+      return;
+    }
+    try {
+      await _apiHandler({
+        type: 'data-explorer-open-lightdash-url',
+        request: { url },
+      });
+    } catch (error) {
+      console.error('[DataExplorerStore] Error opening Lightdash URL:', error);
+    }
+  },
+
+  setLightdashEnabled: async (enabled: boolean) => {
+    const { _apiHandler, activeModel, fetchLineage, lineageData } = get();
+    if (!_apiHandler) {
+      return;
+    }
+
+    const previousEnabled = lineageData?.lightdashEnabled === true;
+    if (lineageData) {
+      set({
+        lineageData: { ...lineageData, lightdashEnabled: enabled },
+        isLightdashRefreshing: true,
+      });
+    } else {
+      set({ isLightdashRefreshing: true });
+    }
+
+    try {
+      await _apiHandler({
+        type: 'data-explorer-set-lightdash-toggle',
+        request: { enabled },
+      });
+      if (activeModel) {
+        await fetchLineage(activeModel.modelName, activeModel.projectName);
+      }
+    } catch (error) {
+      console.error(
+        '[DataExplorerStore] Error setting Lightdash toggle:',
+        error,
+      );
+      const current = get().lineageData;
+      if (current) {
+        set({
+          lineageData: { ...current, lightdashEnabled: previousEnabled },
+        });
+      }
+    } finally {
+      set({ isLightdashRefreshing: false });
+    }
+  },
+
+  openDashboardsAsCode: async () => {
+    const { _apiHandler } = get();
+    if (!_apiHandler) {
+      return;
+    }
+    try {
+      await _apiHandler({
+        type: 'data-explorer-open-dashboards-as-code',
+        request: null,
+      });
+    } catch (error) {
+      console.error(
+        '[DataExplorerStore] Error opening Dashboards as Code:',
+        error,
+      );
+    }
+  },
+
+  openLightdashYaml: async (filePath: string) => {
+    const { _apiHandler } = get();
+    if (!_apiHandler || !filePath) {
+      return;
+    }
+    try {
+      await _apiHandler({
+        type: 'data-explorer-open-lightdash-yaml',
+        request: { filePath },
+      });
+    } catch (error) {
+      console.error(
+        '[DataExplorerStore] Error opening Lightdash YAML file:',
+        error,
+      );
+    }
+  },
+  
 }));

@@ -356,7 +356,7 @@ export const AddColumnBasic = ({
       </div>
 
       {/* Form Fields - Flex Wrap Layout */}
-      <div className="bg-[#F8F8F8] p-4">
+      <div className="bg-surface p-4">
         <div className="flex flex-wrap gap-4">
           {/* Type - conditional rendering based on column name */}
           {supportsTypeSelection && (

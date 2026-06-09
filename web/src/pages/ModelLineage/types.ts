@@ -23,6 +23,33 @@ export interface LineageNode {
   hasOwnDownstream?: boolean;
 }
 
+export interface LightdashLineageNode {
+  id: string;
+  slug: string;
+  name: string;
+  kind: 'dashboard' | 'standalone-charts';
+  url?: string;
+  charts?: {
+    slug: string;
+    name: string;
+    url?: string;
+    filePath: string;
+    embeddedAsTile?: boolean;
+    hasYaml?: boolean;
+  }[];
+  filePath: string;
+}
+
+// Carries the same data shape as `LightdashLineageNode` plus the click
+// handlers wired up by the parent. The `Record<string, unknown>` index
+// signature is required by React Flow's generic node types.
+export interface LightdashNodeData
+  extends LightdashLineageNode,
+    Record<string, unknown> {
+  onOpen: (url: string) => void;
+  onOpenYaml: (filePath: string) => void;
+}
+
 export interface ModelNodeData extends Record<string, unknown> {
   id: string;
   name: string;

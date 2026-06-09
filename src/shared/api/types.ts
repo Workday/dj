@@ -7,6 +7,7 @@ import type { DbtApi } from '@shared/dbt/types';
 import type { FrameworkApi } from '@shared/framework/types';
 import type { LightdashApi } from '@shared/lightdash/types';
 import type { ModelLineageApi } from '@shared/modellineage/types';
+import type { QueryDraftApi } from '@shared/querydraft/types';
 import type { TrinoApi } from '@shared/trino/types';
 
 // State API types
@@ -53,6 +54,7 @@ export type Apis =
   | FrameworkApi
   | LightdashApi
   | ModelLineageApi
+  | QueryDraftApi
   | TrinoApi
   | StateApi
   | ModelSettingsApi;

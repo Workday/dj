@@ -7,7 +7,6 @@ import type { FrameworkModel } from '@shared/framework/types';
 import type { LightdashYamlNode } from '@shared/lightdash/types';
 import { TrinoProvider } from '@web/context/trino';
 import { useEnvironment } from '@web/context/useEnvironment';
-import { ColumnLineage } from '@web/pages/ColumnLineage';
 import DataExplorer from '@web/pages/DataExplorer';
 import { Home } from '@web/pages/Home';
 import { LightdashDashboardsAsCode } from '@web/pages/LightdashDashboardsAsCode';
@@ -100,13 +99,9 @@ const routeConfigs: WebRoute[] = [
     path: '/lightdash/dashboards-as-code',
     regex: /^\/lightdash\/dashboards-as-code$/,
   },
-  {
-    element: <ColumnLineage />,
-    label: 'Column Lineage',
-    path: '/lineage/column',
-    regex: /^\/lineage\/column$/,
-  },
 ];
+
+const additionalRouteConfigs: WebRoute[] = [];
 
 const apiChannels: {
   [id: string]: {
@@ -635,6 +630,136 @@ export function AppProvider() {
                           hasOwnDownstream: false, // No further downstream
                         },
                       ],
+                      // Mock Lightdash data so the new node can be exercised in
+                      // browser dev mode. The mocked current model is named
+                      // `int_orders`, not a mart, so the production extension
+                      // would suppress these - but in dev mode we surface them
+                      // to make the UI testable end-to-end.
+                      lightdashEnabled: true,
+                      lightdashAvailable: true,
+                      lightdashResolvedPath: 'lightdash',
+                      lightdashDownstream: [
+                        {
+                          id: 'lightdash::dashboard::executive-overview',
+                          slug: 'executive-overview',
+                          name: 'Executive Overview',
+                          kind: 'dashboard',
+                          // Mock charts cover all three popover row
+                          // states so the Eye / EyeSlash / Warning icons,
+                          // italic muted name, and per-row action button
+                          // overrides can be exercised without a real
+                          // Lightdash content directory:
+                          // - `tile`    → Eye icon, default styling
+                          // - `hidden`  → EyeSlash icon (saved-within)
+                          // - `missing` → amber warning, italic name,
+                          //               Open YAML hidden, Open in
+                          //               Lightdash tooltip warns the
+                          //               chart may have been removed.
+                          charts: [
+                            {
+                              slug: 'orders-by-region',
+                              name: 'Orders by Region',
+                              url: 'https://example.lightdash.cloud/projects/mock/saved/orders-by-region',
+                              filePath: 'lightdash/charts/orders-by-region.yml',
+                              embeddedAsTile: true,
+                              hasYaml: true,
+                            },
+                            {
+                              slug: 'top-customers',
+                              name: 'Top Customers',
+                              url: 'https://example.lightdash.cloud/projects/mock/saved/top-customers',
+                              filePath: 'lightdash/charts/top-customers.yml',
+                              embeddedAsTile: true,
+                              hasYaml: true,
+                            },
+                            {
+                              slug: 'orders-by-region-drilldown',
+                              name: 'Orders by Region (Drill-down)',
+                              url: 'https://example.lightdash.cloud/projects/mock/saved/orders-by-region-drilldown',
+                              filePath:
+                                'lightdash/charts/orders-by-region-drilldown.yml',
+                              embeddedAsTile: false,
+                              hasYaml: true,
+                            },
+                            {
+                              slug: 'removed-chart',
+                              name: 'Removed Chart',
+                              url: 'https://example.lightdash.cloud/projects/mock/saved/removed-chart',
+                              filePath: '',
+                              embeddedAsTile: true,
+                              hasYaml: false,
+                            },
+                          ],
+                          url: 'https://example.lightdash.cloud/projects/mock/dashboards/executive-overview/view',
+                          filePath:
+                            'lightdash/dashboards/executive-overview.yml',
+                        },
+                        {
+                          id: 'lightdash::standalone-charts::int_orders',
+                          slug: 'int_orders::standalone-charts',
+                          name: 'Standalone Charts',
+                          kind: 'standalone-charts',
+                          filePath: '',
+                          charts: [
+                            {
+                              slug: 'orders-funnel-debug',
+                              name: 'Orders Funnel (Debug)',
+                              url: 'https://example.lightdash.cloud/projects/mock/saved/orders-funnel-debug',
+                              filePath:
+                                'lightdash/charts/orders-funnel-debug.yml',
+                            },
+                            {
+                              slug: 'one-off-revenue-spike',
+                              name: 'One-off Revenue Spike Investigation',
+                              url: 'https://example.lightdash.cloud/projects/mock/saved/one-off-revenue-spike',
+                              filePath:
+                                'lightdash/charts/one-off-revenue-spike.yml',
+                            },
+                          ],
+                        },
+                      ],
+                    }),
+                  );
+                }
+                case 'data-explorer-open-lightdash-url': {
+                  console.log(
+                    '[Mock] Opening Lightdash URL:',
+                    (payload.request as { url: string }).url,
+                  );
+                  return resolve(
+                    apiResponse<typeof payloadType>({ success: true }),
+                  );
+                }
+                case 'data-explorer-set-lightdash-toggle': {
+                  const enabled = (payload.request as { enabled: boolean })
+                    .enabled;
+                  console.log('[Mock] Setting Lightdash toggle:', enabled);
+                  return resolve(apiResponse<typeof payloadType>({ enabled }));
+                }
+                case 'data-explorer-open-dashboards-as-code': {
+                  console.log('[Mock] Opening Dashboards as Code panel');
+                  return resolve(
+                    apiResponse<typeof payloadType>({ success: true }),
+                  );
+                }
+                case 'data-explorer-open-lightdash-yaml': {
+                  console.log(
+                    '[Mock] Opening Lightdash YAML file:',
+                    (payload.request as { filePath: string }).filePath,
+                  );
+                  return resolve(
+                    apiResponse<typeof payloadType>({ success: true }),
+                  );
+                }
+                case 'lightdash-yaml-ensure-gitignore': {
+                  const path = (payload.request as { path: string }).path;
+                  console.log('[Mock] Ensuring .gitignore contains:', path);
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      success: true,
+                      added: true,
+                      alreadyPresent: false,
+                      gitignorePath: '/mock/workspace/.gitignore',
                     }),
                   );
                 }
@@ -1347,6 +1472,28 @@ where a = 1
                     }),
                   );
                 }
+                case 'query-draft-create': {
+                  // Mock query draft creation for web development
+                  const filepath = `.dj/drafts/${Date.now()}.draft.sql`;
+                  return resolve(apiResponse<typeof payloadType>({ filepath }));
+                }
+                case 'query-draft-execute': {
+                  // Mock query execution for web development
+                  const mockColumns = ['id', 'name', 'value', 'created_at'];
+                  const mockRows = [
+                    [1, 'Alice', 100, '2025-01-01'],
+                    [2, 'Bob', 200, '2025-01-02'],
+                    [3, 'Charlie', 300, '2025-01-03'],
+                  ];
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      columns: mockColumns,
+                      rows: mockRows,
+                      rowCount: mockRows.length,
+                      executionTime: 150,
+                    }),
+                  );
+                }
                 default:
                   return assertExhaustive<ApiResponse>(payloadType);
               }
@@ -1417,9 +1564,12 @@ where a = 1
 }
 
 function RenderRoute({ route }: { route: string | null }) {
+  // Combine all route configs
+  const allRouteConfigs = [...routeConfigs, ...additionalRouteConfigs];
+
   if (route) {
     // Running in extension at specific route
-    const routeConfig = routeConfigs.find((r) => r.regex.test(route));
+    const routeConfig = allRouteConfigs.find((r) => r.regex.test(route));
     if (!routeConfig) {
       return <div>404: Route not found</div>;
     }
@@ -1433,7 +1583,7 @@ function RenderRoute({ route }: { route: string | null }) {
     );
   } else {
     // Running in separate browser
-    const router = createBrowserRouter(routeConfigs);
+    const router = createBrowserRouter(allRouteConfigs);
     return <RouterProvider router={router} />;
   }
 }

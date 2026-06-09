@@ -10,7 +10,7 @@
     "type": "git",
     "url": "https://github.com/Workday/dj.git"
   },
-  "version": "1.5.0",
+  "version": "1.7.1",
   "workspaces": [
     "web"
   ],
@@ -228,6 +228,32 @@
       {
         "command": "dj.command.testTrinoConnection",
         "title": "DJ: Test Trino Connection"
+      },
+      {
+        "command": "dj.command.queryDraftCreate",
+        "title": "DJ: Create New Query",
+        "icon": "$(file-add)"
+      },
+      {
+        "command": "dj.command.queryDraftRun",
+        "title": "DJ: Run Query",
+        "icon": "$(play)"
+      },
+      {
+        "command": "dj.command.convertDraftToModel",
+        "title": "Convert to DJ Model"
+      },
+      {
+        "command": "dj.command.convertDraftToModelCopilot",
+        "title": "Convert to DJ Model using Copilot"
+      },
+      {
+        "command": "dj.command.convertDraftToModelCursor",
+        "title": "Convert to DJ Model using Cursor"
+      },
+      {
+        "command": "dj.command.convertDraftToModelClaude",
+        "title": "Convert to DJ Model using Claude"
       }
     ],
     "submenus": [
@@ -245,6 +271,10 @@
         "id": "dj.submenu.dataExplorer",
         "label": "Data Explorer",
         "icon": "$(play-circle)"
+      },
+      {
+        "id": "dj.submenu.convertDraftToModel",
+        "label": "Convert to DJ Model"
       }
     ],
     "configuration": {
@@ -353,6 +383,11 @@
           "type": "boolean",
           "default": true,
           "description": "Automatically refresh Column Lineage when switching between supported files."
+        },
+        "dj.dataExplorer.showLightdashLineage": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Show downstream **Lightdash dashboards and standalone charts** as nodes for `mart_*` models in the Data Explorer lineage graph. Reads local Dashboards-as-Code YAML from the path defined by `#dj.lightdash.dashboardsAsCodePath#`. Disabled by default; enable to opt in (the toggle is also available in the Data Explorer header)."
         },
         "dj.dataExplorer.autoRefresh": {
           "type": "boolean",
@@ -611,6 +646,20 @@
           "when": "resourceFilename =~ /[.]((model)[.](json)|(source)[.](json)|sql|yml)$/"
         }
       ],
+      "dj.submenu.convertDraftToModel": [
+        {
+          "command": "dj.command.convertDraftToModelCopilot",
+          "when": "dj.copilotAvailable"
+        },
+        {
+          "command": "dj.command.convertDraftToModelCursor",
+          "when": "dj.cursorAvailable"
+        },
+        {
+          "command": "dj.command.convertDraftToModelClaude",
+          "when": "dj.claudeAvailable"
+        }
+      ],
       "editor/context": [
         {
           "command": "dj.command.modelEdit",
@@ -636,6 +685,16 @@
           "command": "dj.command.openTargetRunSql",
           "group": "navigation",
           "when": "resourceFilename =~ /[.]((model)[.](json)|sql|yml)$/"
+        },
+        {
+          "command": "dj.command.queryDraftRun",
+          "group": "navigation",
+          "when": "resourceFilename =~ /\\.draft\\.sql$/"
+        },
+        {
+          "submenu": "dj.submenu.convertDraftToModel",
+          "group": "navigation",
+          "when": "resourceFilename =~ /\\.draft\\.sql$/"
         }
       ],
       "explorer/context": [
@@ -663,6 +722,16 @@
           "command": "dj.command.openTargetRunSql",
           "group": "navigation",
           "when": "resourceFilename =~ /[.]((model)[.](json)|sql|yml)$/"
+        },
+        {
+          "command": "dj.command.queryDraftRun",
+          "group": "navigation",
+          "when": "resourceFilename =~ /\\.draft\\.sql$/"
+        },
+        {
+          "submenu": "dj.submenu.convertDraftToModel",
+          "group": "navigation",
+          "when": "resourceFilename =~ /\\.draft\\.sql$/"
         }
       ],
       "view/item/context": [

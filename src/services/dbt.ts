@@ -137,6 +137,14 @@ export class Dbt implements ApiEnabledService<'dbt'> {
     iconPath: new vscode.ThemeIcon('add'),
     label: 'Create Source',
   };
+  treeItemQueryCreate: TreeItem = {
+    command: {
+      command: COMMAND_ID.QUERY_DRAFT_CREATE,
+      title: 'Create New Query',
+    },
+    iconPath: new vscode.ThemeIcon('file-add'),
+    label: 'Create New Query',
+  };
 
   // Webview panels
   webviewPanelSourceCreate: vscode.WebviewPanel | undefined;
@@ -1884,28 +1892,7 @@ ${macro.macro_sql}`;
               skillDirName,
             );
 
-            // Read all files in the skill directory and copy them
-            const files = await vscode.workspace.fs.readDirectory(
-              vscode.Uri.file(sourceDir),
-            );
-
-            for (const [fileName, fileType] of files) {
-              if (fileType === vscode.FileType.File) {
-                const sourcePath = vscode.Uri.file(
-                  path.join(sourceDir, fileName),
-                );
-                // Strip leading underscore from template filenames (e.g. _SKILL.md → SKILL.md)
-                // so they aren't interpreted as skills inside this repo's own templates directory.
-                const targetFileName = fileName.startsWith('_')
-                  ? fileName.slice(1)
-                  : fileName;
-                const targetPath = vscode.Uri.file(
-                  path.join(targetDir, targetFileName),
-                );
-                const content = await vscode.workspace.fs.readFile(sourcePath);
-                await vscode.workspace.fs.writeFile(targetPath, content);
-              }
-            }
+            await this.copySkillDirectoryRecursive(sourceDir, targetDir);
           } catch (err: unknown) {
             this.log.error(`Error writing skill ${skillDirName}:`, err);
           }
@@ -1914,6 +1901,44 @@ ${macro.macro_sql}`;
       await Promise.all(writePromises);
     } catch (err: unknown) {
       this.log.error('Error writing skill files:', err);
+    }
+  }
+
+  /**
+   * Recursively copy a skill directory (files + subdirectories) into the
+   * workspace target. Subdirectories like `references/`, `scripts/`, `assets/`
+   * are part of the Agent Skills open standard (https://agentskills.io) for
+   * progressive disclosure of skill content.
+   *
+   * Leading underscores on template filenames are stripped (e.g. `_SKILL.md`
+   * → `SKILL.md`) so they aren't picked up as skills inside this repo's own
+   * `templates/skills` directory. Subdirectory names are preserved verbatim.
+   */
+  private async copySkillDirectoryRecursive(
+    sourceDir: string,
+    targetDir: string,
+  ): Promise<void> {
+    const entries = await vscode.workspace.fs.readDirectory(
+      vscode.Uri.file(sourceDir),
+    );
+
+    for (const [entryName, entryType] of entries) {
+      const sourceEntryPath = path.join(sourceDir, entryName);
+      if (entryType === vscode.FileType.File) {
+        const targetFileName = entryName.startsWith('_')
+          ? entryName.slice(1)
+          : entryName;
+        const targetPath = vscode.Uri.file(
+          path.join(targetDir, targetFileName),
+        );
+        const content = await vscode.workspace.fs.readFile(
+          vscode.Uri.file(sourceEntryPath),
+        );
+        await vscode.workspace.fs.writeFile(targetPath, content);
+      } else if (entryType === vscode.FileType.Directory) {
+        const targetSubDir = path.join(targetDir, entryName);
+        await this.copySkillDirectoryRecursive(sourceEntryPath, targetSubDir);
+      }
     }
   }
 
@@ -2217,6 +2242,7 @@ ${macro.macro_sql}`;
       this.treeItemProjectClean,
       this.treeItemModelCreate,
       this.treeItemSourceCreate,
+      this.treeItemQueryCreate,
       this.coder.lightdash.treeItemLightdashPreview,
       this.coder.lightdash.treeItemLightdashDashboardsAsCode,
       this.treeItemModelRun,
