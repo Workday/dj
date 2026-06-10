@@ -12,29 +12,13 @@
   },
   "json.schemas": [
     {
-      "fileMatch": [
-        "*.model.json"
-      ],
+      "fileMatch": ["*.model.json"],
       "url": ".dj/schemas/model.schema.json"
     },
     {
-      "fileMatch": [
-        "*.source.json"
-      ],
+      "fileMatch": ["*.source.json"],
       "url": ".dj/schemas/source.schema.json"
     }
   ],
-  "dj.dataExplorer.autoRefresh": false,
-  "yaml.schemas": {
-    "https://raw.githubusercontent.com/lightdash/lightdash/refs/heads/main/packages/common/src/schemas/json/chart-as-code-1.0.json": "lightdash/charts/*.yml",
-    "https://raw.githubusercontent.com/lightdash/lightdash/refs/heads/main/packages/common/src/schemas/json/dashboard-as-code-1.0.json": "lightdash/dashboards/*.yml"
-  },
-  "[yaml]": {
-    "editor.insertSpaces": true,
-    "editor.tabSize": 2,
-    "editor.autoIndent": "keep",
-    "diffEditor.ignoreTrimWhitespace": false,
-    "editor.defaultColorDecorators": "never",
-    "editor.defaultFormatter": "redhat.vscode-yaml"
-  }
+  "dj.dataExplorer.autoRefresh": false
 }
