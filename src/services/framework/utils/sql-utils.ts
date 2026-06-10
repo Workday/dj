@@ -58,6 +58,7 @@ import type {
   FrameworkSource,
   FrameworkSourceMeta,
 } from '@shared/framework/types';
+import type { LightdashDimension } from '@shared/lightdash/types';
 import type { SchemaModelFromJoinModels } from '@shared/schema/types/model.from.join.models.schema';
 import type {
   SchemaModelTypeIntJoinColumn,
@@ -110,6 +111,69 @@ import {
   frameworkGetSourceRef,
   frameworkMakeSourceName,
 } from './source-utils';
+
+// ========================================================================
+// Lightdash Dimension Helpers
+// ========================================================================
+
+/**
+ * Normalize a `time_intervals` value coming from a Lightdash dimension meta.
+ *
+ * Per the schema, valid inputs are the literal string "OFF" or an array of
+ * interval strings. In practice we have to be defensive here because:
+ *
+ *   1. The framework writes YAML which dbt then loads with PyYAML (YAML 1.1).
+ *      Older YAML files on disk may contain an unquoted `time_intervals: OFF`
+ *      that PyYAML parses as the boolean `false`. When the manifest is then
+ *      consumed back into the framework, the column's `time_intervals` is
+ *      `false` rather than `"OFF"`. The emit-side fix in `yamlStringify`
+ *      prevents new YAML from being written this way, but existing manifests
+ *      on disk in user projects can still carry the corrupted value.
+ *   2. A handcrafted JSON model could put any value here. Without coercion
+ *      the spread operator below crashes generation for the entire model
+ *      (and any descendant whose parent meta we needed).
+ *
+ * Behaviour:
+ *   - undefined / null            -> `[]`
+ *   - "OFF"                       -> "OFF" (passed through)
+ *   - boolean false               -> "OFF" (preserve original user intent)
+ *   - boolean true                -> `[]`  (treat as a default / unset signal)
+ *   - array                       -> sorted, de-duplicated copy
+ *   - any other type              -> `[]`, with a console warning that names
+ *     the model + column so the source of the bad value is debuggable
+ */
+export function normalizeTimeIntervals(
+  value: unknown,
+  context: { modelName: string; columnName: string },
+): LightdashDimension['time_intervals'] {
+  type TimeIntervals = NonNullable<LightdashDimension['time_intervals']>;
+  if (value === undefined || value === null) {
+    return [] as TimeIntervals;
+  }
+  if (value === 'OFF' || value === false) {
+    // YAML 1.1 turns the string "OFF" into a boolean false during dbt's
+    // manifest load, so accept either form as the user-intended "OFF".
+    return 'OFF';
+  }
+  if (value === true) {
+    // `true` is not a valid time_intervals value but is the symmetric
+    // YAML 1.1 token for "ON" -- fall back to the empty default rather
+    // than crashing.
+    return [] as TimeIntervals;
+  }
+  if (Array.isArray(value)) {
+    return _.chain([...value])
+      .sort()
+      .uniq()
+      .value() as TimeIntervals;
+  }
+  // eslint-disable-next-line no-console
+  console.warn(
+    `[dj] Ignoring unsupported time_intervals value on ${context.modelName}.${context.columnName}: ` +
+      `expected "OFF" or an array of strings, got ${typeof value} (${JSON.stringify(value)}).`,
+  );
+  return [] as TimeIntervals;
+}
 
 // ========================================================================
 // SQL Clause Generators
@@ -2524,201 +2588,215 @@ export function frameworkModelProperties({
     project,
   });
 
-  // Persist columns on the model properties
+  // Persist columns on the model properties.
+  // Each column is built inside a try/catch so that an unexpected failure
+  // (e.g. malformed meta inherited from an upstream manifest) is reported
+  // with the offending column name. Without this context the parent log line
+  // only shows the model name, which makes diagnosing schema-shape regressions
+  // painful.
   const modelPropertiesColumns: DbtModelPropertiesColumn[] = [];
   for (const c of columns) {
-    // Control ordering of column properties
-    const column: DbtModelPropertiesColumn = {
-      name: frameworkColumnName({ column: c, modelJson }),
-      data_type: c.data_type || 'varchar',
-      description: c.description || textToStartCase(c.name),
-      tags: c.tags,
-      // Switch to data_tests on the yml once dbt is updated to >=1.8
-      // data_tests: c.data_tests,
-      tests: c.data_tests,
-      meta: c.meta,
-    };
-
-    const isIncrementalModel =
-      ('materialized' in modelJson &&
-        modelJson.materialized === 'incremental') ||
-      ('materialization' in modelJson &&
-        (modelJson.materialization === 'incremental' ||
-          (typeof modelJson.materialization === 'object' &&
-            modelJson.materialization?.type === 'incremental')));
-
-    if (isIncrementalModel) {
-      switch (column.name) {
-        case PARTITION_MONTHLY:
-        case PARTITION_DAILY:
-        case PARTITION_HOURLY: {
-          const dataTests = column.tests ?? [];
-          if (!dataTests.includes('not_null')) {
-            dataTests.push('not_null');
-          }
-          column.tests = dataTests;
-          break;
-        }
-      }
-    }
-
-    // Setting lightdash dimension meta
-    let dimension = { ...c.meta.dimension };
-    if (typeof dimension.time_intervals !== 'string') {
-      // If the time_intervals aren't a string, sort alphabetically
-      dimension.time_intervals = _.chain([...(dimension.time_intervals ?? [])])
-        .sort()
-        .uniq()
-        .value();
-    }
-    // Set defaults for column level properties at the mart layer
-    if (modelLayer === 'mart') {
-      if (dimension.hidden === undefined) {
-        dimension.hidden =
-          column.meta?.type === 'fct' ||
-          FRAMEWORK_PARTITIONS.includes(column.name as FrameworkPartitionName);
-      }
-      if (!dimension.label) {
-        dimension.label = textToStartCase(column.name);
-      }
-      if (!dimension.type) {
-        dimension.type = lightdashConvertDimensionType(column.data_type);
-      }
-
-      if (column.name === 'datetime') {
-        // Find a partitioned column to use for time intervals
-        const partitionedColumn =
-          columns.find((c) => c.name === PARTITION_HOURLY) ||
-          columns.find((c) => c.name === PARTITION_DAILY) ||
-          columns.find((c) => c.name === PARTITION_MONTHLY);
-        if (partitionedColumn) {
-          dimension.sql = partitionedColumn.name;
-        }
-      }
-    }
-
-    // If dimension has an ai_hint, automatically add an 'ai' tag
-    if (aiHintTags.length && dimension.ai_hint) {
-      dimension.tags = [..._.union(dimension.tags ?? [], aiHintTags)];
-    }
-    dimension.tags?.sort();
-
-    // Control ordering of lightdash dimension properties
-    dimension = orderKeys(dimension, [
-      'ai_hint',
-      'tags',
-      'type',
-      'label',
-      'group_label',
-      'groups',
-      'case_sensitive',
-    ]);
-
-    // Order lightdash metric keys and remove empty properties
-    const metrics = _.reduce(
-      column.meta?.metrics ?? {},
-      (m, metric, name) => {
-        return {
-          ...m,
-          [name]: removeEmpty(
-            orderKeys(metric, [
-              'ai_hint',
-              'tags',
-              'type',
-              'label',
-              'group_label',
-              'groups',
-            ]),
-          ),
-        };
-      },
-      {},
-    );
-
-    // Column meta emit strategy (free-form meta support):
-    //
-    // After the `FrameworkColumn` split, all SQL-generation state lives
-    // on `c.internal.*` and is never emitted. Values on `c.meta` fall
-    // into three buckets:
-    //   a. Populated-reserved keys (type / origin / dimension / metrics /
-    //      case_sensitive) -- framework-written, will be re-layered below.
-    //   b. SQL-internal reserved key names (agg / expr / prefix / ...) --
-    //      the user placed them under `meta` by mistake. They have no
-    //      effect on SQL (the framework reads SQL state from
-    //      `c.internal.*`, which is populated from top-level select-item
-    //      siblings). We strip them so they don't silently leak to the
-    //      emitted YAML; the reserved-key lint (meta-lint.ts) separately
-    //      surfaces the authoring mistake as a Warning diagnostic.
-    //   c. Free-form user keys -- passed through verbatim.
-    //
-    // Strategy:
-    //   1. Spread-destructure to drop (a) and (b) from the free-form bag.
-    //   2. Layer the framework-populated reserved keys back on top so the
-    //      framework silently wins on collision with any free-form key
-    //      of the same name.
-    //   3. Apply `case_sensitive` AFTER `removeEmpty` so a valid `false`
-    //      value isn't stripped.
-    const rawMeta = (c.meta ?? {}) as Record<string, unknown>;
-    const metaFreeForm: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(rawMeta)) {
-      // Skip populated-reserved keys -- they are re-layered below.
-      if (
-        key === 'type' ||
-        key === 'origin' ||
-        key === 'dimension' ||
-        key === 'metrics' ||
-        key === 'case_sensitive'
-      ) {
-        continue;
-      }
-      // Skip SQL-internal reserved key names -- never emitted.
-      if (
-        (COLUMN_META_SQL_INTERNAL_RESERVED_KEYS as readonly string[]).includes(
-          key,
-        )
-      ) {
-        continue;
-      }
-      metaFreeForm[key] = value;
-    }
-
-    // Preserve the explicit case_sensitive value before removeEmpty strips `false`.
-    const explicitCaseSensitive = dimension.case_sensitive;
-    const cleanedDimension = removeEmpty(dimension);
-
-    // Re-inject case_sensitive after removeEmpty. Explicit values from
-    // lightdash.dimension.case_sensitive take priority; otherwise auto-set
-    // true on partition columns to prevent Lightdash from wrapping them in
-    // UPPER(), which breaks Trino-Iceberg predicate pushdown.
-    if (explicitCaseSensitive !== undefined) {
-      cleanedDimension.case_sensitive = explicitCaseSensitive;
-    } else if (
-      dj.config.lightdashDefaultPartitionColumnCaseSensitive &&
-      partitionColumnNames.includes(column.name)
-    ) {
-      cleanedDimension.case_sensitive = true;
-    }
-
-    column.meta = removeEmpty({
-      ...metaFreeForm,
-      type: c.meta?.type,
-      origin: c.meta?.origin,
-      dimension: cleanedDimension,
-      metrics,
-    });
-
-    // Re-inject column-level case_sensitive AFTER removeEmpty so a valid
-    // `false` value (intentionally opting OUT of case sensitivity) isn't
-    // stripped along with other empty/falsy values.
-    if (c.meta.case_sensitive !== undefined) {
-      column.meta = {
-        ...column.meta,
-        case_sensitive: c.meta.case_sensitive,
+    const columnContextName = frameworkColumnName({ column: c, modelJson });
+    try {
+      // Control ordering of column properties
+      const column: DbtModelPropertiesColumn = {
+        name: columnContextName,
+        data_type: c.data_type || 'varchar',
+        description: c.description || textToStartCase(c.name),
+        tags: c.tags,
+        // Switch to data_tests on the yml once dbt is updated to >=1.8
+        // data_tests: c.data_tests,
+        tests: c.data_tests,
+        meta: c.meta,
       };
-    }
 
-    // Remove any remaining empty column properties
-    modelPropertiesColumns.push(removeEmpty(column));
+      const isIncrementalModel =
+        ('materialized' in modelJson &&
+          modelJson.materialized === 'incremental') ||
+        ('materialization' in modelJson &&
+          (modelJson.materialization === 'incremental' ||
+            (typeof modelJson.materialization === 'object' &&
+              modelJson.materialization?.type === 'incremental')));
+
+      if (isIncrementalModel) {
+        switch (column.name) {
+          case PARTITION_MONTHLY:
+          case PARTITION_DAILY:
+          case PARTITION_HOURLY: {
+            const dataTests = column.tests ?? [];
+            if (!dataTests.includes('not_null')) {
+              dataTests.push('not_null');
+            }
+            column.tests = dataTests;
+            break;
+          }
+        }
+      }
+
+      // Setting lightdash dimension meta. `normalizeTimeIntervals` defends
+      // against the YAML 1.1 boolean coercion of unquoted `OFF` -> `false`
+      // and other unexpected shapes coming back from the dbt manifest.
+      let dimension = { ...c.meta.dimension };
+      dimension.time_intervals = normalizeTimeIntervals(
+        dimension.time_intervals,
+        { modelName, columnName: column.name },
+      );
+      // Set defaults for column level properties at the mart layer
+      if (modelLayer === 'mart') {
+        if (dimension.hidden === undefined) {
+          dimension.hidden =
+            column.meta?.type === 'fct' ||
+            FRAMEWORK_PARTITIONS.includes(
+              column.name as FrameworkPartitionName,
+            );
+        }
+        if (!dimension.label) {
+          dimension.label = textToStartCase(column.name);
+        }
+        if (!dimension.type) {
+          dimension.type = lightdashConvertDimensionType(column.data_type);
+        }
+
+        if (column.name === 'datetime') {
+          // Find a partitioned column to use for time intervals
+          const partitionedColumn =
+            columns.find((c) => c.name === PARTITION_HOURLY) ||
+            columns.find((c) => c.name === PARTITION_DAILY) ||
+            columns.find((c) => c.name === PARTITION_MONTHLY);
+          if (partitionedColumn) {
+            dimension.sql = partitionedColumn.name;
+          }
+        }
+      }
+
+      // If dimension has an ai_hint, automatically add an 'ai' tag
+      if (aiHintTags.length && dimension.ai_hint) {
+        dimension.tags = [..._.union(dimension.tags ?? [], aiHintTags)];
+      }
+      dimension.tags?.sort();
+
+      // Control ordering of lightdash dimension properties
+      dimension = orderKeys(dimension, [
+        'ai_hint',
+        'tags',
+        'type',
+        'label',
+        'group_label',
+        'groups',
+        'case_sensitive',
+      ]);
+
+      // Order lightdash metric keys and remove empty properties
+      const metrics = _.reduce(
+        column.meta?.metrics ?? {},
+        (m, metric, name) => {
+          return {
+            ...m,
+            [name]: removeEmpty(
+              orderKeys(metric, [
+                'ai_hint',
+                'tags',
+                'type',
+                'label',
+                'group_label',
+                'groups',
+              ]),
+            ),
+          };
+        },
+        {},
+      );
+
+      // Column meta emit strategy (free-form meta support):
+      //
+      // After the `FrameworkColumn` split, all SQL-generation state lives
+      // on `c.internal.*` and is never emitted. Values on `c.meta` fall
+      // into three buckets:
+      //   a. Populated-reserved keys (type / origin / dimension / metrics /
+      //      case_sensitive) -- framework-written, will be re-layered below.
+      //   b. SQL-internal reserved key names (agg / expr / prefix / ...) --
+      //      the user placed them under `meta` by mistake. They have no
+      //      effect on SQL (the framework reads SQL state from
+      //      `c.internal.*`, which is populated from top-level select-item
+      //      siblings). We strip them so they don't silently leak to the
+      //      emitted YAML; the reserved-key lint (meta-lint.ts) separately
+      //      surfaces the authoring mistake as a Warning diagnostic.
+      //   c. Free-form user keys -- passed through verbatim.
+      //
+      // Strategy:
+      //   1. Spread-destructure to drop (a) and (b) from the free-form bag.
+      //   2. Layer the framework-populated reserved keys back on top so the
+      //      framework silently wins on collision with any free-form key
+      //      of the same name.
+      //   3. Apply `case_sensitive` AFTER `removeEmpty` so a valid `false`
+      //      value isn't stripped.
+      const rawMeta = (c.meta ?? {}) as Record<string, unknown>;
+      const metaFreeForm: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(rawMeta)) {
+        // Skip populated-reserved keys -- they are re-layered below.
+        if (
+          key === 'type' ||
+          key === 'origin' ||
+          key === 'dimension' ||
+          key === 'metrics' ||
+          key === 'case_sensitive'
+        ) {
+          continue;
+        }
+        // Skip SQL-internal reserved key names -- never emitted.
+        if (
+          (
+            COLUMN_META_SQL_INTERNAL_RESERVED_KEYS as readonly string[]
+          ).includes(key)
+        ) {
+          continue;
+        }
+        metaFreeForm[key] = value;
+      }
+
+      // Preserve the explicit case_sensitive value before removeEmpty strips `false`.
+      const explicitCaseSensitive = dimension.case_sensitive;
+      const cleanedDimension = removeEmpty(dimension);
+
+      // Re-inject case_sensitive after removeEmpty. Explicit values from
+      // lightdash.dimension.case_sensitive take priority; otherwise auto-set
+      // true on partition columns to prevent Lightdash from wrapping them in
+      // UPPER(), which breaks Trino-Iceberg predicate pushdown.
+      if (explicitCaseSensitive !== undefined) {
+        cleanedDimension.case_sensitive = explicitCaseSensitive;
+      } else if (
+        dj.config.lightdashDefaultPartitionColumnCaseSensitive &&
+        partitionColumnNames.includes(column.name)
+      ) {
+        cleanedDimension.case_sensitive = true;
+      }
+
+      column.meta = removeEmpty({
+        ...metaFreeForm,
+        type: c.meta?.type,
+        origin: c.meta?.origin,
+        dimension: cleanedDimension,
+        metrics,
+      });
+
+      // Re-inject column-level case_sensitive AFTER removeEmpty so a valid
+      // `false` value (intentionally opting OUT of case sensitivity) isn't
+      // stripped along with other empty/falsy values.
+      if (c.meta.case_sensitive !== undefined) {
+        column.meta = {
+          ...column.meta,
+          case_sensitive: c.meta.case_sensitive,
+        };
+      }
+
+      // Remove any remaining empty column properties
+      modelPropertiesColumns.push(removeEmpty(column));
+    } catch (err) {
+      const cause = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `Failed to build column "${columnContextName}" for model "${modelName}": ${cause}`,
+      );
+    }
   }
 
   // Set data_tests at model level

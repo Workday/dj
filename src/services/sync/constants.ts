@@ -26,11 +26,19 @@ export const SYNC_BATCH_SIZES = {
  */
 export const ERROR_MESSAGES = {
   /**
-   * Error message for invalid model SQL generation.
+   * Error message for a failed SQL/YML generation for a model.
+   *
+   * The wording intentionally avoids blaming any specific authoring construct
+   * (e.g. "double check any expr") because this wrapper catches every kind of
+   * failure -- malformed inherited dimension meta, missing parents, invalid
+   * schema-shape after manifest round-trip, etc. -- not just SQL expressions.
+   * Misleading users into auditing `expr` syntax for an unrelated failure
+   * caused real debugging pain in production.
+   *
    * @param errorMsg - The underlying error message from the generator
    */
   INVALID_MODEL_SQL: (errorMsg: string) =>
-    `Invalid model sql detected, please double check any "expr" \n\n${errorMsg}`,
+    `Failed to generate SQL/YML for this model:\n\n${errorMsg}`,
 
   /** Error when model prefix cannot be determined */
   UNABLE_TO_GET_PREFIX: (resourceName: string) =>

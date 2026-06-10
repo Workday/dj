@@ -151,10 +151,13 @@ export const SERVICE_NAMES = {
   Trino: 'trino',
   DataExplorer: 'dataExplorer',
   ColumnLineage: 'columnLineage',
+  QueryDraft: 'queryDraft',
+  QueryPreview: 'queryPreview',
 
   // API Layer
   Api: 'api',
   Lightdash: 'lightdash',
+  LightdashContent: 'lightdashContent',
 } as const;
 
 export type ServiceName = (typeof SERVICE_NAMES)[keyof typeof SERVICE_NAMES];
