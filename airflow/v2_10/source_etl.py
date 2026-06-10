@@ -46,6 +46,7 @@ from _ext_.variables import (
     optimize_run_timeout_minutes,
     override_backfill_start,
     override_sources,
+    run_chronological,
     schedule_cron,
     source_date_limit,
     source_date_tasks,
@@ -376,8 +377,8 @@ def source_etl_dag():
                 ) and event_date_lookback not in event_dates:
                     event_dates.append(event_date_lookback)
 
-        # Sorting in reverse so we always get the most recent dates first
-        event_dates.sort(reverse=True)
+        # Sorting in run_chronological order, reverse by default
+        event_dates.sort(reverse=not run_chronological)
 
         # We'll try with the full list of event dates first, but if this fails we'll cut in half and try again
         dbt_source_dates_new_rows = []
@@ -500,7 +501,7 @@ def source_etl_dag():
         etl_timestamp = ti.xcom_pull(key="etl_timestamp", task_ids="start_etl")
 
         source_runs = build_runs(
-            source_id_dates_list, etl_timestamp, date_limit=source_date_limit
+            source_id_dates_list, etl_timestamp, date_limit=source_date_limit, chronological=run_chronological
         )
 
         # Perform the merges first, before running the sources, because might limit and/or timeout the source run tasks
@@ -727,7 +728,7 @@ def source_etl_dag():
         etl_timestamp = ti.xcom_pull(key="etl_timestamp", task_ids="start_etl")
 
         model_runs = build_runs(
-            model_id_dates_list, etl_timestamp, date_limit=model_date_limit
+            model_id_dates_list, etl_timestamp, date_limit=model_date_limit,chronological=run_chronological
         )
 
         run_models_timestamp = datetime.now(timezone.utc).strftime(
