@@ -447,7 +447,7 @@
           "default": 30,
           "minimum": 1,
           "maximum": 365,
-          "markdownDescription": "How long to keep sanitized Trino query JSON in `.dj/diagnostics/` before the **Recent (persisted)** tab garbage-collects it. Coordinator memory only retains query metadata for ~15 minutes; persisted diagnostics survive coordinator eviction."
+          "markdownDescription": "How long to keep sanitized Trino query JSON in `.dj/diagnostics/` before the **History** tab garbage-collects it. Coordinator memory only retains query metadata for ~15 minutes; persisted diagnostics survive coordinator eviction."
         },
         "dj.lightdashProjectPath": {
           "type": "string",
