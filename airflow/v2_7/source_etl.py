@@ -497,7 +497,7 @@ def source_etl_dag():
         etl_timestamp = ti.xcom_pull(key="etl_timestamp", task_ids="start_etl")
 
         source_runs = build_runs(
-            source_id_dates_list, etl_timestamp, date_limit=source_date_limit
+            source_id_dates_list, etl_timestamp, date_limit=source_date_limit,chronological=run_chronological
         )
 
         # Perform the merges first, before running the sources, because might limit and/or timeout the source run tasks
@@ -719,7 +719,7 @@ def source_etl_dag():
         etl_timestamp = ti.xcom_pull(key="etl_timestamp", task_ids="start_etl")
 
         model_runs = build_runs(
-            model_id_dates_list, etl_timestamp, date_limit=model_date_limit
+            model_id_dates_list, etl_timestamp, date_limit=model_date_limit, chronological=run_chronological
         )
 
         run_models_timestamp = datetime.now(timezone.utc).strftime(
@@ -790,7 +790,7 @@ def source_etl_dag():
                 )
 
         error_runs = build_runs(
-            id_dates_list=model_id_dates_list, etl_timestamp=etl_timestamp, date_limit=1
+            id_dates_list=model_id_dates_list, etl_timestamp=etl_timestamp, date_limit=1, chronological=run_chronological
         )
 
         run_errors_timestamp = datetime.now(timezone.utc).strftime(
