@@ -220,8 +220,11 @@ export function summarizeQueryInfo(
   const queryId = (raw.queryId as string) ?? (raw.id as string) ?? '';
 
   const operators = collectOperators(raw);
-  const { largestOperator, dataSkewScore, peakOpBytes } =
-    computeOperatorMetrics(operators);
+  const {
+    largestOperator,
+    dataSkewScore: operatorSkewScore,
+    peakOpBytes,
+  } = computeOperatorMetrics(operators);
   const joinDistributionTypes = collectJoinDistributions(operators);
   const connectorTypes = collectConnectors(operators);
 
@@ -240,7 +243,11 @@ export function summarizeQueryInfo(
     wallTimeMs: parseDurationMs(stats.elapsedTime),
     queuedTimeMs: parseDurationMs(stats.queuedTime),
     analysisTimeMs: parseDurationMs(stats.analysisTime),
-    planningTimeMs: parseDurationMs(stats.totalPlanningTime),
+    // Current Trino emits `planningTime`; older builds used
+    // `totalPlanningTime`. Same wall-clock planner phase.
+    planningTimeMs: parseDurationMs(
+      stats.planningTime ?? stats.totalPlanningTime,
+    ),
     peakUserMemoryBytes:
       parseDataSize(stats.peakUserMemoryReservation) ?? peakOpBytes,
     peakTotalMemoryBytes: parseDataSize(stats.peakTotalMemoryReservation),
@@ -260,7 +267,7 @@ export function summarizeQueryInfo(
       stats.runningSplits ?? stats.runningDrivers,
     ),
     blockedTimeMs: parseDurationMs(stats.totalBlockedTime),
-    dataSkewScore,
+    dataSkewScore: operatorSkewScore ?? computeTaskSkewScore(raw),
     largestOperator,
     joinDistributionTypes,
     connectorTypes,
@@ -644,6 +651,66 @@ function computeOperatorMetrics(ops: Array<Record<string, unknown>>): {
   return { largestOperator, dataSkewScore, peakOpBytes };
 }
 
+/**
+ * Skew from per-task input volumes, for payloads whose operator
+ * summaries carry no `inputDataSizeDistribution` (newer Trino dropped
+ * it). Same semantic as the operator-based score: worst-case ratio of
+ * max-task input to avg-task input, here taken per stage across its
+ * tasks. Stages with fewer than two tasks (or no input bytes) can't
+ * exhibit skew and are skipped.
+ */
+function computeTaskSkewScore(
+  raw: Record<string, unknown>,
+): number | undefined {
+  const lookup = buildStageLookup(raw);
+  const seen = new Set<string>();
+  let worst: number | undefined;
+
+  function visit(stage: unknown) {
+    if (!stage || typeof stage !== 'object') {
+      return;
+    }
+    const obj = stage as Record<string, unknown>;
+    const stageId = typeof obj.stageId === 'string' ? obj.stageId : undefined;
+    if (stageId && seen.has(stageId)) {
+      return;
+    }
+    if (stageId) {
+      seen.add(stageId);
+    }
+
+    const tasks = Array.isArray(obj.tasks)
+      ? (obj.tasks as Array<Record<string, unknown>>)
+      : [];
+    const inputs: number[] = [];
+    for (const task of tasks) {
+      const stats = task.stats as Record<string, unknown> | undefined;
+      const bytes = parseDataSize(stats?.processedInputDataSize);
+      if (bytes !== undefined) {
+        inputs.push(bytes);
+      }
+    }
+    if (inputs.length >= 2) {
+      const avg = inputs.reduce((a, b) => a + b, 0) / inputs.length;
+      if (avg > 0) {
+        const ratio = Math.max(...inputs) / avg;
+        if (worst === undefined || ratio > worst) {
+          worst = ratio;
+        }
+      }
+    }
+
+    const subStages = obj.subStages as unknown[] | undefined;
+    if (Array.isArray(subStages)) {
+      for (const sub of subStages) {
+        visit(typeof sub === 'string' ? lookup.get(sub) : sub);
+      }
+    }
+  }
+  visit(pickRootStage(raw));
+  return worst;
+}
+
 function collectJoinDistributions(
   ops: Array<Record<string, unknown>>,
 ): string[] {
@@ -666,8 +733,11 @@ function collectConnectors(ops: Array<Record<string, unknown>>): string[] {
     const type = (op.operatorType as string) ?? '';
     if (/Scan|TableScan/i.test(type)) {
       const info = op.info as Record<string, unknown> | undefined;
+      // Older payloads expose `connectorName` / `catalog`; current
+      // Trino table scans carry a splitOperatorInfo with `catalogName`.
       const connector =
         (info?.connectorName as string) ??
+        (info?.catalogName as string) ??
         (info?.catalog as string) ??
         undefined;
       if (connector) {

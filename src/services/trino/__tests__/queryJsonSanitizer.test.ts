@@ -133,6 +133,11 @@ describe('summarizeQueryInfo', () => {
     expect(s.dataSkewScore).toBeCloseTo(10, 1);
   });
 
+  it('parses planning time from the legacy totalPlanningTime key', () => {
+    const s = summarizeQueryInfo(makeRawQueryInfo());
+    expect(s.planningTimeMs).toBe(300);
+  });
+
   it('surfaces connector types from TableScanOperator info', () => {
     const s = summarizeQueryInfo(makeRawQueryInfo());
     expect(s.connectorTypes).toContain('hive');
@@ -232,6 +237,57 @@ describe('summarizeQueryInfo (newer Trino shape)', () => {
   it('reports largestOperator from the flat queryStats.operatorSummaries when per-stage list is empty', () => {
     const s = summarizeQueryInfo(makeNewShapeQueryInfo());
     expect(s.largestOperator).toBe('LookupJoinOperator');
+  });
+
+  it('parses planning time from the current planningTime key', () => {
+    const raw = makeNewShapeQueryInfo();
+    (raw.queryStats as Record<string, unknown>).planningTime = '0.30s';
+    const s = summarizeQueryInfo(raw);
+    expect(s.planningTimeMs).toBe(300);
+  });
+
+  it('falls back to per-task input skew when operator distributions are absent', () => {
+    const raw = makeNewShapeQueryInfo({
+      stages: {
+        outputStageId: 'stage_0',
+        stages: [
+          {
+            stageId: 'stage_0',
+            state: 'FINISHED',
+            stageStats: { totalCpuTime: '20s' },
+            subStages: ['stage_1'],
+          },
+          {
+            stageId: 'stage_1',
+            state: 'FINISHED',
+            stageStats: { totalCpuTime: '10s' },
+            // One hot task vs three light siblings:
+            // avg = (100 + 10 + 10 + 10) / 4 = 32.5MB → 100 / 32.5 ≈ 3.08
+            tasks: [
+              { stats: { processedInputDataSize: '100MB' } },
+              { stats: { processedInputDataSize: '10MB' } },
+              { stats: { processedInputDataSize: '10MB' } },
+              { stats: { processedInputDataSize: '10MB' } },
+            ],
+            subStages: [],
+          },
+        ],
+      },
+    });
+    const s = summarizeQueryInfo(raw);
+    expect(s.dataSkewScore).toBeCloseTo(3.08, 2);
+  });
+
+  it('surfaces connector types from splitOperatorInfo catalogName', () => {
+    const raw = makeNewShapeQueryInfo();
+    (raw.queryStats as Record<string, unknown>).operatorSummaries = [
+      {
+        operatorType: 'TableScanOperator',
+        info: { catalogName: 'iceberg', splitInfo: {} },
+      },
+    ];
+    const s = summarizeQueryInfo(raw);
+    expect(s.connectorTypes).toContain('iceberg');
   });
 });
 
