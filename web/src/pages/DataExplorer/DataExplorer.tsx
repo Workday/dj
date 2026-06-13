@@ -20,14 +20,20 @@ export default function DataExplorer() {
       if (!msg?.type) return;
       if (msg.type === 'show-adhoc-query') {
         setActiveView('sql');
-      } else if (msg.type === 'set-active-model' || msg.type === 'select-model') {
+      } else if (
+        msg.type === 'set-active-model' ||
+        msg.type === 'select-model'
+      ) {
         if (msg.modelName) setActiveView('model');
       } else if (
         msg.type === 'column-lineage-init' ||
         msg.type === 'column-lineage-source-init'
       ) {
         setActiveView('column');
-      } else if (msg.type === 'trigger-compilation' || msg.type === 'trigger-run-query') {
+      } else if (
+        msg.type === 'trigger-compilation' ||
+        msg.type === 'trigger-run-query'
+      ) {
         setActiveView('model');
       }
     };

@@ -717,7 +717,7 @@ export default function ModelLineage({ onShowAdhocQuery }: ModelLineageProps) {
                 <DocumentChartBarIcon className="w-4 h-4 text-surface-contrast" />
               </button>
             )}
-            
+
             {/* Split Mode Toggle */}
             <button
               onClick={handleToggleSplitMode}
