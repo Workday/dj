@@ -43,7 +43,7 @@ export const ColumnDetails: React.FC<ColumnDetailsProps> = ({ selectItem }) => {
   }
 
   return (
-    <div className="bg-[#F8F8F8] border-t border-border p-2 relative z-10">
+    <div className="bg-surface border-t border-border p-2 relative z-10">
       <div className="flex gap-4 flex-wrap">
         {/* Expression Section */}
         <div className="flex-1 min-w-0 bg-background rounded-lg p-4">

@@ -14,6 +14,14 @@ type LightdashHandler = (
   payload: ApiPayload<'lightdash'>,
 ) => Promise<ApiResponse>;
 
+/**
+ * Handler function for QueryDraft API calls.
+ * This is a lazy getter to break the circular dependency with QueryDraftService.
+ */
+type QueryDraftHandler = (
+  payload: ApiPayload<'query-draft'>,
+) => Promise<ApiResponse>;
+
 export class Api {
   constructor(
     private readonly dbt: Dbt,
@@ -26,6 +34,11 @@ export class Api {
      * This is called only when a lightdash-* message needs to be routed.
      */
     private readonly getLightdashHandler: () => LightdashHandler,
+    /**
+     * Lazy getter for QueryDraft handler to break circular dependency.
+     * This is called only when a query-draft-* message needs to be routed.
+     */
+    private readonly getQueryDraftHandler: () => QueryDraftHandler,
   ) {}
 
   /**
@@ -131,6 +144,11 @@ export class Api {
       case 'state-save':
       case 'state-clear':
         return (await this.stateManager.handleApi(
+          payload as any,
+        )) as ApiResponse<T>;
+      case 'query-draft-create':
+      case 'query-draft-execute':
+        return (await this.getQueryDraftHandler()(
           payload as any,
         )) as ApiResponse<T>;
       default:

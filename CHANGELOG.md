@@ -1,9 +1,32 @@
 # Change Log
 
-## Next
+## 1.8.0
+
+### Dashboards as Code
 
 - **New `dj.lightdash.restrictedProjects` setting** — flag Lightdash project UUIDs as `block` (the Upload tab refuses with an inline error) or `warn` (upload proceeds only after a confirmation dialog).
 - **`Add path to .gitignore` now defaults to on**, overridable via the new `dj.lightdash.defaultAddPathToGitignore` setting (`false` keeps it opt-in). The written entry is now root-anchored (e.g. `/lightdash/`) so a same-named directory nested elsewhere isn't ignored.
+
+### Bug fixes
+
+- **YAML reserved tokens round-trip safely.** Values like `OFF`, `ON`, `YES`, `NO` (and lowercase variants) are now quoted on emit and tolerated on load, so `time_intervals: OFF` no longer turns into `false` in the manifest and crashes sync. Per-column meta failures also name the offending column.
+- **Sync errors surface the real cause.** SQL/YML generation failures now show the underlying message instead of always pointing at `expr` syntax.
+
+## 1.7.1
+
+### Iceberg write strategy update
+
+- **Write strategy** — Iceberg incremental writes now use an event-date literal directly instead of creating and querying a temporary table, improving write performance
+
+## 1.7.0
+
+### Adhoc SQL Editor / Query Draft
+
+- **Query Draft support** — Create ad-hoc SQL queries in `.dj/drafts/` for prototyping and testing without cluttering the project with temporary dbt models. Access via "Create New Query" in the Actions panel.
+- **Query Results panel** — New dedicated panel in the Data Explorer view container for executing draft SQL queries directly against Trino and viewing results. Shows query results, execution time, and errors.
+- **DJ: Run Query command** — Right-click on `.draft.sql` files and select "DJ: Run Query" to execute the SQL and view results in the Query Results panel. Only draft-specific commands (Run Query, Convert to DJ Model) appear in the context menu.
+- **AI-assisted model conversion** — Right-click on `.draft.sql` files to convert them to DJ models using your preferred AI assistant (Copilot, Cursor, or Claude). The extension detects available assistants and shows relevant options.
+- **New `convert-sql-to-model` skill** — AI skill file that guides assistants through the SQL-to-model conversion process, analyzing query patterns and creating properly structured `.model.json` files.
 
 ## 1.6.0
 

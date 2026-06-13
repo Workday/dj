@@ -151,6 +151,8 @@ export const SERVICE_NAMES = {
   Trino: 'trino',
   DataExplorer: 'dataExplorer',
   ColumnLineage: 'columnLineage',
+  QueryDraft: 'queryDraft',
+  QueryPreview: 'queryPreview',
 
   // API Layer
   Api: 'api',

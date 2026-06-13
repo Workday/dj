@@ -26,8 +26,16 @@ export type DJ = {
 };
 
 const yamlParse = yaml.parse;
+// Stringify with YAML 1.1 quoting semantics so reserved boolean tokens
+// (OFF / NO / YES / ON / Y / N / off / no / yes / on / etc.) are emitted as
+// quoted strings. dbt loads YAML with PyYAML which uses YAML 1.1 — without
+// this, an unquoted scalar like `time_intervals: OFF` round-trips through the
+// dbt manifest as the boolean `false`, which then crashes downstream code
+// that expects either the literal string "OFF" or a list per the lightdash
+// dimension schema. Parsing intentionally stays on the YAML 1.2 default so
+// our own re-reads keep treating quoted values as strings.
 const yamlStringify = (obj: object) =>
-  yaml.stringify(obj, { aliasDuplicateObjects: false });
+  yaml.stringify(obj, { aliasDuplicateObjects: false, version: '1.1' });
 export { yamlParse, yamlStringify };
 
 export {
