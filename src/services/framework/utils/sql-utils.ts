@@ -167,6 +167,7 @@ export function normalizeTimeIntervals(
       .uniq()
       .value() as TimeIntervals;
   }
+
   console.warn(
     `[dj] Ignoring unsupported time_intervals value on ${context.modelName}.${context.columnName}: ` +
       `expected "OFF" or an array of strings, got ${typeof value} (${JSON.stringify(value)}).`,

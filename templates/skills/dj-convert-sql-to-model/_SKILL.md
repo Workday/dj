@@ -1,12 +1,12 @@
 ---
-name: convert-sql-to-model
+name: dj-convert-sql-to-model
 description: >-
   Convert an existing SQL query into a DJ .model.json file. Use when the user
   has a working SQL query (often from a .draft.sql file) and wants to formalize
   it as a DJ/dbt model.
-compatibility: DJ extension workspace with .dj/schemas/ and .agents/dj/AGENTS.md
+compatibility: DJ (Data JSON) Framework extension workspace with .dj/schemas/ and .agents/dj/AGENTS.md
 metadata:
-  dj-framework-skill: '1.0'
+  dj-skill: '1.0'
 ---
 
 # Convert SQL to DJ Model

@@ -23,7 +23,8 @@ export type LightdashYamlDownloadOptions = {
   /**
    * When true, the download flow appends the configured path to the
    * workspace `.gitignore` (idempotent, scoped to a managed marker block)
-   * before the CLI runs. Default false.
+   * before the CLI runs. Initial state seeded from
+   * `dj.lightdash.defaultAddPathToGitignore` (default `true`).
    */
   addToGitignore: boolean;
 };
@@ -156,7 +157,7 @@ const initialState = {
     charts: [] as string[],
     project: '',
     setAsDefault: false,
-    addToGitignore: false,
+    addToGitignore: true,
   },
 
   uploadOptions: {

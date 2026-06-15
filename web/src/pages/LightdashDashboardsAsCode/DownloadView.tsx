@@ -273,7 +273,7 @@ export function DownloadView() {
             error={errors.project}
           />
 
-          <div>
+          <div className="flex flex-col gap-2">
             <label className="text-sm/6 font-semibold text-background-contrast">
               Save to Path
             </label>

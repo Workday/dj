@@ -105,8 +105,10 @@ export class Api {
       case 'lightdash-yaml-edit-file':
       case 'lightdash-yaml-download':
       case 'lightdash-yaml-upload':
+      case 'lightdash-yaml-check-upload-policy':
       case 'lightdash-yaml-delete-files':
       case 'lightdash-yaml-get-default-path':
+      case 'lightdash-yaml-get-download-defaults':
       case 'lightdash-yaml-set-default-path':
       case 'lightdash-yaml-ensure-gitignore':
         // Lazy resolution - gets handler only when needed
@@ -130,14 +132,22 @@ export class Api {
         )) as ApiResponse<T>;
       case 'trino-fetch-catalogs':
       case 'trino-fetch-columns':
-      case 'trino-fetch-current-schema':
       case 'trino-fetch-etl-sources':
       case 'trino-fetch-schemas':
       case 'trino-fetch-system-nodes':
-      case 'trino-fetch-system-queries':
-      case 'trino-fetch-system-query-with-task':
-      case 'trino-fetch-system-query-sql':
       case 'trino-fetch-tables':
+      case 'trino-fetch-query-info':
+      case 'trino-fetch-active-queries':
+      case 'trino-fetch-persisted-queries':
+      case 'trino-delete-persisted-query':
+      case 'trino-analyze-query':
+      case 'trino-list-profiles':
+      case 'trino-save-profile':
+      case 'trino-delete-profile':
+      case 'trino-set-active-profile':
+      case 'trino-set-credentials':
+      case 'trino-ping-coordinator':
+      case 'trino-jump-to-model-from-query':
         return (await this.trino.handleApi(payload as any)) as ApiResponse<T>;
       case 'state-load':
       case 'state-save':

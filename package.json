@@ -218,8 +218,25 @@
         "title": "DJ: Jump to YAML"
       },
       {
-        "command": "dj.command.queryView",
-        "title": "DJ: Query View"
+        "command": "dj.command.queryControlCenter",
+        "title": "DJ: Query Control Center",
+        "icon": "$(dashboard)"
+      },
+      {
+        "command": "dj.command.analyzeQuery",
+        "title": "DJ: Analyze Trino Query with AI"
+      },
+      {
+        "command": "dj.command.setTrinoCredentials",
+        "title": "DJ: Set Trino Credentials..."
+      },
+      {
+        "command": "dj.command.selectTrinoProfile",
+        "title": "DJ: Select Trino Connection Profile..."
+      },
+      {
+        "command": "dj.command.jumpToModelFromQuery",
+        "title": "DJ: Jump to Model from Trino Query"
       },
       {
         "command": "dj.command.openDataExplorerWithModel",
@@ -348,6 +365,90 @@
           "default": "trino-cli",
           "description": "Path to Trino CLI. Supports: command name ('trino', 'trino-cli'), full path ('/usr/local/bin/trino'), or directory ('/usr/local/bin' → checks for 'trino-cli' then 'trino'). Defaults to 'trino-cli' from PATH. Takes effect on next command execution."
         },
+        "dj.trino.profiles": {
+          "type": "array",
+          "default": [],
+          "markdownDescription": "Named Trino coordinator profiles used by the **Query Control Center** (`DJ: Query Control Center`). Each profile is non-secret connection metadata — passwords / bearer tokens are stored separately in VS Code SecretStorage, env vars, password files, or `~/.dbt/profiles.yml` based on `authSource`. Plain-text secrets in this setting are intentionally not supported.\n\nRun **DJ: Set Trino Credentials...** to store a SecretStorage-backed credential, and **DJ: Select Trino Connection Profile...** to switch the active profile.",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "coordinatorUrl",
+              "user",
+              "authMethod",
+              "authSource"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Unique profile name (e.g. 'dev', 'staging', 'prod')."
+              },
+              "coordinatorUrl": {
+                "type": "string",
+                "description": "Trino coordinator base URL (e.g. https://trino.prod.example.com)."
+              },
+              "user": {
+                "type": "string",
+                "description": "X-Trino-User header value."
+              },
+              "authMethod": {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "basic",
+                  "bearer",
+                  "password-file"
+                ],
+                "default": "none",
+                "description": "HTTP auth scheme to send. 'none' = no Authorization header."
+              },
+              "authSource": {
+                "type": "string",
+                "enum": [
+                  "secret-storage",
+                  "env-var",
+                  "password-file",
+                  "dbt-profile"
+                ],
+                "default": "secret-storage",
+                "markdownDescription": "Where to read the secret from at request time. Never stored in this settings file.\n\n- `secret-storage` — VS Code SecretStorage (OS keychain). Use `DJ: Set Trino Credentials...` to store.\n- `env-var` — process env var named in `secretEnvVar`.\n- `password-file` — file path in `passwordFilePath`.\n- `dbt-profile` — read `password` / `password_file` / `jwt_token` from `~/.dbt/profiles.yml`."
+              },
+              "verifyTls": {
+                "type": "boolean",
+                "default": true,
+                "description": "Verify TLS certificates. Set to false for self-signed certs on private deployments."
+              },
+              "secretEnvVar": {
+                "type": "string",
+                "description": "Env var name (used when authSource = 'env-var')."
+              },
+              "passwordFilePath": {
+                "type": "string",
+                "description": "Path to a file containing the credential (used when authSource = 'password-file'). Supports leading '~/'."
+              },
+              "dbtProfile": {
+                "type": "string",
+                "description": "dbt profile name in ~/.dbt/profiles.yml (used when authSource = 'dbt-profile')."
+              },
+              "dbtTarget": {
+                "type": "string",
+                "description": "dbt target name (defaults to the profile's `target`)."
+              }
+            }
+          }
+        },
+        "dj.trino.activeProfile": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Name of the active Trino coordinator profile from `dj.trino.profiles`. Falls back to the first profile when blank. The **Query Control Center** header dropdown also writes here."
+        },
+        "dj.trino.diagnosticsRetentionDays": {
+          "type": "number",
+          "default": 30,
+          "minimum": 1,
+          "maximum": 365,
+          "markdownDescription": "How long to keep sanitized Trino query JSON in `.dj/diagnostics/` before the **History** tab garbage-collects it. Coordinator memory only retains query metadata for ~15 minutes; persisted diagnostics survive coordinator eviction."
+        },
         "dj.lightdashProjectPath": {
           "type": "string",
           "description": "Custom path to the dbt project directory for Lightdash preview (relative to workspace root). If not set, will auto-detect from available dbt projects. Takes effect on next command execution."
@@ -378,6 +479,46 @@
           "type": "boolean",
           "default": false,
           "description": "Automatically set case_sensitive: true on partition columns in generated YAML. Requires 'DJ: Sync to SQL and YML' to take effect."
+        },
+        "dj.lightdash.defaultAddPathToGitignore": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Initial state of the **Add path to .gitignore** checkbox on the DJ Dashboards-as-Code Download tab. When `true` (the default), each new panel session starts with the checkbox enabled so downloaded YAML lands in `.gitignore` out of the box. Users can still toggle the checkbox per-download; this setting only seeds the default. Takes effect the next time the panel is opened."
+        },
+        "dj.lightdash.restrictedProjects": {
+          "type": "array",
+          "default": [],
+          "markdownDescription": "Restrict the **DJ Dashboards-as-Code Upload** tab against specific Lightdash project UUIDs. Each entry flags a project as `block` (the Upload tab refuses the upload with an inline error) or `warn` (a confirmation dialog must be acknowledged first). Unlisted projects are unaffected and matching is case-insensitive. Only uploads started from the DJ Upload tab are gated — a manual `lightdash upload` from a terminal can't be intercepted.",
+          "items": {
+            "type": "object",
+            "required": [
+              "uuid",
+              "mode"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "uuid": {
+                "type": "string",
+                "markdownDescription": "Lightdash project UUID to restrict. Matched case-insensitively; surrounding whitespace is trimmed."
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "block",
+                  "warn"
+                ],
+                "enumDescriptions": [
+                  "Hard refuse — the Upload tab will not start the upload.",
+                  "Require confirmation — the user must acknowledge a dialog before the upload proceeds."
+                ],
+                "markdownDescription": "`block` = hard refuse the upload; `warn` = require explicit user confirmation before uploading."
+              },
+              "label": {
+                "type": "string",
+                "markdownDescription": "Optional friendly name shown in the error / confirmation message alongside the UUID."
+              }
+            }
+          }
         },
         "dj.columnLineage.autoRefresh": {
           "type": "boolean",
@@ -777,14 +918,6 @@
           "name": "Lineage Graph",
           "icon": "$(graph)"
         }
-      ],
-      "dj-column-lineage": [
-        {
-          "id": "dj.view.columnLineage",
-          "type": "webview",
-          "name": "Column Lineage",
-          "icon": "$(type-hierarchy)"
-        }
       ]
     },
     "viewsWelcome": [
@@ -806,11 +939,6 @@
           "id": "dj-lineage",
           "title": "Data Explorer",
           "icon": "$(graph)"
-        },
-        {
-          "id": "dj-column-lineage",
-          "title": "Column Lineage",
-          "icon": "$(type-hierarchy)"
         }
       ]
     }

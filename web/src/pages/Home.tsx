@@ -39,8 +39,8 @@ export function Home() {
           </a>
         </li>
         <li className="p-2">
-          <a href="/query/view/1234" className="text-blue-500">
-            Query View
+          <a href="/query/control-center" className="text-blue-500">
+            Query Control Center
           </a>
         </li>
       </ul>

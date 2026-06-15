@@ -6,7 +6,7 @@ description: >-
   filters, sorts, axes, table config, or dashboard tiles/filters locally before
   re-uploading to Lightdash via the `DJ: Lightdash — Dashboards as Code`
   webview.
-compatibility: DJ extension workspace with .agents/dj/AGENTS.md and a populated `lightdash/` directory
+compatibility: DJ (Data JSON) Framework extension workspace with .agents/dj/AGENTS.md and a populated `lightdash/` directory
 metadata:
   dj-skill: '1.0'
 ---
