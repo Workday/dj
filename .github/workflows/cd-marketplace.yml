@@ -45,8 +45,8 @@ jobs:
           node-version: '24'
           cache: 'npm'
 
-      - name: Install vsce
-        run: npm install -g @vscode/vsce@^3.6 --silent --no-fund --no-audit
+      - name: Install vsce and ovsx
+        run: npm install -g @vscode/vsce@^3.6 ovsx@^0.10 --silent --no-fund --no-audit
 
       - name: Resolve package metadata
         id: pkg
@@ -130,6 +130,25 @@ jobs:
             exit 1
           fi
 
+      - name: Check Open VSX for existing version
+        env:
+          PUBLISHER: ${{ steps.pkg.outputs.publisher }}
+          PACKAGE_NAME: ${{ steps.pkg.outputs.name }}
+          PACKAGE_VERSION: ${{ steps.pkg.outputs.version }}
+        run: |
+          set -euo pipefail
+          HTTP_CODE=$(curl -s -o /dev/null -w '%{http_code}' \
+            "https://open-vsx.org/api/${PUBLISHER}/${PACKAGE_NAME}/${PACKAGE_VERSION}")
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "::error::Version $PACKAGE_VERSION already published to Open VSX for ${PUBLISHER}.${PACKAGE_NAME}"
+            exit 1
+          elif [ "$HTTP_CODE" = "404" ]; then
+            echo "Version not on Open VSX yet. Proceeding."
+          else
+            echo "::error::Unexpected HTTP $HTTP_CODE from Open VSX registry"
+            exit 1
+          fi
+
       - name: Install dependencies
         run: |
           set -euo pipefail
@@ -171,6 +190,18 @@ jobs:
             exit 1
           fi
           vsce publish --no-dependencies --packagePath "./${VSIX}"
+
+      - name: Publish to Open VSX
+        env:
+          OVSX_PAT: ${{ secrets.OPEN_VSX_TOKEN }}
+          VSIX: ${{ steps.pkg.outputs.vsix }}
+        run: |
+          set -euo pipefail
+          if [ -z "${OVSX_PAT:-}" ]; then
+            echo "::error::Open VSX token secret is missing"
+            exit 1
+          fi
+          ovsx publish "./${VSIX}" -p "$OVSX_PAT"
 
       - name: Read changelog entry
         id: changelog
