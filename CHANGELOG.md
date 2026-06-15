@@ -8,6 +8,10 @@
 - **Named Trino connection profiles.** `dj.trino.profiles` and `dj.trino.activeProfile` define coordinator profiles (dev / staging / prod) you switch from the panel or `DJ: Select Trino Connection Profile...`. Each profile resolves its secret at request time from VS Code SecretStorage (set via `DJ: Set Trino Credentials...`), an environment variable, a password file, or your `~/.dbt/profiles.yml` — never plain text in settings — and the panel shows a coordinator status indicator with one-click refresh for expired tokens.
 - **New `dj-trino-analyzer` agent skill** (`.agents/skills/dj-trino-analyzer/SKILL.md`, written when `dj.codingAgent` is on) gives a coding agent operator-level heuristics for diagnosing slow or failed Trino queries from the sanitized JSON, plus a bundled Trino QueryInfo field reference (`references/`, verified against the Trino 479 source) for deep dives into the raw `.dj/diagnostics/<id>.full.json` — schema tables, enum gotchas, and ready-to-paste jq recipes. The sanitizer doubles as a tool firewall: payloads containing row data are rejected before they reach disk, so customer data never reaches an LLM prompt.
 
+### Agent skills
+
+- **`convert-sql-to-model` skill renamed to `dj-convert-sql-to-model`** so every DJ skill shares the `dj-` prefix. The stale `.agents/skills/convert-sql-to-model/` folder from earlier releases is removed automatically the next time skills are deployed.
+
 ### Bug fixes
 
 - **YAML reserved tokens round-trip safely.** Values like `OFF`, `ON`, `YES`, `NO` (and lowercase variants) are now quoted on emit and tolerated on load, so `time_intervals: OFF` no longer turns into `false` in the manifest and crashes sync. Per-column meta failures also name the offending column.
