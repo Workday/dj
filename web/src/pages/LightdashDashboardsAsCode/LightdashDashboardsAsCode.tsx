@@ -34,6 +34,7 @@ export function LightdashDashboardsAsCode() {
     setIsLoadingPath,
     setTree,
     setIsLoadingTree,
+    setDownloadOption,
     appendLogToActiveChannel,
   } = useLightdashYamlStore();
 
@@ -41,13 +42,23 @@ export function LightdashDashboardsAsCode() {
     setIsLoadingPath(true);
     setIsLoadingTree(true);
     try {
-      const pathResp = await api.post({
-        type: 'lightdash-yaml-get-default-path',
-        request: null,
-      });
+      // The path and download-defaults reads are independent, so fetch
+      // them in parallel. The file listing depends on the resolved path,
+      // so it runs afterwards.
+      const [pathResp, defaultsResp] = await Promise.all([
+        api.post({
+          type: 'lightdash-yaml-get-default-path',
+          request: null,
+        }),
+        api.post({
+          type: 'lightdash-yaml-get-download-defaults',
+          request: null,
+        }),
+      ]);
       setDefaultPath(pathResp.path);
       setCurrentPath(pathResp.path);
       setAbsolutePath(pathResp.absolutePath);
+      setDownloadOption('addToGitignore', defaultsResp.addPathToGitignore);
 
       const listResp = await api.post({
         type: 'lightdash-yaml-list-files',
@@ -73,6 +84,7 @@ export function LightdashDashboardsAsCode() {
     setIsLoadingPath,
     setTree,
     setIsLoadingTree,
+    setDownloadOption,
   ]);
 
   useEffect(() => {

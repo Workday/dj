@@ -27,6 +27,10 @@ import {
   syncYamlSchemasSetting,
 } from '@services/lightdash/dashboardsAsCode';
 import { getHtml } from '@services/webview/utils';
+import {
+  describeLightdashRestriction,
+  resolveLightdashUploadRestriction,
+} from '@shared/lightdash/restrictions';
 import type {
   LightdashModel,
   LightdashPreview,
@@ -321,6 +325,7 @@ export class Lightdash implements ApiEnabledService<'lightdash'> {
             success: result.success,
             uploadedFiles: result.uploadedFiles,
             error: result.error,
+            restriction: result.restriction,
           });
         } catch (err: unknown) {
           this.log.error('Error executing lightdash upload:', err);
@@ -329,6 +334,20 @@ export class Lightdash implements ApiEnabledService<'lightdash'> {
             error: err instanceof Error ? err.message : 'Unknown error',
           });
         }
+      }
+      case 'lightdash-yaml-check-upload-policy': {
+        const project = payload.request.project.trim();
+        const status = resolveLightdashUploadRestriction(
+          project,
+          getDjConfig().lightdashRestrictedProjects ?? [],
+        );
+        if (status.status === 'allow') {
+          return apiResponse<typeof payload.type>(status);
+        }
+        return apiResponse<typeof payload.type>({
+          ...status,
+          message: describeLightdashRestriction(status),
+        });
       }
       case 'lightdash-yaml-delete-files': {
         try {
@@ -346,6 +365,12 @@ export class Lightdash implements ApiEnabledService<'lightdash'> {
         return apiResponse<typeof payload.type>({
           path: getDashboardsAsCodeRelativePath(),
           absolutePath: getDashboardsAsCodeAbsolutePath(),
+        });
+      }
+      case 'lightdash-yaml-get-download-defaults': {
+        return apiResponse<typeof payload.type>({
+          addPathToGitignore:
+            getDjConfig().lightdashDefaultAddPathToGitignore ?? true,
         });
       }
       case 'lightdash-yaml-set-default-path': {

@@ -480,6 +480,46 @@
           "default": false,
           "description": "Automatically set case_sensitive: true on partition columns in generated YAML. Requires 'DJ: Sync to SQL and YML' to take effect."
         },
+        "dj.lightdash.defaultAddPathToGitignore": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Initial state of the **Add path to .gitignore** checkbox on the DJ Dashboards-as-Code Download tab. When `true` (the default), each new panel session starts with the checkbox enabled so downloaded YAML lands in `.gitignore` out of the box. Users can still toggle the checkbox per-download; this setting only seeds the default. Takes effect the next time the panel is opened."
+        },
+        "dj.lightdash.restrictedProjects": {
+          "type": "array",
+          "default": [],
+          "markdownDescription": "Restrict the **DJ Dashboards-as-Code Upload** tab against specific Lightdash project UUIDs. Each entry flags a project as `block` (the Upload tab refuses the upload with an inline error) or `warn` (a confirmation dialog must be acknowledged first). Unlisted projects are unaffected and matching is case-insensitive. Only uploads started from the DJ Upload tab are gated — a manual `lightdash upload` from a terminal can't be intercepted.",
+          "items": {
+            "type": "object",
+            "required": [
+              "uuid",
+              "mode"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "uuid": {
+                "type": "string",
+                "markdownDescription": "Lightdash project UUID to restrict. Matched case-insensitively; surrounding whitespace is trimmed."
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "block",
+                  "warn"
+                ],
+                "enumDescriptions": [
+                  "Hard refuse — the Upload tab will not start the upload.",
+                  "Require confirmation — the user must acknowledge a dialog before the upload proceeds."
+                ],
+                "markdownDescription": "`block` = hard refuse the upload; `warn` = require explicit user confirmation before uploading."
+              },
+              "label": {
+                "type": "string",
+                "markdownDescription": "Optional friendly name shown in the error / confirmation message alongside the UUID."
+              }
+            }
+          }
+        },
         "dj.columnLineage.autoRefresh": {
           "type": "boolean",
           "default": true,

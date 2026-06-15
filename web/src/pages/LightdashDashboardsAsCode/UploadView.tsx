@@ -2,8 +2,16 @@ import {
   ArrowUpTrayIcon,
   MagnifyingGlassIcon,
 } from '@heroicons/react/24/outline';
+import type { LightdashRestrictionStatus } from '@shared/lightdash/restrictions';
 import { useApp } from '@web/context';
-import { Button, Checkbox, FileTree, InputText, LogPanel } from '@web/elements';
+import {
+  Button,
+  Checkbox,
+  DialogBox,
+  FileTree,
+  InputText,
+  LogPanel,
+} from '@web/elements';
 import { useLightdashYamlStore } from '@web/stores/useLightdashYamlStore';
 import { useMemo, useState } from 'react';
 
@@ -48,20 +56,25 @@ export function UploadView() {
     files?: string;
   }>({});
 
-  const onUpload = async () => {
-    const project = uploadOptions.project.trim();
-    const nextErrors: typeof errors = {};
-    if (!project) {
-      nextErrors.project = 'Project UUID is required.';
-    }
-    if (totalFiles === 0) {
-      nextErrors.files = 'No local YAML files to upload. Run a download first.';
-    }
-    setErrors(nextErrors);
-    if (Object.keys(nextErrors).length > 0) {
-      return;
-    }
+  // Warn-mode confirmation dialog state. Populated when the pre-flight
+  // `lightdash-yaml-check-upload-policy` (or the backend response) tells
+  // us the entered project is on the restricted list with `mode=warn`.
+  // The user must explicitly confirm before we re-issue the upload with
+  // `acknowledgedWarning: true`.
+  const [warnDialog, setWarnDialog] = useState<{
+    open: boolean;
+    message?: string;
+    label?: string;
+    uuid?: string;
+  }>({ open: false });
 
+  /**
+   * Send the actual `lightdash-yaml-upload` request and surface the
+   * result. Split out so the warn-mode dialog can re-issue with
+   * `acknowledgedWarning: true` without duplicating the body.
+   */
+  const submitUpload = async (acknowledgedWarning: boolean) => {
+    const project = uploadOptions.project.trim();
     setIsUploading(true);
     clearUploadLogs();
     setActiveLogChannel('upload');
@@ -81,6 +94,7 @@ export function UploadView() {
           force: uploadOptions.force,
           includeCharts: uploadOptions.includeCharts,
           project,
+          acknowledgedWarning: acknowledgedWarning || undefined,
         },
       });
       if (resp.success) {
@@ -88,10 +102,25 @@ export function UploadView() {
           resp.uploadedFiles ?? (allSelected ? allFilePaths : selected),
         );
         setShowPostUploadDialog(true);
+      } else if (resp.restriction && resp.restriction.status !== 'allow') {
+        // Race-recovery: the policy changed between the UI pre-flight
+        // and the spawn. Re-surface the message on the appropriate
+        // channel so the user understands why the upload was refused.
+        const message =
+          resp.restriction.message ?? resp.error ?? 'Upload was restricted.';
+        if (resp.restriction.status === 'block') {
+          setErrors((prev) => ({ ...prev, project: message }));
+        } else {
+          addUploadLog({
+            level: 'warning',
+            message,
+            timestamp: new Date().toISOString(),
+          });
+        }
       }
-      // Failures are already streamed line-by-line into the LogPanel by the
-      // CLI stderr handler in the extension; re-emitting resp.error here
-      // would just duplicate the error block.
+      // Other failures are already streamed line-by-line into the
+      // LogPanel by the CLI stderr handler in the extension; re-emitting
+      // resp.error here would just duplicate the error block.
     } catch (err) {
       addUploadLog({
         level: 'error',
@@ -102,6 +131,54 @@ export function UploadView() {
       setIsUploading(false);
       setActiveLogChannel(null);
     }
+  };
+
+  const onUpload = async () => {
+    const project = uploadOptions.project.trim();
+    const nextErrors: typeof errors = {};
+    if (!project) {
+      nextErrors.project = 'Project UUID is required.';
+    }
+    if (totalFiles === 0) {
+      nextErrors.files = 'No local YAML files to upload. Run a download first.';
+    }
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) {
+      return;
+    }
+
+    // Pre-flight the restricted-projects policy so we can show the
+    // confirmation modal for warn-mode and abort early for block-mode
+    // without spawning the CLI. Backend re-checks (defense-in-depth).
+    let policy: LightdashRestrictionStatus = { status: 'allow' };
+    try {
+      policy = await api.post({
+        type: 'lightdash-yaml-check-upload-policy',
+        request: { project },
+      });
+    } catch {
+      // If the pre-flight fails for any reason, fall through to the
+      // upload; the backend will still enforce the policy.
+    }
+
+    if (policy.status === 'block') {
+      setErrors((prev) => ({
+        ...prev,
+        project: policy.message ?? 'Upload blocked for this project.',
+      }));
+      return;
+    }
+    if (policy.status === 'warn') {
+      setWarnDialog({
+        open: true,
+        message: policy.message,
+        label: policy.label,
+        uuid: policy.uuid,
+      });
+      return;
+    }
+
+    await submitUpload(false);
   };
 
   return (
@@ -215,6 +292,28 @@ export function UploadView() {
         className="lg:col-span-2 h-full min-h-0"
         logs={uploadLogs}
         emptyMessage="Run an upload to see CLI output here."
+      />
+
+      <DialogBox
+        open={warnDialog.open}
+        variant="warning"
+        title="Restricted Lightdash project"
+        description={
+          warnDialog.message ??
+          `The project ${
+            warnDialog.label
+              ? `'${warnDialog.label}' (${warnDialog.uuid ?? ''})`
+              : warnDialog.uuid ?? ''
+          } is marked as warn in 'dj.lightdash.restrictedProjects'. Continue with the upload?`
+        }
+        caption="This setting is configured in 'dj.lightdash.restrictedProjects'."
+        confirmCTALabel="Upload anyway"
+        discardCTALabel="Cancel"
+        onConfirm={() => {
+          setWarnDialog({ open: false });
+          void submitUpload(true);
+        }}
+        onDiscard={() => setWarnDialog({ open: false })}
       />
     </div>
   );

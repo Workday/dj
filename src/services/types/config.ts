@@ -4,6 +4,7 @@
 
 import type { AutoGenerateTestsConfig } from '@services/framework/utils';
 import type { DefaultIncrementalStrategy } from '@shared/framework/types';
+import type { LightdashRestrictedProject } from '@shared/lightdash/restrictions';
 import type { LogLevel } from '@shared/types/common';
 
 /**
@@ -27,6 +28,8 @@ export type CoderConfig = {
   lightdashDefaultSqlFilter?: string;
   lightdashDefaultSqlFilterRequiredColumns?: string[];
   lightdashDefaultPartitionColumnCaseSensitive?: boolean;
+  lightdashDefaultAddPathToGitignore?: boolean;
+  lightdashRestrictedProjects?: LightdashRestrictedProject[];
   materializationDefaultIncrementalStrategy?: DefaultIncrementalStrategy;
   // Settings with defaults from package.json
   columnLineageAutoRefresh?: boolean;

@@ -513,6 +513,13 @@ export function AppProvider() {
                   );
                   return;
                 }
+                case 'lightdash-yaml-check-upload-policy': {
+                  // No `dj.lightdash.restrictedProjects` setting in the
+                  // mocked browser/test environment, so always allow.
+                  return resolve(
+                    apiResponse<typeof payloadType>({ status: 'allow' }),
+                  );
+                }
                 case 'lightdash-yaml-delete-files': {
                   // Clear the mocked working directory so the next list-files
                   // returns "No files yet." until a download repopulates it.
@@ -526,6 +533,13 @@ export function AppProvider() {
                     apiResponse<typeof payloadType>({
                       path: 'lightdash',
                       absolutePath: '/mock/workspace/lightdash',
+                    }),
+                  );
+                }
+                case 'lightdash-yaml-get-download-defaults': {
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      addPathToGitignore: true,
                     }),
                   );
                 }

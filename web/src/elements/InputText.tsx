@@ -55,7 +55,7 @@ export function InputText({
         placeholder={placeholder}
       />
       {error && typeof error === 'string' && (
-        <p className="inline-block text-error text-xs italic">{error}</p>
+        <p className="inline-block text-error text-xs italic pt-1">{error}</p>
       )}
     </Field>
   );

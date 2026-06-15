@@ -2,6 +2,11 @@
 
 ## 1.8.0
 
+### Dashboards as Code
+
+- **New `dj.lightdash.restrictedProjects` setting** — flag Lightdash project UUIDs as `block` (the Upload tab refuses with an inline error) or `warn` (upload proceeds only after a confirmation dialog).
+- **`Add path to .gitignore` now defaults to on**, overridable via the new `dj.lightdash.defaultAddPathToGitignore` setting (`false` keeps it opt-in). The written entry is now root-anchored (e.g. `/lightdash/`) so a same-named directory nested elsewhere isn't ignored.
+
 ### Trino Query Control Center
 
 - **New Query Control Center (`DJ: Query Control Center`)** — a master-detail panel that replaces the Query View for inspecting and triaging Trino queries. A **Live** tab (queries from your active coordinator, or the local Trino CLI when no profile is set, with a "dbt runs only" filter) and a **History** tab both support search, state, and user/source filtering. Selecting a query shows its summary, stage tree, slowest operators, failure details, and SQL, plus **Jump to Model** (opens the matching `.model.json`) and **Analyze with AI**, which saves sanitized JSON under `.dj/diagnostics/` so analyzed queries reopen even after the coordinator evicts them (~15 min).
