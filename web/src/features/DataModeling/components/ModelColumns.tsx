@@ -1,12 +1,5 @@
 import { InformationCircleIcon } from '@heroicons/react/24/outline';
-import LineageIcon from '@web/assets/icons/lineage.svg?react';
-import {
-  Button,
-  Checkbox,
-  InputText,
-  RadioGroup,
-  Tooltip,
-} from '@web/elements';
+import { Button, InputText, RadioGroup, Tooltip } from '@web/elements';
 import { useModelStore } from '@web/stores/useModelStore';
 import React, {
   useCallback,
@@ -20,8 +13,9 @@ import {
   getSelectedColumns,
   modelColumnSelectionList,
 } from '../../../utils/dataModeling';
+import type { SelectionSourceKind } from '../types';
 import { SelectionType } from '../types';
-import DataTypeBadge from './DataTypeBadge';
+import { ColumnSection } from './ColumnSection';
 
 interface Column {
   name: string;
@@ -43,132 +37,35 @@ interface ModelColumnsProps {
     include?: string[];
     exclude?: string[];
   };
-  isSourceModel?: boolean; // New prop to determine if using source-based types
+  /**
+   * @deprecated Prefer `sourceKind`. Retained for backwards compatibility with
+   * callers (e.g. JoinNode) that haven't been migrated yet. When `sourceKind`
+   * is provided it wins; otherwise `isSourceModel` is mapped to
+   * `'source' | 'model'`.
+   */
+  isSourceModel?: boolean;
+  /**
+   * Discriminates the upstream the SELECT is reading from. Drives the
+   * radio-options branch and the bulk-directive variants emitted onto the
+   * model JSON (`{all,dims,fcts}_from_{model,source,cte}`).
+   */
+  sourceKind?: SelectionSourceKind;
   onColumnLineageClick?: (columnName: string) => void; // Callback for column lineage navigation
 }
-
-interface ColumnSectionProps {
-  title: string;
-  tooltip: string;
-  columns: Column[];
-  includedColumns: string[];
-  onColumnToggle: (columnName: string) => void;
-  showBottomDivider?: boolean;
-  disabled?: boolean;
-  onColumnLineageClick?: (columnName: string) => void;
-}
-
-const ColumnSection: React.FC<ColumnSectionProps> = ({
-  title,
-  tooltip,
-  columns,
-  includedColumns,
-  onColumnToggle,
-  disabled = false,
-  onColumnLineageClick,
-}) => {
-  const selectedCount = includedColumns.filter((name) =>
-    columns.some((col) => col.name === name),
-  ).length;
-
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2">
-          <h4 className="text-sm font-medium text-foreground webkit-font-smoothing-antialiased">
-            {title}
-          </h4>
-          <Tooltip content={tooltip}>
-            <InformationCircleIcon className="w-4 h-4 text-muted-foreground cursor-help" />
-          </Tooltip>
-        </div>
-        <span className="text-xs text-muted-foreground">
-          selected {selectedCount} of {columns.length}
-        </span>
-      </div>
-
-      <hr className="border-border mb-1" />
-
-      {columns.length === 0 ? (
-        <div className="text-sm text-muted-foreground text-center py-4">
-          No {title.toLowerCase()} available
-        </div>
-      ) : (
-        <div
-          className="space-y-1 overflow-y-auto react-flow__node-scrollable"
-          style={{ maxHeight: columns.length > 5 ? '200px' : 'auto' }}
-          onWheel={(e) => {
-            if (e.type === 'wheel') {
-              e.stopPropagation();
-            }
-          }}
-        >
-          {columns.map((column) => (
-            <div
-              key={column.name}
-              className="flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-list-item-hover transition-colors cursor-pointer group"
-              onClick={(e) => {
-                e.stopPropagation();
-                onColumnToggle(column.name);
-              }}
-            >
-              <div className="flex items-center gap-2">
-                <div onClick={(e) => e.stopPropagation()}>
-                  <Checkbox
-                    id={`${title.toLowerCase()}-${column.name}`}
-                    checked={includedColumns.includes(column.name)}
-                    onChange={() => onColumnToggle(column.name)}
-                    disabled={disabled}
-                    label={column.name}
-                  />
-                </div>
-                <Tooltip
-                  content={column.description || `Column: ${column.name}`}
-                >
-                  <InformationCircleIcon className="w-4 h-4 text-muted-foreground cursor-help" />
-                </Tooltip>
-              </div>
-              <div className="flex items-center gap-2">
-                <DataTypeBadge
-                  dataType={column.dataType}
-                  className="font-mono"
-                />
-                {onColumnLineageClick && (
-                  <>
-                    <div className="w-px h-4 bg-border" />
-                    <Tooltip content="View column lineage">
-                      <Button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onColumnLineageClick?.(column.name);
-                        }}
-                        variant="iconButton"
-                        label=""
-                        icon={
-                          <LineageIcon className="w-4 h-4 [&_g]:stroke-current" />
-                        }
-                        className="p-1 text-muted-foreground hover:text-primary"
-                      />
-                    </Tooltip>
-                  </>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
 
 export const ModelColumns: React.FC<ModelColumnsProps> = ({
   columns = [],
   onSelectionChange,
   defaultValue,
   isSourceModel = false,
+  sourceKind,
   nodeId,
   onColumnLineageClick,
 }) => {
+  // Prefer the explicit `sourceKind`; fall back to the older `isSourceModel`
+  // boolean so unmigrated call sites continue to work unchanged.
+  const effectiveKind: SelectionSourceKind =
+    sourceKind ?? (isSourceModel ? 'source' : 'model');
   // Determine initial filter type from defaultValue or empty string
   const [filterType, setFilterType] = useState<SelectionType | ''>(
     defaultValue?.filterType || '',
@@ -236,9 +133,11 @@ export const ModelColumns: React.FC<ModelColumnsProps> = ({
     }
   }, [defaultValue?.filterType, defaultValue?.include, defaultValue?.exclude]);
 
-  // Radio options depend on whether it's a source model or not
+  // Radio options depend on the upstream kind. Sources still gate Dims/Fcts
+  // off because source columns don't carry dim/fct typing; CTEs and models
+  // expose all three.
   const radioOptions = useMemo(() => {
-    if (isSourceModel) {
+    if (effectiveKind === 'source') {
       return [
         { value: SelectionType.ALL_FROM_SOURCE, label: 'All From Source' },
         {
@@ -252,19 +151,27 @@ export const ModelColumns: React.FC<ModelColumnsProps> = ({
           disabled: true,
         },
       ];
-    } else {
+    }
+    if (effectiveKind === 'cte') {
       return [
-        { value: SelectionType.ALL_FROM_MODEL, label: 'All From Model' },
-        { value: SelectionType.DIMS_FROM_MODEL, label: 'Dims' },
-        { value: SelectionType.FCTS_FROM_MODEL, label: 'Fcts' },
+        { value: SelectionType.ALL_FROM_CTE, label: 'All From CTE' },
+        { value: SelectionType.DIMS_FROM_CTE, label: 'Dims' },
+        { value: SelectionType.FCTS_FROM_CTE, label: 'Fcts' },
       ];
     }
-  }, [isSourceModel]);
+    return [
+      { value: SelectionType.ALL_FROM_MODEL, label: 'All From Model' },
+      { value: SelectionType.DIMS_FROM_MODEL, label: 'Dims' },
+      { value: SelectionType.FCTS_FROM_MODEL, label: 'Fcts' },
+    ];
+  }, [effectiveKind]);
 
-  // Stable radio group name per component instance to prevent cross-component interference
+  // Stable radio group name per component instance to prevent cross-component
+  // interference. Includes the source kind so an instance that flips from
+  // model→cte gets a fresh radio group rather than inheriting stale state.
   const groupNameRef = useRef<string>(
     (() => {
-      const base = `column-filter-${isSourceModel ? 'source' : 'model'}`;
+      const base = `column-filter-${effectiveKind}`;
       return nodeId
         ? `${base}-${nodeId}`
         : `${base}-${Math.random().toString(36).slice(2, 8)}`;
@@ -277,16 +184,19 @@ export const ModelColumns: React.FC<ModelColumnsProps> = ({
       switch (type) {
         case SelectionType.DIMS_FROM_MODEL:
         case SelectionType.DIMS_FROM_SOURCE:
+        case SelectionType.DIMS_FROM_CTE:
           return columns
             .filter((col) => col.type === 'dimension')
             .map((col) => col.name);
         case SelectionType.FCTS_FROM_MODEL:
         case SelectionType.FCTS_FROM_SOURCE:
+        case SelectionType.FCTS_FROM_CTE:
           return columns
             .filter((col) => col.type === 'fact')
             .map((col) => col.name);
         case SelectionType.ALL_FROM_MODEL:
         case SelectionType.ALL_FROM_SOURCE:
+        case SelectionType.ALL_FROM_CTE:
         default:
           return columns.map((col) => col.name);
       }
@@ -296,9 +206,11 @@ export const ModelColumns: React.FC<ModelColumnsProps> = ({
 
   const currentSelectionType =
     filterType ||
-    (isSourceModel
+    (effectiveKind === 'source'
       ? SelectionType.ALL_FROM_SOURCE
-      : SelectionType.ALL_FROM_MODEL);
+      : effectiveKind === 'cte'
+        ? SelectionType.ALL_FROM_CTE
+        : SelectionType.ALL_FROM_MODEL);
 
   const availableColumns = getAvailableColumnsForType(currentSelectionType);
 
@@ -437,13 +349,15 @@ export const ModelColumns: React.FC<ModelColumnsProps> = ({
     );
     if (
       filterType === SelectionType.DIMS_FROM_MODEL ||
-      filterType === SelectionType.DIMS_FROM_SOURCE
+      filterType === SelectionType.DIMS_FROM_SOURCE ||
+      filterType === SelectionType.DIMS_FROM_CTE
     ) {
       return baseColumns.filter((c) => c.type === 'dimension');
     }
     if (
       filterType === SelectionType.FCTS_FROM_MODEL ||
-      filterType === SelectionType.FCTS_FROM_SOURCE
+      filterType === SelectionType.FCTS_FROM_SOURCE ||
+      filterType === SelectionType.FCTS_FROM_CTE
     ) {
       return baseColumns.filter((c) => c.type === 'fact');
     }
@@ -464,8 +378,13 @@ export const ModelColumns: React.FC<ModelColumnsProps> = ({
           </Tooltip>
         </div>
         <div className="text-sm text-muted-foreground text-center py-4">
-          No columns available. Select a {isSourceModel ? 'source' : 'model'} to
-          view its columns.
+          No columns available. Select a{' '}
+          {effectiveKind === 'source'
+            ? 'source'
+            : effectiveKind === 'cte'
+              ? 'CTE'
+              : 'model'}{' '}
+          to view its columns.
         </div>
       </div>
     );
@@ -542,7 +461,8 @@ export const ModelColumns: React.FC<ModelColumnsProps> = ({
       )}
 
       {(filterType === SelectionType.ALL_FROM_MODEL ||
-        filterType === SelectionType.ALL_FROM_SOURCE) && (
+        filterType === SelectionType.ALL_FROM_SOURCE ||
+        filterType === SelectionType.ALL_FROM_CTE) && (
         <>
           <ColumnSection
             title="Dimensions"
@@ -563,9 +483,9 @@ export const ModelColumns: React.FC<ModelColumnsProps> = ({
         </>
       )}
 
-      {!isSourceModel &&
+      {effectiveKind !== 'source' &&
         (filterType === SelectionType.DIMS_FROM_MODEL ||
-          filterType === SelectionType.DIMS_FROM_SOURCE) && (
+          filterType === SelectionType.DIMS_FROM_CTE) && (
           <ColumnSection
             title="Dimensions"
             tooltip="Categorical columns used for grouping and filtering"
@@ -576,9 +496,9 @@ export const ModelColumns: React.FC<ModelColumnsProps> = ({
           />
         )}
 
-      {!isSourceModel &&
+      {effectiveKind !== 'source' &&
         (filterType === SelectionType.FCTS_FROM_MODEL ||
-          filterType === SelectionType.FCTS_FROM_SOURCE) && (
+          filterType === SelectionType.FCTS_FROM_CTE) && (
           <ColumnSection
             title="Facts"
             tooltip="Numerical columns used for calculations and aggregations"

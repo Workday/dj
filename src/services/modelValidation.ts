@@ -839,9 +839,23 @@ export function validateMainModelAggregation(
       }
       const excludeList = Array.isArray(sel.exclude) ? sel.exclude : [];
       const includeList = Array.isArray(sel.include) ? sel.include : null;
+      // A column the user has already re-aggregated (or opted out of
+      // group_by enforcement on) earlier in the select array is treated
+      // as covered. The framework dedupes select items by their resulting
+      // column name on a first-wins basis (see `shouldAdd` in
+      // `column-utils.ts`): when an explicit `{ name: X, expr: "sum(X)" }`
+      // sits BEFORE the bulk directive, the bulk's bare emission of `X`
+      // is skipped, and the SELECT only carries the aggregated form. The
+      // validator must mirror that ordering so it doesn't fire on
+      // legitimate "pre-aggregate in CTE + re-aggregate in main model"
+      // patterns. Explicit entries appearing AFTER the bulk are silently
+      // dropped by the framework, so we still flag those columns.
+      const overrideNames = collectAggregatedScalarNames(modelJson.select, j);
       const leftover = fctNames.filter(
         (n) =>
-          !excludeList.includes(n) && (!includeList || includeList.includes(n)),
+          !excludeList.includes(n) &&
+          (!includeList || includeList.includes(n)) &&
+          !overrideNames.has(n),
       );
       if (leftover.length > 0) {
         errors.push({
@@ -853,6 +867,54 @@ export function validateMainModelAggregation(
   }
 
   return errors;
+}
+
+/**
+ * Collect the set of column names that the user has already addressed
+ * via an explicit scalar select entry sitting BEFORE index `cutoff` in
+ * `select`. A name is considered "covered" when its entry either
+ * carries an aggregate (`agg` / `aggs` / aggregate `expr`) or opts out
+ * of GROUP BY enforcement via `exclude_from_group_by: true`. Bulk
+ * directives are skipped -- they're handled by the caller's leftover
+ * filter, not by this override list.
+ *
+ * Only entries that produce a column *with the same name as the
+ * upstream* override the bulk's emission, which means scalar entries
+ * with `agg` / `aggs` (which suffix the name -- `col` + `sum` ->
+ * `col_sum`) are NOT counted here. The covered case in practice is
+ * `{ name: X, type: 'fct', expr: 'sum(X)' }`, where the result column
+ * keeps the upstream name and the framework's `shouldAdd` dedupe drops
+ * the bulk's bare passthrough.
+ */
+function collectAggregatedScalarNames(
+  select: unknown[],
+  cutoff: number,
+): Set<string> {
+  const names = new Set<string>();
+  for (let i = 0; i < cutoff; i++) {
+    const item = select[i];
+    if (!item || typeof item !== 'object') {
+      continue;
+    }
+    const o = item as Record<string, unknown>;
+    if (typeof o.type === 'string' && BULK_CTE_FCT_CARRIERS.has(o.type)) {
+      continue;
+    }
+    if (typeof o.name !== 'string') {
+      continue;
+    }
+    if (o.exclude_from_group_by === true) {
+      names.add(o.name);
+      continue;
+    }
+    // `agg` / `aggs` produce suffixed names (col + sum -> col_sum), so
+    // they don't override a bulk's emission of `col`. Only an aggregate
+    // expression keeps the upstream name; that's the override signal.
+    if (typeof o.expr === 'string' && isAggregateExpr(o.expr)) {
+      names.add(o.name);
+    }
+  }
+  return names;
 }
 
 function columnIsAggregated(sel: any): boolean {

@@ -3148,6 +3148,7 @@ export function frameworkMakeModelTemplate(
     exclude_framework_artifacts,
     exclude_portal_partition_columns,
     exclude_portal_source_count,
+    ctes,
   }: Api<'framework-model-create'>['request'],
   autoGenerateTestsConfig: AutoGenerateTestsConfig = {
     tests: { equalRowCount: { enabled: true, applyTo: ['left'] } },
@@ -3198,7 +3199,27 @@ export function frameworkMakeModelTemplate(
     ...(exclude_portal_source_count !== undefined && {
       exclude_portal_source_count,
     }),
+
+    // Inline CTE definitions are an opaque pass-through here -- the
+    // sync-engine's per-CTE validators are the canonical authority. Without
+    // this, the preview RPC silently strips `ctes` from the round-trip JSON
+    // and the wizard's JSON tab shows an empty model. Cast to `any` because
+    // schema types require a non-empty tuple shape while the API request
+    // permits the broader `any[]` envelope.
+    ...(ctes &&
+      Array.isArray(ctes) &&
+      ctes.length > 0 && { ctes: ctes as any }),
   };
+
+  // Treat CTE-flavoured `from` shapes (`{ cte: ... }`, `{ union: { ctes: [...] } }`)
+  // as opaque pass-throughs so the preview RPC doesn't rewrite them to
+  // `{ model: '' }`. Per-type schemas allow these variants (e.g.
+  // `int_select_model.from.cte`); the wizard already builds them correctly.
+  const fromIsCteShape = !!(
+    from &&
+    typeof from === 'object' &&
+    ('cte' in from || 'union' in from)
+  );
 
   // Helper function to handle select with proper typing
   function getSelect<T>(modelSelect: T): T {
@@ -3289,6 +3310,25 @@ export function frameworkMakeModelTemplate(
     }
     // where is already in the correct schema format from buildModelJson
     return where as any;
+  }
+
+  // Preserve CTE-shaped `from` verbatim before the per-type reshape kicks
+  // in. The per-type branches below all assume a `{ model: ... }`-flavoured
+  // input and would clobber `{ cte: ... }` / `{ union: { ctes } }`. Letting
+  // them pass through unchanged is safe for the preview RPC because the
+  // sync engine validates `from` against the per-type schema downstream;
+  // here we only need a structural pass-through.
+  if (fromIsCteShape) {
+    const passthrough = {
+      ...base,
+      type,
+      from: from as any,
+      ...(select && select.length > 0 && { select: select as any }),
+      ...(group_by && group_by.length > 0 && { group_by: group_by as any }),
+      ...(where !== undefined && { where: where as any }),
+      ...(lightdash && { lightdash: lightdash as any }),
+    };
+    return passthrough as unknown as FrameworkModel;
   }
 
   switch (type) {
