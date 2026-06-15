@@ -99,7 +99,6 @@ export class Framework implements ApiEnabledService<'framework'> {
   private statusBarItem!: vscode.StatusBarItem;
   validateSourceJson: ValidateFunction | undefined;
   webviewPanelModelCreate: vscode.WebviewPanel | undefined;
-  webviewPanelQueryView: vscode.WebviewPanel | undefined;
   webviewPanelSourceCreate: vscode.WebviewPanel | undefined;
 
   // Track files that are locked during DJ Sync operations
