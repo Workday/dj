@@ -247,7 +247,7 @@ SELECT 1
    * Build the conversion prompt for AI assistants
    */
   buildConversionPrompt(sql: string): string {
-    return `/convert-sql-to-model
+    return `/dj-convert-sql-to-model
 
 ## SQL Query
 \`\`\`sql
