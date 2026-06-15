@@ -1148,6 +1148,172 @@ describe('validateMainModelAggregation (Gap 2)', () => {
     expect(errors[0].message).toContain('pre_agg');
     expect(errors[0].instancePath).toBe('/select/1');
   });
+
+  // Pre-aggregate-in-CTE + re-aggregate-in-main-model is a legitimate
+  // pattern: the CTE settles at a fine grain, the main model rolls up
+  // with its own group_by. When the user wires that with an explicit
+  // `{ name: X, expr: "sum(X)" }` BEFORE an `all_from_cte` directive,
+  // the framework's first-wins dedupe keeps the aggregated row and the
+  // bulk's bare emission of `X` is skipped. The validator must not flag
+  // those columns.
+  test('no error when earlier explicit aggregated entries cover bulk fct columns', () => {
+    const project = createTestProject();
+    const registry = frameworkBuildCteColumnRegistry({
+      ctes: [
+        {
+          name: 'pre_agg',
+          from: { model: 'model_a' },
+          select: [
+            { name: 'col_a', type: 'dim' },
+            { name: 'revenue_sum', type: 'fct', expr: 'sum(revenue)' },
+            { name: 'units_sum', type: 'fct', expr: 'sum(units)' },
+          ],
+          group_by: 'dims',
+        },
+      ] as any,
+      project,
+    });
+
+    const errors = validateMainModelAggregation(
+      {
+        group_by: 'dims',
+        from: { cte: 'pre_agg' },
+        select: [
+          {
+            name: 'revenue_sum',
+            type: 'fct',
+            expr: 'sum(revenue_sum)',
+          },
+          {
+            name: 'units_sum',
+            type: 'fct',
+            expr: 'sum(units_sum)',
+          },
+          { cte: 'pre_agg', type: 'all_from_cte' },
+        ],
+      },
+      registry,
+    );
+    expect(errors).toHaveLength(0);
+  });
+
+  // `exclude_from_group_by: true` on a scalar entry is the explicit
+  // opt-out and should also cover the bulk's same-named emission when
+  // it appears earlier in the select.
+  test('no error when earlier exclude_from_group_by scalar covers bulk fct column', () => {
+    const project = createTestProject();
+    const registry = frameworkBuildCteColumnRegistry({
+      ctes: [
+        {
+          name: 'pre_agg',
+          from: { model: 'model_a' },
+          select: [
+            { name: 'col_a', type: 'dim' },
+            { name: 'flagged_sum', type: 'fct', expr: 'sum(flagged)' },
+          ],
+          group_by: 'dims',
+        },
+      ] as any,
+      project,
+    });
+
+    const errors = validateMainModelAggregation(
+      {
+        group_by: 'dims',
+        from: { cte: 'pre_agg' },
+        select: [
+          {
+            name: 'flagged_sum',
+            type: 'fct',
+            exclude_from_group_by: true,
+          },
+          { cte: 'pre_agg', type: 'all_from_cte' },
+        ],
+      },
+      registry,
+    );
+    expect(errors).toHaveLength(0);
+  });
+
+  // Ordering matters: when the bulk directive precedes the explicit
+  // re-aggregation, the framework's dedupe keeps the bulk's bare
+  // emission and silently drops the later explicit row. The validator
+  // should still flag those columns because the generated SQL has the
+  // un-aggregated form.
+  test('errors when explicit aggregated entries appear AFTER the bulk (later entries are dropped)', () => {
+    const project = createTestProject();
+    const registry = frameworkBuildCteColumnRegistry({
+      ctes: [
+        {
+          name: 'pre_agg',
+          from: { model: 'model_a' },
+          select: [
+            { name: 'col_a', type: 'dim' },
+            { name: 'revenue_sum', type: 'fct', expr: 'sum(revenue)' },
+          ],
+          group_by: 'dims',
+        },
+      ] as any,
+      project,
+    });
+
+    const errors = validateMainModelAggregation(
+      {
+        group_by: 'dims',
+        from: { cte: 'pre_agg' },
+        select: [
+          { cte: 'pre_agg', type: 'all_from_cte' },
+          {
+            name: 'revenue_sum',
+            type: 'fct',
+            expr: 'sum(revenue_sum)',
+          },
+        ],
+      },
+      registry,
+    );
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toContain('revenue_sum');
+    expect(errors[0].instancePath).toBe('/select/0');
+  });
+
+  // `agg` / `aggs` suffix the resulting column name (col + sum ->
+  // col_sum), so they don't override a bulk's bare emission of `col`.
+  // The bulk's bare `revenue_sum` is still a leftover even when the
+  // user has authored `{ name: revenue_sum, agg: sum }` earlier (which
+  // produces `revenue_sum_sum`, not `revenue_sum`).
+  test('errors when earlier scalar uses agg suffix (different output name)', () => {
+    const project = createTestProject();
+    const registry = frameworkBuildCteColumnRegistry({
+      ctes: [
+        {
+          name: 'pre_agg',
+          from: { model: 'model_a' },
+          select: [
+            { name: 'col_a', type: 'dim' },
+            { name: 'revenue_sum', type: 'fct', expr: 'sum(revenue)' },
+          ],
+          group_by: 'dims',
+        },
+      ] as any,
+      project,
+    });
+
+    const errors = validateMainModelAggregation(
+      {
+        group_by: 'dims',
+        from: { cte: 'pre_agg' },
+        select: [
+          { name: 'revenue_sum', type: 'fct', agg: 'sum' },
+          { cte: 'pre_agg', type: 'all_from_cte' },
+        ],
+      },
+      registry,
+    );
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toContain('revenue_sum');
+    expect(errors[0].instancePath).toBe('/select/1');
+  });
 });
 
 /**

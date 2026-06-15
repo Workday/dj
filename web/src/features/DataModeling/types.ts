@@ -17,10 +17,42 @@ export enum SelectionType {
   FCTS_FROM_CTE = 'fcts_from_cte',
 }
 
+/**
+ * Discriminates the upstream a SELECT/JOIN is reading from. Used in place of
+ * the old `isSourceModel?: boolean` plumbing so the UI can also surface the
+ * `_from_cte` bulk-directive variants when the parent has `from.cte`.
+ */
+export type SelectionSourceKind = 'model' | 'source' | 'cte';
+
+/**
+ * Returns the bulk-selection enum value matching the given source kind and
+ * directive role. Keeps `ModelColumns`, `selectionUtils`, and `SelectNode`
+ * in lockstep when emitting / matching `{all,dims,fcts}_from_{model,source,cte}`.
+ */
+export function selectionTypeFor(
+  kind: SelectionSourceKind,
+  role: 'all' | 'dims' | 'fcts',
+): SelectionType {
+  if (kind === 'cte') {
+    if (role === 'all') return SelectionType.ALL_FROM_CTE;
+    if (role === 'dims') return SelectionType.DIMS_FROM_CTE;
+    return SelectionType.FCTS_FROM_CTE;
+  }
+  if (kind === 'source') {
+    if (role === 'all') return SelectionType.ALL_FROM_SOURCE;
+    if (role === 'dims') return SelectionType.DIMS_FROM_SOURCE;
+    return SelectionType.FCTS_FROM_SOURCE;
+  }
+  if (role === 'all') return SelectionType.ALL_FROM_MODEL;
+  if (role === 'dims') return SelectionType.DIMS_FROM_MODEL;
+  return SelectionType.FCTS_FROM_MODEL;
+}
+
 export enum ActionType {
   LIGHTDASH = 'lightdash',
   GROUPBY = 'groupby',
   WHERE = 'where',
+  CTE = 'cte',
 }
 
 // Column Type (schema values: 'dim' | 'fct')

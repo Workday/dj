@@ -537,5 +537,9 @@ export const calculateAllowedActionTypes = (source?: string, type?: string) => {
     allowedActionTypes.push(ActionType.WHERE);
   }
 
+  if (type && isCteCapableType(type)) {
+    allowedActionTypes.push(ActionType.CTE);
+  }
+
   return allowedActionTypes;
 };

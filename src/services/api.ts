@@ -90,6 +90,7 @@ export class Api {
       case 'framework-column-lineage':
       case 'framework-check-model-exists':
       case 'framework-preferences':
+      case 'framework-model-cte-analysis':
         return (await this.framework.handleApi(
           payload as any,
         )) as ApiResponse<T>;

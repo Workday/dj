@@ -1,6 +1,10 @@
 import type { SchemaSelect } from '@web/stores/useModelStore';
 
-import type { Column, SelectionTypeValues } from '../types';
+import type {
+  Column,
+  SelectionSourceKind,
+  SelectionTypeValues,
+} from '../types';
 import { SelectionType, supportsColumnName, supportsExprOnly } from '../types';
 
 export interface UpdateSelectionsConfig {
@@ -15,10 +19,47 @@ export interface UpdateSelectionsConfig {
   shouldClear: boolean;
   /** The selected model/source identifier */
   selectedModelValue: string;
-  /** Whether this is a source-type model (only used by SelectNode) */
+  /**
+   * @deprecated Prefer `sourceKind`. Retained for back-compat with callers
+   * (e.g. JoinNode) that haven't been migrated yet. When `sourceKind` is
+   * provided it wins; otherwise this maps to `'source' | 'model'`.
+   */
   isTypeSource?: boolean;
+  /**
+   * Discriminates the upstream the SELECT is reading from. Drives which
+   * key (`model`, `source`, `cte`) is written on the new select entry and
+   * which bulk variant (`_from_model` / `_from_source` / `_from_cte`) gets
+   * emitted in the fallback path.
+   */
+  sourceKind?: SelectionSourceKind;
   /** Column metadata for type determination fallback */
   columns?: Column[];
+}
+
+/**
+ * Resolves the effective source kind: explicit `sourceKind` wins, otherwise
+ * falls back to the legacy `isTypeSource` boolean.
+ */
+function resolveSourceKind(
+  sourceKind: SelectionSourceKind | undefined,
+  isTypeSource: boolean,
+): SelectionSourceKind {
+  if (sourceKind) return sourceKind;
+  return isTypeSource ? 'source' : 'model';
+}
+
+/**
+ * Builds the per-kind base object emitted into the `select` array, picking
+ * the appropriate key (`model` / `source` / `cte`) for the upstream value.
+ */
+function buildBaseSelection(
+  kind: SelectionSourceKind,
+  value: string,
+  type: SelectionTypeValues,
+): Record<string, unknown> {
+  if (kind === 'source') return { source: value, type };
+  if (kind === 'cte') return { cte: value, type };
+  return { model: value, type };
 }
 
 /**
@@ -60,6 +101,11 @@ function isSimpleColumnRef(sel: { name: string; expr?: string }): boolean {
  * Qualifier-aware: only removes entries whose `expr` prefix matches the
  * calling node's qualifier, preventing cross-model removal of shared column
  * names.
+ *
+ * Position-preserving: when an existing entry owned by this node is dropped
+ * during the filter pass, the replacement is reinserted at the same index
+ * rather than appended at the end, so bulk select directives keep their
+ * authored position across re-emits.
  */
 export function buildUpdatedSelections(
   currentSelections: SchemaSelect[],
@@ -74,50 +120,92 @@ export function buildUpdatedSelections(
     shouldClear,
     selectedModelValue,
     isTypeSource = false,
+    sourceKind,
     columns = [],
   } = config;
 
+  const effectiveKind = resolveSourceKind(sourceKind, isTypeSource);
   const isFilterMode = selectionType !== '';
 
   // --- Step 1: Filter out entries owned by the current node ---
+  //
+  // `ownedIndex` records the position of the first removed entry so step 3
+  // can reinsert the replacement at that slot. Later duplicate-owned
+  // entries collapse into the same insertion point.
 
-  const filtered: SchemaSelect[] = currentSelections.filter(
-    (existingSelection) => {
-      if (typeof existingSelection === 'string') {
-        return !modelColumnNames.has(existingSelection);
+  const filtered: SchemaSelect[] = [];
+  let ownedIndex: number | null = null;
+
+  const markOwned = () => {
+    if (ownedIndex === null) ownedIndex = filtered.length;
+  };
+
+  for (const existingSelection of currentSelections) {
+    if (typeof existingSelection === 'string') {
+      if (modelColumnNames.has(existingSelection)) {
+        markOwned();
+        continue;
+      }
+      filtered.push(existingSelection);
+      continue;
+    }
+
+    if (
+      isSimpleExprEntry(existingSelection) &&
+      isSimpleColumnRef(existingSelection)
+    ) {
+      const expr = existingSelection.expr!;
+      const { name } = existingSelection;
+
+      if (isFilterMode) {
+        if (isOwnedByQualifier(expr, name, qualifier)) {
+          markOwned();
+          continue;
+        }
+        filtered.push(existingSelection);
+        continue;
       }
 
       if (
-        isSimpleExprEntry(existingSelection) &&
-        isSimpleColumnRef(existingSelection)
+        isOwnedByQualifier(expr, name, qualifier) &&
+        modelColumnNames.has(name)
       ) {
-        const expr = existingSelection.expr!;
-        const { name } = existingSelection;
-
-        if (isFilterMode) {
-          return !isOwnedByQualifier(expr, name, qualifier);
-        }
-        if (!isOwnedByQualifier(expr, name, qualifier)) return true;
-        return !modelColumnNames.has(name);
+        markOwned();
+        continue;
       }
+      filtered.push(existingSelection);
+      continue;
+    }
 
-      if ('model' in existingSelection || 'source' in existingSelection) {
-        const existingModel =
-          'model' in existingSelection
-            ? existingSelection.model
-            : 'source' in existingSelection
-              ? existingSelection.source
+    if (
+      'model' in existingSelection ||
+      'source' in existingSelection ||
+      'cte' in existingSelection
+    ) {
+      const existingValue =
+        'model' in existingSelection
+          ? existingSelection.model
+          : 'source' in existingSelection
+            ? existingSelection.source
+            : 'cte' in existingSelection
+              ? (existingSelection as { cte: string }).cte
               : undefined;
-        return existingModel !== selectedModelValue;
+      if (existingValue === selectedModelValue) {
+        markOwned();
+        continue;
       }
+      filtered.push(existingSelection);
+      continue;
+    }
 
-      return true;
-    },
-  );
+    filtered.push(existingSelection);
+  }
 
-  // --- Step 2: Add new entries (unless shouldClear) ---
+  // --- Step 2: Build new entries to insert ---
 
   if (shouldClear) return filtered;
+
+  const newEntries: SchemaSelect[] = [];
 
   if (selectionType === '') {
     const columnNames = selection.include || [];
@@ -132,35 +220,31 @@ export function buildUpdatedSelections(
     if (columnsToAdd.length > 0) {
       if (supportsColumnName(modelType)) {
         columnsToAdd.forEach((colName) => {
-          filtered.push(colName as never);
+          newEntries.push(colName as never);
         });
       } else if (supportsExprOnly(modelType)) {
         columnsToAdd.forEach((colName) => {
-          filtered.push({
+          newEntries.push({
             name: colName,
             expr: qualifier ? `${qualifier}.${colName}` : colName,
           } as never);
         });
       } else {
         addTypeDeterminedSelection(
-          filtered,
+          newEntries,
           columnsToAdd,
           columns,
           selectedModelValue,
-          isTypeSource,
+          effectiveKind,
         );
       }
     }
   } else {
-    const baseSelection = isTypeSource
-      ? {
-          source: selectedModelValue,
-          type: selectionType as SelectionTypeValues,
-        }
-      : {
-          model: selectedModelValue,
-          type: selectionType as SelectionTypeValues,
-        };
+    const baseSelection = buildBaseSelection(
+      effectiveKind,
+      selectedModelValue,
+      selectionType as SelectionTypeValues,
+    );
 
     const newSelection = {
       ...baseSelection,
@@ -172,22 +256,35 @@ export function buildUpdatedSelections(
         : {}),
     };
 
-    filtered.push(newSelection as never);
+    newEntries.push(newSelection as never);
   }
 
+  // --- Step 3: Reinsert at the preserved index, or append if none ---
+
+  if (newEntries.length === 0) {
+    return filtered;
+  }
+  if (ownedIndex !== null) {
+    filtered.splice(ownedIndex, 0, ...newEntries);
+    return filtered;
+  }
+  filtered.push(...newEntries);
   return filtered;
 }
 
 /**
  * Fallback path: determines the selection type from column metadata and pushes
- * a typed `{ model/source, type, include }` entry.
+ * a typed `{ model/source/cte, type, include }` entry into `target`. Callers
+ * decide where `target` lives (the filtered array or a separate
+ * `newEntries` buffer the caller will later splice into the filtered array
+ * to preserve position).
  */
 function addTypeDeterminedSelection(
-  filtered: SchemaSelect[],
+  target: SchemaSelect[],
   columnsToAdd: string[],
   columns: Column[],
   selectedModelValue: string,
-  isTypeSource: boolean,
+  sourceKind: SelectionSourceKind,
 ): void {
   const withTypes = columnsToAdd.map((colName) => {
     const info = columns.find((c) => c.name === colName);
@@ -198,8 +295,12 @@ function addTypeDeterminedSelection(
   const hasFacts = withTypes.some((c) => c.type === 'fact');
 
   let determinedType: SelectionTypeValues;
-  if (isTypeSource) {
+  if (sourceKind === 'source') {
     determinedType = SelectionType.ALL_FROM_SOURCE;
+  } else if (sourceKind === 'cte') {
+    if (hasDimensions && hasFacts) determinedType = SelectionType.ALL_FROM_CTE;
+    else if (hasFacts) determinedType = SelectionType.FCTS_FROM_CTE;
+    else determinedType = SelectionType.DIMS_FROM_CTE;
   } else if (hasDimensions && hasFacts) {
     determinedType = SelectionType.ALL_FROM_MODEL;
   } else if (hasFacts) {
@@ -208,9 +309,11 @@ function addTypeDeterminedSelection(
     determinedType = SelectionType.DIMS_FROM_MODEL;
   }
 
-  const baseSelection = isTypeSource
-    ? { source: selectedModelValue, type: determinedType }
-    : { model: selectedModelValue, type: determinedType };
+  const baseSelection = buildBaseSelection(
+    sourceKind,
+    selectedModelValue,
+    determinedType,
+  );
 
-  filtered.push({ ...baseSelection, include: columnsToAdd } as never);
+  target.push({ ...baseSelection, include: columnsToAdd } as never);
 }

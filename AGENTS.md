@@ -464,6 +464,7 @@ When adding features or making notable changes, update `CHANGELOG.md`:
 - **Write for end users, not for reviewers.** Lead with capability ("Lets you do X") and the user-facing command / setting name. Skip internal identifiers — REST endpoint paths, API parameter names (`prefer: 'persisted' | 'rest'`), TypeScript class names, CSS / theme tokens, schema filenames — unless the user will actually type or read them.
 - **Keep each bullet skim-readable.** Aim for 2–4 short sentences. If a bullet runs longer than ~100 words, split it or trim it. Bombarding the reader with every implementation detail makes the changelog unreadable.
 - **Cite paths users will inspect** (e.g. `.dj/diagnostics/`, `~/.dbt/profiles.yml`, `templates/skills/<skill>/SKILL.md`) and omit paths they won't (internal source files under `src/` or `web/src/`).
+- **Treat a brand-new feature as one bullet.** When something is shipping for the first time, describe it once as a capability. Don't enumerate the in-flight fixes, tab-by-tab walkthroughs, or implementation passes that built up to it; those belong in commit messages or PR descriptions, not the changelog.
 
 ### Naming Conventions
 

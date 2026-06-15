@@ -39,18 +39,68 @@ interface ColumnFormData {
   expression: string;
   aggregations: AggregationType[];
   model: string;
+  /**
+   * Earlier-CTE reference. Only meaningful in `mode='cte'`; mirrors the
+   * `model` field but emits a `cte` key in the schema row instead. Empty
+   * string means "no CTE reference" (the form may still emit a plain row).
+   */
+  cte?: string;
+  /**
+   * Interval picker selection for the SchemaModelSelectInterval shape.
+   * Surfaced when `name === 'datetime'`. Empty string keeps the row in its
+   * pre-interval shape so an unfilled datetime column doesn't accidentally
+   * emit an interval-only row.
+   */
+  interval?: string;
 }
 
 interface AddColumnBasicProps {
   onCancel: () => void;
   onConfirm: (formData: ColumnFormData) => void;
   onConfigure: () => void;
+  /**
+   * Render mode. `'main'` is the legacy behaviour: writes to
+   * `modelingState.select` via `updateSelectState`. `'cte'` instead
+   * delegates the row build to `onAdd`, so the caller decides which CTE
+   * (or other container) receives the new column.
+   */
+  mode?: 'main' | 'cte';
+  /**
+   * Called with the built schema row in `mode='cte'` instead of writing to
+   * `modelingState.select`. Caller is responsible for appending it to the
+   * appropriate CTE select array via the model store. Ignored in `main`.
+   */
+  onAdd?: (item: unknown) => void;
+  /**
+   * Override the upstream-model list used in the Source Model picker. Used
+   * by the CTE form to surface the CTE's own `from.model` (and any joined
+   * models) rather than the main model's. Falls back to the derived list
+   * when undefined.
+   */
+  availableModels?: { value: string; label: string }[];
+  /**
+   * Earlier-CTE options. Only consumed in `mode='cte'`; powers the
+   * "Source CTE" picker that lives alongside "Source Model" so users can
+   * reference a sibling CTE's column instead of an upstream model.
+   */
+  availableCtes?: { value: string; label: string }[];
+  /**
+   * Interval options for SchemaModelSelectInterval rows (day / hour / etc).
+   * Only consumed in `mode='cte'` -- the main-model variant doesn't expose
+   * interval picking through this form yet.
+   */
+  intervalOptions?: { value: string; label: string }[];
 }
 
 export const AddColumnBasic = ({
   onCancel,
   onConfirm,
   onConfigure,
+  mode = 'main',
+  onAdd,
+  availableModels: availableModelsOverride,
+  availableCtes,
+  intervalOptions,
 }: AddColumnBasicProps) => {
   const {
     setEditingColumn,
@@ -60,8 +110,16 @@ export const AddColumnBasic = ({
     basicFields,
   } = useModelStore();
 
-  // Get current model type
-  const modelType = basicFields.type as ModelType | undefined;
+  const isCteMode = mode === 'cte';
+
+  // For CTE mode there's no single owning model type. CTE selects accept the
+  // same shapes as `int_select_model` selects (interval / aggregation /
+  // expression / from-model / from-cte all valid), so we substitute that
+  // model type for field-support gating. The actual emitted row is decided
+  // by `onAdd` in CTE mode -- this just controls which inputs render.
+  const modelType = isCteMode
+    ? ('int_select_model' as ModelType)
+    : (basicFields.type as ModelType | undefined);
 
   const [formData, setFormData] = useState<ColumnFormData>({
     type: 'dim',
@@ -71,6 +129,8 @@ export const AddColumnBasic = ({
     expression: '',
     aggregations: [],
     model: '',
+    cte: '',
+    interval: '',
   });
 
   const [errors, setErrors] = useState<ColumnValidationErrors>({});
@@ -162,9 +222,25 @@ export const AddColumnBasic = ({
     [modelType, formData.name],
   );
 
+  // Datetime / Interval picker -- only meaningful in CTE mode for now;
+  // main-model authoring doesn't route through this form for intervals
+  // today (those come from the column wizard). When the column is named
+  // `datetime` we still hide the data_type / expr / aggregations inputs.
+  const supportsInterval = useMemo(
+    () =>
+      isCteMode &&
+      isFieldSupportedForColumn('interval', modelType, formData.name),
+    [isCteMode, modelType, formData.name],
+  );
+
   // Get available models for the model dropdown
-  // This includes the "from" model and any joined models
+  // This includes the "from" model and any joined models. Caller can pass
+  // `availableModels` to override (used by the CTE form so the picker shows
+  // the CTE's own upstreams instead of the main model's).
   const availableModels = useMemo(() => {
+    if (availableModelsOverride !== undefined) {
+      return availableModelsOverride;
+    }
     const models: { value: string; label: string }[] = [];
 
     // Add the "from" model
@@ -186,26 +262,38 @@ export const AddColumnBasic = ({
     }
 
     return models;
-  }, [modelingState.from, modelingState.join]);
+  }, [availableModelsOverride, modelingState.from, modelingState.join]);
+
+  // Total upstream sources in scope. With <= 1 source the column reference
+  // is unambiguous (any picked column implicitly belongs to the only
+  // upstream), so the Source Model / Source CTE pickers are noise. Showing
+  // them in that case also tempted users into picking out-of-scope CTEs
+  // from the dropdown, which produced JSON the sync layer can't resolve.
+  // CTE mode only -- main-model authoring keeps its existing behaviour.
+  const hasMultipleSources = useMemo(() => {
+    if (!isCteMode) return true;
+    const ctesCount = availableCtes?.length ?? 0;
+    return availableModels.length + ctesCount > 1;
+  }, [isCteMode, availableModels.length, availableCtes]);
 
   const handleFieldChange = (
     field: keyof ColumnFormData,
     value: string | AggregationType[],
   ) => {
-    console.log('field', field);
-    console.log('value', value);
-
     // Special handling for datetime columns
     if (field === 'name' && value === 'datetime') {
-      // Force type to 'dim' for datetime columns
+      // Force type to 'dim' for datetime columns; default interval so the
+      // CTE row emits a valid SchemaModelSelectInterval out of the gate.
       setFormData((prev) => ({
         ...prev,
         name: value as string,
-        type: 'dim', // datetime must be dimension
-        dataType: '', // clear data type
-        expression: '', // clear expression
-        aggregations: [], // clear aggregations
-        model: '', // clear model
+        type: 'dim',
+        dataType: '',
+        expression: '',
+        aggregations: [],
+        model: '',
+        cte: '',
+        interval: isCteMode && !prev.interval ? 'day' : prev.interval,
       }));
     } else if (field === 'type' && value === 'dim') {
       // Clear aggregations and model when switching to dimension
@@ -213,6 +301,21 @@ export const AddColumnBasic = ({
         ...prev,
         type: value as ColumnTypeValue,
         aggregations: [],
+        model: '',
+        cte: '',
+      }));
+    } else if (field === 'model') {
+      // Choosing a Source Model clears the Source CTE (they're mutually
+      // exclusive in the schema).
+      setFormData((prev) => ({
+        ...prev,
+        model: value as string,
+        cte: '',
+      }));
+    } else if (field === 'cte') {
+      setFormData((prev) => ({
+        ...prev,
+        cte: value as string,
         model: '',
       }));
     } else {
@@ -231,8 +334,7 @@ export const AddColumnBasic = ({
     }
   };
 
-  const handleCancel = () => {
-    // Reset form and errors
+  const resetForm = () => {
     setFormData({
       type: 'dim',
       name: '',
@@ -241,7 +343,13 @@ export const AddColumnBasic = ({
       expression: '',
       aggregations: [],
       model: '',
+      cte: '',
+      interval: '',
     });
+  };
+
+  const handleCancel = () => {
+    resetForm();
     setErrors({});
     onCancel();
   };
@@ -259,14 +367,78 @@ export const AddColumnBasic = ({
       return;
     }
 
-    // Build the column object based on type and aggregations
-    // Handle aggregations: if single, use agg; if multiple, use aggs
     const aggs = formData.aggregations;
+
+    if (isCteMode && onAdd) {
+      // CTE mode emits a schema-shaped row directly; the caller appends it
+      // to `cte.select`. We pick the row shape from the form state so it
+      // stays close to the schema variants:
+      //   - `name === 'datetime'` + interval → SchemaModelSelectInterval
+      //   - `cte` set → SchemaModelSelectFromCte
+      //   - `model` + aggregations → SchemaModelSelectFromModelWithAgg
+      //   - `model` only → SchemaModelSelectFromModel
+      //   - `expression` → SchemaModelSelectExpr (with/without agg)
+      //   - bare passthrough → string (only when no metadata at all)
+      const row: Record<string, unknown> = {};
+      if (formData.name === 'datetime' && formData.interval) {
+        row.name = 'datetime';
+        row.interval = formData.interval;
+        row.type = 'dim';
+        if (formData.description) row.description = formData.description;
+      } else if (formData.cte) {
+        row.cte = formData.cte;
+        row.name = formData.name.trim();
+        row.type = formData.type;
+        if (formData.dataType) row.data_type = formData.dataType;
+        if (formData.description) row.description = formData.description;
+      } else if (formData.model) {
+        row.model = formData.model;
+        row.name = formData.name.trim();
+        row.type = formData.type;
+        if (formData.dataType) row.data_type = formData.dataType;
+        if (formData.description) row.description = formData.description;
+        if (aggs.length === 1) row.agg = aggs[0];
+        else if (aggs.length > 1) row.aggs = aggs;
+      } else if (formData.expression) {
+        row.name = formData.name.trim();
+        row.expr = formData.expression.trim();
+        row.type = formData.type;
+        if (formData.dataType) row.data_type = formData.dataType;
+        if (formData.description) row.description = formData.description;
+        if (aggs.length === 1) row.agg = aggs[0];
+        else if (aggs.length > 1) row.aggs = aggs;
+      } else if (
+        !formData.dataType &&
+        !formData.description &&
+        formData.type === 'dim' &&
+        aggs.length === 0
+      ) {
+        // Plain passthrough -- nothing else worth carrying.
+        onAdd(formData.name.trim());
+        resetForm();
+        setErrors({});
+        onConfirm(formData);
+        return;
+      } else {
+        row.name = formData.name.trim();
+        row.type = formData.type;
+        if (formData.dataType) row.data_type = formData.dataType;
+        if (formData.description) row.description = formData.description;
+        if (aggs.length === 1) row.agg = aggs[0];
+        else if (aggs.length > 1) row.aggs = aggs;
+      }
+      onAdd(row);
+      resetForm();
+      setErrors({});
+      onConfirm(formData);
+      return;
+    }
+
+    // Main-model mode: legacy path -- buildSelectColumn + updateSelectState.
     const columnData = buildSelectColumn({
       name: formData.name.trim(),
       type: formData.type,
       expr: formData.expression.trim() || '',
-      // Include model if it's selected (for SchemaModelSelectModelWithAgg)
       ...(formData.model ? { model: formData.model } : {}),
       data_type: (formData.dataType as SchemaColumnDataType) || undefined,
       description: formData.description || undefined,
@@ -277,23 +449,20 @@ export const AddColumnBasic = ({
           : {}),
     });
 
-    // Add to select array
     const updatedSelect = [...modelingState.select, columnData];
     updateSelectState(updatedSelect);
 
-    // Reset form and notify parent
-    setFormData({
-      type: 'dim',
-      name: '',
-      dataType: '',
-      description: '',
-      expression: '',
-      aggregations: [],
-      model: '',
-    });
+    resetForm();
     setErrors({});
     onConfirm(formData);
-  }, [formData, modelingState.select, updateSelectState, onConfirm]);
+  }, [
+    formData,
+    isCteMode,
+    onAdd,
+    modelingState.select,
+    updateSelectState,
+    onConfirm,
+  ]);
 
   const handleConfigure = useCallback(() => {
     // Validate fields
@@ -356,7 +525,7 @@ export const AddColumnBasic = ({
       </div>
 
       {/* Form Fields - Flex Wrap Layout */}
-      <div className="bg-surface p-4">
+      <div className="bg-surface border border-neutral rounded-md p-4">
         <div className="flex flex-wrap gap-4">
           {/* Type - conditional rendering based on column name */}
           {supportsTypeSelection && (
@@ -507,9 +676,40 @@ export const AddColumnBasic = ({
             </div>
           )}
 
+          {/* Interval picker -- SchemaModelSelectInterval. Surfaces only
+              when the column is the magic `datetime` name and we're in CTE
+              mode. Main-model authoring uses the column wizard for intervals. */}
+          {supportsInterval && isDatetimeColumn && (
+            <div className="flex-1 min-w-[200px]">
+              <label className="text-sm font-medium text-foreground mb-2 flex items-center gap-2">
+                Interval
+                <Tooltip
+                  content="Granularity of the datetime column (day / hour / month / year)."
+                  variant="outline"
+                />
+              </label>
+              <SelectSingle
+                options={intervalOptions ?? []}
+                value={
+                  formData.interval
+                    ? {
+                        value: formData.interval,
+                        label: formData.interval,
+                      }
+                    : null
+                }
+                onChange={(option) =>
+                  handleFieldChange('interval', option?.value || '')
+                }
+                onBlur={() => {}}
+                placeholder="day"
+              />
+            </div>
+          )}
+
           {/* Aggregations & Source Model Row - Only show for Metric type and if model supports aggregation */}
           {formData.type === 'fct' && supportsAggregation && (
-            <div className="flex gap-4 w-full">
+            <div className="flex gap-4 w-full flex-wrap">
               {/* Aggregations */}
               <div className="flex-1 min-w-[200px]">
                 <label className="text-sm font-medium text-foreground mb-2 flex items-center gap-2">
@@ -532,10 +732,15 @@ export const AddColumnBasic = ({
                 />
               </div>
 
-              {/* Source Model - Only show when aggregations are selected and model supports it */}
+              {/* Source Model - Only show when aggregations are selected
+                  and model supports it. In CTE mode we also require
+                  multiple in-scope sources so the picker stays out of the
+                  way for single-source CTEs (head only) where a column
+                  reference is implicit. */}
               {supportsModelRef &&
                 formData.aggregations.length > 0 &&
-                availableModels.length > 0 && (
+                availableModels.length > 0 &&
+                (!isCteMode || hasMultipleSources) && (
                   <div className="flex-1 min-w-[200px]">
                     <label className="text-sm font-medium text-foreground mb-2 flex items-center gap-2">
                       Source Model
@@ -561,8 +766,79 @@ export const AddColumnBasic = ({
                     />
                   </div>
                 )}
+
+              {/* Source CTE -- CTE-mode parallel to Source Model. Lets users
+                  reference a sibling CTE's column for aggregation. Mutually
+                  exclusive with `model` (the form state guarantees this in
+                  handleFieldChange). Only renders when 2+ sources are in
+                  scope -- otherwise the head is implicit. */}
+              {isCteMode &&
+                availableCtes &&
+                availableCtes.length > 0 &&
+                formData.aggregations.length > 0 &&
+                hasMultipleSources && (
+                  <div className="flex-1 min-w-[200px]">
+                    <label className="text-sm font-medium text-foreground mb-2 flex items-center gap-2">
+                      Source CTE
+                      <Tooltip
+                        content="Reference a column from an earlier CTE instead of an upstream model."
+                        variant="outline"
+                      />
+                    </label>
+                    <SelectSingle
+                      options={availableCtes}
+                      value={
+                        formData.cte
+                          ? availableCtes.find(
+                              (opt) => opt.value === formData.cte,
+                            ) || null
+                          : null
+                      }
+                      onChange={(option) =>
+                        handleFieldChange('cte', option?.value || '')
+                      }
+                      onBlur={() => {}}
+                      placeholder="Select source CTE (optional)"
+                    />
+                  </div>
+                )}
             </div>
           )}
+
+          {/* Source CTE for non-fact / non-aggregated rows. Surfaces in CTE
+              mode when 2+ sources are in scope (head + at least one join /
+              union branch); single-source CTEs (head only) hide the picker
+              entirely since a bare passthrough is unambiguous. */}
+          {isCteMode &&
+            availableCtes &&
+            availableCtes.length > 0 &&
+            hasMultipleSources &&
+            !(formData.type === 'fct' && supportsAggregation) && (
+              <div className="flex-1 min-w-[200px]">
+                <label className="text-sm font-medium text-foreground mb-2 flex items-center gap-2">
+                  Source CTE
+                  <Tooltip
+                    content="Reference a column from an earlier CTE. Leave empty for an inline / passthrough column."
+                    variant="outline"
+                  />
+                </label>
+                <SelectSingle
+                  options={availableCtes}
+                  value={
+                    formData.cte
+                      ? availableCtes.find(
+                          (opt) => opt.value === formData.cte,
+                        ) || null
+                      : null
+                  }
+                  onChange={(option) =>
+                    handleFieldChange('cte', option?.value || '')
+                  }
+                  onBlur={() => {}}
+                  placeholder="Select source CTE (optional)"
+                />
+              </div>
+            )}
         </div>
       </div>
       {/* Action Buttons */}

@@ -1,7 +1,7 @@
 import '@xyflow/react/dist/style.css';
 import '../DataModeling/DataModeling.css';
 
-import { MapIcon } from '@heroicons/react/20/solid';
+import { ArrowPathIcon, MapIcon } from '@heroicons/react/20/solid';
 import type { SchemaModelFromJoinModels } from '@shared/schema/types/model.type.int_join_models.schema';
 import { Button } from '@web/elements';
 import {
@@ -24,7 +24,10 @@ import {
   TutorialComponentState,
   useTutorialStore,
 } from '@web/stores/useTutorialStore';
-import { calculateAllowedActionTypes } from '@web/stores/utils';
+import {
+  calculateAllowedActionTypes,
+  isCteCapableType,
+} from '@web/stores/utils';
 import type { Edge, Node } from '@xyflow/react';
 import {
   Background,
@@ -46,9 +49,10 @@ import { ACTION_SPECS } from '../DataModeling/actionRegistry';
 import { ActionsBar } from '../DataModeling/components/ActionsBar';
 import { MiniMapNode } from '../DataModeling/components/MiniMapNode';
 import { NavigationBar } from '../DataModeling/components/NavigationBar';
+import { useCteAnalysis } from '../DataModeling/hooks/useCteAnalysis';
 import { useLayoutManager } from '../DataModeling/hooks/useLayoutManager';
 import { useNodeOperations } from '../DataModeling/hooks/useNodeOperations';
-import { NODE_TYPES } from '../DataModeling/types';
+import { ActionType, NODE_TYPES } from '../DataModeling/types';
 
 type JoinWithUUID = SchemaModelFromJoinModels[0] & {
   _uuid?: string;
@@ -84,6 +88,11 @@ const DataModelingFlow: React.FC<DataModelingProps> = ({ config }) => {
 
   const { setCenter } = useReactFlow();
 
+  // Drives the `framework-model-cte-analysis` request whenever the CTE-bearing
+  // model JSON changes. The hook owns the debounce + supersede-cancel logic
+  // and writes results into `state.cteAnalysis`.
+  useCteAnalysis();
+
   // ModelStore integration - use stable selectors
   // Data is already loaded by ModelCreate.tsx - just read from store
   const basicFieldsSource = useModelStore((state) => state.basicFields.source);
@@ -101,6 +110,17 @@ const DataModelingFlow: React.FC<DataModelingProps> = ({ config }) => {
   );
   const isMinimapVisible = useModelStore((state) => state.isMinimapVisible);
   const toggleMinimap = useModelStore((state) => state.toggleMinimap);
+  const cteNodeMeasuredHeight = useModelStore(
+    (state) => state.cteNodeMeasuredHeight,
+  );
+  const manualPositions = useModelStore((state) => state.manualPositions);
+  const setManualPosition = useModelStore((state) => state.setManualPosition);
+  const pruneManualPositions = useModelStore(
+    (state) => state.pruneManualPositions,
+  );
+  const clearManualPositions = useModelStore(
+    (state) => state.clearManualPositions,
+  );
 
   // Tutorial store integration - NEW: Use enum-based state
   const {
@@ -183,13 +203,41 @@ const DataModelingFlow: React.FC<DataModelingProps> = ({ config }) => {
       stroke: 'var(--color-surface-contrast)',
     };
 
-    // EntryNode: SelectNode
+    // CTE list leads the DAG for any CTE-capable model type, but only when
+    // the user has explicitly enabled it via the Actions bar (or the
+    // SelectNode "Create CTE" shortcut). When disabled, SelectNode is the
+    // root again -- mirrors how Group By / Where / Lightdash come and go.
+    // Effective set picks tutorial state during Play tutorial, real store
+    // state otherwise (see column-selection action insertion below).
+    const cteEffectiveActions = isPlayTutorialActive
+      ? tutorialActiveActions
+      : activeActions;
+    const cteCapable = isCteCapableType(currentModelType);
+    const cteActive = cteCapable && cteEffectiveActions.has(ActionType.CTE);
+    if (cteActive) {
+      currentFlow = updateFlow(
+        {
+          id: 'cte-1',
+          type: NODE_TYPES.CTE,
+          position: { x: 100, y: 50 },
+          data: {},
+        },
+        currentFlow.nodes,
+        currentFlow.edges,
+        edgeStyle,
+      );
+    }
+
+    // EntryNode: SelectNode. When the CTE list is active, anchor SelectNode
+    // off `cte-1` so the canvas reads as a single connected DAG; otherwise
+    // SelectNode is the root.
     currentFlow = updateFlow(
       {
         id: 'select-1',
         type: NODE_TYPES.SELECT,
-        position: { x: 100, y: 100 },
+        position: { x: 100, y: 200 },
         data: {},
+        ...(cteActive ? { sourceNodeId: 'cte-1' } : {}),
       },
       currentFlow.nodes,
       currentFlow.edges,
@@ -330,36 +378,12 @@ const DataModelingFlow: React.FC<DataModelingProps> = ({ config }) => {
       }
     }
 
-    // Insert CTE node between the last transform node and column selection.
-    // This gives users a visual anchor to manage CTE definitions in the flow.
-    if (hasFromSource && ctes.length > 0) {
-      const lastTransformNode = currentFlow.nodes.find(
-        (n) =>
-          n.type === 'joinNode' ||
-          n.type === 'joinColumnNode' ||
-          n.type === 'rollupNode' ||
-          n.type === 'lookbackNode' ||
-          n.type === 'unionNode',
-      );
-      currentFlow = updateFlow(
-        {
-          id: 'cte-1',
-          type: NODE_TYPES.CTE,
-          position: { x: 100, y: 400 },
-          data: {},
-          sourceNodeId: lastTransformNode?.id || 'select-1',
-        },
-        currentFlow.nodes,
-        currentFlow.edges,
-        edgeStyle,
-      );
-    }
-
-    // Always show columnSelectionNode when source model is set
+    // Always show columnSelectionNode when source model is set. The CTE
+    // list lives above SelectNode now (Phase 2) so column-selection sources
+    // off the join / transformation lane like it always did -- not off the
+    // CTE list.
     if (hasFromSource) {
-      const cteNode = currentFlow.nodes.find((n) => n.type === 'cteNode');
-
-      if (currentModelType.includes('join') && !cteNode) {
+      if (currentModelType.includes('join')) {
         if (currentModelType === 'int_join_column') {
           currentFlow = updateFlow(
             {
@@ -391,20 +415,6 @@ const DataModelingFlow: React.FC<DataModelingProps> = ({ config }) => {
             edgeStyle,
           );
         }
-      } else if (cteNode) {
-        // When CTEs exist, column selection connects from the CTE node
-        currentFlow = updateFlow(
-          {
-            id: 'column-selection',
-            type: NODE_TYPES.COLUMN_SELECTION,
-            position: { x: 100, y: 500 },
-            data: { columns: [] },
-            sourceNodeId: cteNode.id,
-          },
-          currentFlow.nodes,
-          currentFlow.edges,
-          edgeStyle,
-        );
       } else {
         const transformationNode = currentFlow.nodes.find(
           (n) =>
@@ -500,6 +510,12 @@ const DataModelingFlow: React.FC<DataModelingProps> = ({ config }) => {
         : activeActions;
 
       allowedActions.forEach((action) => {
+        // CTE doesn't live in the registry -- the list node is placed at
+        // the top of the DAG, not off the column-selection node. Skip it
+        // so we don't try to dereference a missing ACTION_SPECS[action].
+        if (action === ActionType.CTE) {
+          return;
+        }
         // Check if this action is enabled via the activeActions set
         if (effectiveActiveActions.has(action)) {
           const spec = ACTION_SPECS[action];
@@ -521,10 +537,33 @@ const DataModelingFlow: React.FC<DataModelingProps> = ({ config }) => {
       currentFlow.nodes,
       currentFlow.edges,
       'TB',
+      undefined,
+      currentModelType,
+      // Threaded from the store via `CteNode`'s ResizeObserver. Other
+      // node types fall back to LAYOUT_CONFIG.nodeHeight.
+      cteNodeMeasuredHeight ? { cteNode: cteNodeMeasuredHeight } : undefined,
     );
 
     // Apply custom positioning using layout manager
-    const finalNodes = alignNodesWithCenterX(layoutedNodes, currentModelType);
+    const autoLaidOutNodes = alignNodesWithCenterX(
+      layoutedNodes,
+      currentModelType,
+    );
+
+    // Overlay manually-dragged positions on top of the auto-layout so a
+    // user's nudge survives subsequent layout passes (e.g. opening a
+    // CTE editor, adding a where). Stickiness is per-session only --
+    // see `manualPositions` in the model store.
+    const finalNodes = autoLaidOutNodes.map((node) => {
+      const manual = manualPositions[node.id];
+      if (!manual) return node;
+      return { ...node, position: manual };
+    });
+
+    // Prune stale manual positions for nodes that no longer exist (e.g.
+    // a CTE was deleted). This keeps the store small and avoids
+    // restoring positions if a node id is later reused.
+    pruneManualPositions(autoLaidOutNodes.map((n) => n.id));
 
     setNodes(finalNodes);
     setEdges(currentFlow.edges);
@@ -545,6 +584,12 @@ const DataModelingFlow: React.FC<DataModelingProps> = ({ config }) => {
     alignNodesWithCenterX,
     updateFlow,
     updateFlowWithMultipleSources,
+    // Layout-influencing state slices: measured CTE height feeds the
+    // preSource->source gap; manualPositions overrides auto-layout
+    // after a user drag; pruneManualPositions is stable.
+    cteNodeMeasuredHeight,
+    manualPositions,
+    pruneManualPositions,
     // Note: Intentionally omitted to avoid infinite loops:
     // - setModelingState (called conditionally for UUID updates)
     // - setNodes, setEdges (React Flow setters that would cause re-renders)
@@ -648,7 +693,18 @@ const DataModelingFlow: React.FC<DataModelingProps> = ({ config }) => {
         proOptions={{ hideAttribution: true }}
         className="bg-background"
         selectionOnDrag={false}
-        nodesDraggable={false}
+        // Manual drag is enabled so users can nudge nodes when the
+        // auto-layout doesn't suit their taste. Per-node `nodrag`
+        // classNames (e.g. on the CTE list reorder handle, scroll
+        // areas, form inputs) still opt out where dragging would
+        // conflict with another interaction.
+        nodesDraggable={true}
+        onNodeDragStop={(_event, node) => {
+          setManualPosition(node.id, {
+            x: node.position.x,
+            y: node.position.y,
+          });
+        }}
         nodesConnectable={false}
         minZoom={0.5}
         maxZoom={2}
@@ -680,6 +736,17 @@ const DataModelingFlow: React.FC<DataModelingProps> = ({ config }) => {
               />
             }
           ></Button>
+          {Object.keys(manualPositions).length > 0 && (
+            <Button
+              onClick={() => clearManualPositions()}
+              className="react-flow__controls-button hover:bg-gray-100 transition-colors"
+              title="Reset layout to auto-arranged positions"
+              aria-label="Reset layout"
+              variant="iconButton"
+              label=""
+              icon={<ArrowPathIcon className="h-6 w-6" />}
+            ></Button>
+          )}
         </Controls>
 
         <Background

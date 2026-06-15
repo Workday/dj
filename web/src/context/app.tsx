@@ -1624,6 +1624,19 @@ SELECT * FROM final`,
                   }
                   break;
                 }
+                case 'framework-model-cte-analysis': {
+                  // Web-only mock: echo back empty columns/diagnostics so the
+                  // panel renders with placeholder data without hitting the
+                  // backend handler. Real responses come from the extension
+                  // host's CteAnalysisHandlers in the VS Code environment.
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      columns: {},
+                      diagnostics: [],
+                      manifestTimestamp: null,
+                    }),
+                  );
+                }
                 case 'framework-check-model-exists': {
                   // Mock file existence check for web development
                   const request = payload.request as unknown as {

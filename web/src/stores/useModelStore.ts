@@ -42,6 +42,7 @@ import { create } from 'zustand';
 import { subscribeWithSelector } from 'zustand/middleware';
 
 import { stateSync } from '../utils/stateSync';
+import { visitCteRefs } from './cteRefs';
 import {
   buildFromObject,
   buildJoinConfig,
@@ -78,15 +79,231 @@ export type JoinState =
   | SchemaModelFromJoinColumn
   | null;
 
-/** UI state for a single CTE definition within the model editor */
+/**
+ * UI state for a single CTE definition within the model editor.
+ *
+ * Mirrors `SchemaModelCTE` (the source of truth for serialized CTEs) but
+ * intentionally widens `from` and `select` because the wizard often holds
+ * partial / in-flight values while the user fills the form (e.g. an empty
+ * string for `from.model` while the picker is open). `buildModelJson()`
+ * normalizes empties / strips UI-only keys before serializing.
+ *
+ * The runtime invariant that the eventually-serialized shape conforms to
+ * `SchemaModelCTE` is enforced by Ajv on the backend; the wizard's job is
+ * only to produce a draft that round-trips through the CTE schema once the
+ * user has filled the required fields.
+ */
 export type CteState = {
   name: string;
-  from: { model: string } | { cte: string } | Record<string, unknown>;
+  from: Record<string, unknown>;
   select?: unknown[];
-  where?: unknown;
-  group_by?: unknown;
+  where?: SchemaModelWhere;
+  group_by?: SchemaModelGroupBy | null;
   having?: unknown;
+  exclude_date_filter?: boolean;
+  exclude_daily_filter?: boolean;
+  exclude_portal_partition_columns?: boolean;
+  exclude_datetime?: boolean;
+  exclude_framework_artifacts?: 'all' | 'columns';
+  exclude_portal_source_count?: boolean;
+  include_full_month?: boolean;
 };
+
+/**
+ * Per-CTE column entry returned by `framework-model-cte-analysis`. Mirrors
+ * `ApiResponse<'framework-model-cte-analysis'>['columns'][string][number]`.
+ */
+export type CteAnalysisColumn = {
+  name: string;
+  type?: 'dim' | 'fct';
+  dataType?: string;
+  description?: string;
+};
+
+/**
+ * Diagnostic returned by `framework-model-cte-analysis`. The flat list is
+ * grouped by `cteIndex` for display; `path` (JSON-pointer-ish) is used by the
+ * Validation tab to jump to the offending field.
+ */
+export type CteAnalysisDiagnostic = {
+  severity: 'error' | 'warning';
+  cteIndex?: number;
+  path?: string;
+  message: string;
+};
+
+/** Live results + meta from `framework-model-cte-analysis`. */
+export type CteAnalysisState = {
+  columns: Record<string, CteAnalysisColumn[]>;
+  diagnostics: CteAnalysisDiagnostic[];
+  /** Manifest mtime in epoch ms; null when no manifest. */
+  manifestTimestamp: number | null;
+  /**
+   * True while a request is in flight. The hook keeps the previous response
+   * visible during this window so the panel does not flash on every keystroke.
+   */
+  loading: boolean;
+  error: string | null;
+};
+
+/**
+ * Wizard-only keys that must never appear in the serialized model JSON. The
+ * schema rejects unknown properties (`additionalProperties: false`), so any
+ * field added here must be stripped by `buildModelJson()`. Each new UI-only
+ * field added in future PRs goes here and is covered by a regression test.
+ */
+const CTE_UI_ONLY_KEYS = new Set<string>(['_uuid']);
+
+/**
+ * Defensive normalization for CTEs loaded from disk. Drops empty `from`
+ * branches (`{ model: '' }`), normalizes empty `select` to undefined, and
+ * removes unknown top-level keys for forward-compatibility against future
+ * schema changes. Runs once on `loadInitialData`; the backend's Ajv
+ * validators catch the same issues at sync time, but the UI breaks before
+ * reaching that point if we don't normalize.
+ */
+export function normalizeCte(input: unknown): CteState {
+  const cte = (input ?? {}) as Record<string, unknown>;
+  const allowed = new Set([
+    'name',
+    'from',
+    'select',
+    'where',
+    'group_by',
+    'having',
+    'exclude_date_filter',
+    'exclude_daily_filter',
+    'exclude_portal_partition_columns',
+    'exclude_datetime',
+    'exclude_framework_artifacts',
+    'exclude_portal_source_count',
+    'include_full_month',
+  ]);
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(cte)) {
+    if (!allowed.has(key)) continue;
+    out[key] = cte[key];
+  }
+
+  // Normalize `from`: drop empty-string branches so the picker doesn't render
+  // as if a value were selected.
+  const fromIn = (cte.from ?? {}) as Record<string, unknown>;
+  const fromOut: Record<string, unknown> = {};
+  for (const key of Object.keys(fromIn)) {
+    const v = fromIn[key];
+    if (typeof v === 'string' && v === '') continue;
+    fromOut[key] = v;
+  }
+  out.from = fromOut;
+
+  // Normalize `select: []` to undefined; `minItems: 1` makes empty arrays a
+  // schema violation. Real selects are kept verbatim (the panel handles per-
+  // item validation).
+  if (Array.isArray(out.select) && (out.select as unknown[]).length === 0) {
+    delete out.select;
+  }
+
+  // Trim name in case JSON has incidental whitespace.
+  if (typeof out.name === 'string') {
+    out.name = out.name.trim();
+  } else {
+    out.name = '';
+  }
+
+  return out as CteState;
+}
+
+/**
+ * Strip UI-only keys + drop empty arrays before serializing for
+ * `buildModelJson()`. Mirrors `normalizeCte()` but on the way out.
+ *
+ * Schema invariants enforced here:
+ *   - `additionalProperties: false`: drop any UI-only keys.
+ *   - `select: minItems: 1`: omit field when empty.
+ *   - `from.union.{ctes,models}: minItems: 1`: drop the `union` wrapper when
+ *     the list is empty.
+ */
+/**
+ * `exclude_*` flag keys whose CTE-level override is dropped from the
+ * serialized JSON when the value matches the inherited main-model value.
+ * Keeps the preview JSON clean -- writing `exclude_datetime: false` on a
+ * CTE when the main model is also `false` adds noise without changing
+ * the rendered SQL. The user can still flip the value to override.
+ */
+const CTE_INHERITED_FLAG_KEYS = [
+  'exclude_framework_artifacts',
+  'exclude_date_filter',
+  'exclude_daily_filter',
+  'exclude_datetime',
+  'exclude_portal_partition_columns',
+  'exclude_portal_source_count',
+] as const;
+
+function stripCteForSerialize(
+  cte: CteState,
+  inherited?: Partial<
+    Record<(typeof CTE_INHERITED_FLAG_KEYS)[number], unknown>
+  >,
+): CteState {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(cte)) {
+    if (CTE_UI_ONLY_KEYS.has(k)) continue;
+    if (v === undefined) continue;
+    out[k] = v;
+  }
+  if (Array.isArray(out.select) && (out.select as unknown[]).length === 0) {
+    delete out.select;
+  }
+  if (out.from && typeof out.from === 'object') {
+    const fromCopy: Record<string, unknown> = {
+      ...(out.from as Record<string, unknown>),
+    };
+    const union = fromCopy.union as Record<string, unknown> | undefined;
+    if (union) {
+      // Empty strings are valid in-flight UI state (a "pick a model"
+      // placeholder row) but never belong in the saved JSON. Strip
+      // them before validation/save; if nothing remains in the tail,
+      // drop the whole `union` key so the model degrades to a plain
+      // `from.model` / `from.cte` instead of an empty union.
+      const unionCopy: Record<string, unknown> = { ...union };
+      const ctesArr = Array.isArray(unionCopy.ctes)
+        ? (unionCopy.ctes as unknown[]).filter(
+            (e): e is string => typeof e === 'string' && e.length > 0,
+          )
+        : null;
+      const modelsArr = Array.isArray(unionCopy.models)
+        ? (unionCopy.models as unknown[]).filter(
+            (e): e is string => typeof e === 'string' && e.length > 0,
+          )
+        : null;
+      if (ctesArr !== null) unionCopy.ctes = ctesArr;
+      if (modelsArr !== null) unionCopy.models = modelsArr;
+      if (
+        (ctesArr && ctesArr.length === 0) ||
+        (modelsArr && modelsArr.length === 0)
+      ) {
+        delete fromCopy.union;
+      } else {
+        fromCopy.union = unionCopy;
+      }
+    }
+    out.from = fromCopy;
+  }
+  // Drop CTE-level exclude flags that match the inherited (main-model) value.
+  // The schema treats CTE-level values as overrides; redundantly setting them
+  // to the same value is functionally identical but visually noisy in the
+  // JSON preview. Users can still toggle to a different value to override.
+  if (inherited) {
+    for (const key of CTE_INHERITED_FLAG_KEYS) {
+      if (!(key in out)) continue;
+      if (!(key in inherited)) continue;
+      if (out[key] === inherited[key]) {
+        delete out[key];
+      }
+    }
+  }
+  return out as CteState;
+}
 
 // ModelStore state structure
 export interface ModelingStateAdapter {
@@ -311,6 +528,48 @@ export interface ModelStore {
   updateCte: (index: number, cte: CteState) => void;
   removeCte: (index: number) => void;
   moveCte: (fromIndex: number, toIndex: number) => void;
+  duplicateCte: (index: number) => void;
+  /**
+   * Shallow-merge `patch` into the CTE at `index`. Used by the panel for
+   * field-by-field edits. Persists via `saveField('ctes', ...)`.
+   */
+  patchCte: (index: number, patch: Partial<CteState>) => void;
+  /**
+   * Rewrite every reference to `oldName` across the model (CTE selects,
+   * unions, joins, subqueries, main-model from/select/join/where/having)
+   * to `newName`. Wraps `visitCteRefs`.
+   */
+  applyCteRename: (oldName: string, newName: string) => void;
+  // CTE editor (side-panel) state. The panel itself mounts in Phase 4; this
+  // index is set by clicking a CTE row in CteNode and consumed by CteEditorPanel.
+  editingCteIndex: number | null;
+  openCteEditor: (index: number) => void;
+  closeCteEditor: () => void;
+  // Live results from `framework-model-cte-analysis`. The hook keeps the
+  // previous response visible while a new request is in flight; the panel
+  // uses `loading` only for a subtle "updating" indicator on the count pill.
+  cteAnalysis: CteAnalysisState;
+  setCteAnalysis: (next: Partial<CteAnalysisState>) => void;
+  /**
+   * Live-measured DOM height of the CTE node (via ResizeObserver in
+   * `CteNode.tsx`). Threaded into `useLayoutManager` so the
+   * `preSource -> source` vertical gap respects the actual rendered
+   * height instead of the layout's fixed `nodeHeight: 200` assumption.
+   * `null` while uninitialized.
+   */
+  cteNodeMeasuredHeight: number | null;
+  setCteNodeMeasuredHeight: (height: number | null) => void;
+  /**
+   * User-supplied node positions persisted in-session. Keyed by React
+   * Flow node id. After auto-layout runs, these overlay the computed
+   * positions so a user's manual nudge survives the next layout pass.
+   * Entries are pruned when the underlying node disappears. Positions
+   * do NOT persist across page reloads (sticky-until-structure-changes).
+   */
+  manualPositions: Record<string, { x: number; y: number }>;
+  setManualPosition: (id: string, pos: { x: number; y: number }) => void;
+  pruneManualPositions: (presentIds: string[]) => void;
+  clearManualPositions: () => void;
 
   // Utility actions
   reset: () => void;
@@ -409,6 +668,16 @@ export const useModelStore = create<ModelStore>()(
     editingColumn: null,
     editingColumnOriginalName: null,
     ctes: [],
+    editingCteIndex: null,
+    cteAnalysis: {
+      columns: {},
+      diagnostics: [],
+      manifestTimestamp: null,
+      loading: false,
+      error: null,
+    },
+    cteNodeMeasuredHeight: null,
+    manualPositions: {},
 
     // Actions
     togglePreview: (show: boolean) => {
@@ -474,25 +743,43 @@ export const useModelStore = create<ModelStore>()(
           }
         }
 
-        // Clear CTEs when switching to a non-CTE-capable model type
+        // Clear CTEs when switching to a non-CTE-capable model type. Also
+        // close the side-panel editor (`editingCteIndex`) and remove the
+        // CTE action from activeActions so the canvas drops the list node
+        // alongside the data.
         if (
           field === 'type' &&
           typeof value === 'string' &&
-          !isCteCapableType(value) &&
-          state.ctes.length > 0
+          !isCteCapableType(value)
         ) {
-          newCtes = [];
-          setTimeout(() => {
-            void get().saveField('ctes', null);
-          }, 0);
+          if (state.ctes.length > 0) {
+            newCtes = [];
+            setTimeout(() => {
+              void get().saveField('ctes', null);
+              get().closeCteEditor();
+            }, 0);
+          }
+          if (state.activeActions.has(ActionType.CTE)) {
+            // newActiveActions may already be the original Set reference
+            // (we want a fresh copy before mutating).
+            if (newActiveActions === state.activeActions) {
+              newActiveActions = new Set(state.activeActions);
+            }
+            newActiveActions.delete(ActionType.CTE);
+          }
         }
 
         // Clear group by state when model type changes to one that doesn't support it
         if (field === 'type' && typeof value === 'string') {
           if (!isGroupByAllowedType(value)) {
             newGroupBy = DEFAULT_GROUP_BY_STATE;
-            // Remove GROUPBY action from activeActions
-            newActiveActions = new Set(state.activeActions);
+            // Remove GROUPBY action from activeActions. Use a shared
+            // mutable copy so prior cleanups in this update (e.g. CTE
+            // deletion above) aren't lost when more than one branch
+            // mutates activeActions.
+            if (newActiveActions === state.activeActions) {
+              newActiveActions = new Set(state.activeActions);
+            }
             newActiveActions.delete(ActionType.GROUPBY);
             // Schedule save of cleared group by
             setTimeout(() => {
@@ -879,9 +1166,16 @@ export const useModelStore = create<ModelStore>()(
         }
       }
 
-      // Load CTEs if present
-      if (data.ctes && Array.isArray(data.ctes)) {
-        set({ ctes: data.ctes as CteState[] });
+      // Load CTEs if present. Defensive normalization drops empty `from`
+      // branches and unknown keys so the panel doesn't render half-broken
+      // states from older / malformed JSON. Activate the CTE action so
+      // the canvas renders the list node when reopening a CTE-bearing
+      // model -- mirrors the where/group_by/lightdash auto-toggle below.
+      if (data.ctes && Array.isArray(data.ctes) && data.ctes.length > 0) {
+        set({ ctes: (data.ctes as unknown[]).map(normalizeCte) });
+        if (!state.activeActions.has(ActionType.CTE)) {
+          state.toggleAction(ActionType.CTE);
+        }
       }
 
       // Handle select data - with special case for int_join_column
@@ -1257,6 +1551,15 @@ export const useModelStore = create<ModelStore>()(
             };
             break;
           }
+          case ActionType.CTE: {
+            // Disabling the CTE list discards every CTE on the model;
+            // mirrors the data-loss cleanup the other actions do. The
+            // confirm dialog in ActionsBar gates this behind a user
+            // acknowledgement when ctes is non-empty.
+            newState.ctes = [];
+            newState.editingCteIndex = null;
+            break;
+          }
         }
 
         return newState;
@@ -1369,12 +1672,43 @@ export const useModelStore = create<ModelStore>()(
         editingColumn: null,
         editingColumnOriginalName: null,
         ctes: [],
+        editingCteIndex: null,
+        cteNodeMeasuredHeight: null,
+        manualPositions: {},
       });
     },
 
     // CTE Actions
     addCte: (cte: CteState) => {
-      set((state) => ({ ctes: [...state.ctes, cte] }));
+      const incoming = normalizeCte(cte);
+      set((state) => {
+        // Auto-set `modelingState.from.cte` when the user adds their first
+        // CTE on a truly empty `from`. "Truly empty" means no model, no
+        // source, no cte, no union. Any partially-set `from` is treated as
+        // intentional and left alone.
+        const f = state.modelingState.from || {};
+        const isTrulyEmpty =
+          !('model' in f && f.model) &&
+          !('source' in f && f.source) &&
+          !('cte' in f && f.cte) &&
+          !('union' in f && f.union);
+
+        const nextModelingState =
+          isTrulyEmpty && incoming.name
+            ? {
+                ...state.modelingState,
+                from: { ...f, cte: incoming.name } as Record<string, unknown>,
+              }
+            : state.modelingState;
+
+        return {
+          ctes: [...state.ctes, incoming],
+          modelingState: nextModelingState,
+        };
+      });
+      void get().saveField('ctes', get().ctes);
+      // Persist `from` if we auto-set it.
+      void get().saveField('from', get().modelingState.from);
     },
     updateCte: (index: number, cte: CteState) => {
       set((state) => {
@@ -1382,11 +1716,84 @@ export const useModelStore = create<ModelStore>()(
         newCtes[index] = cte;
         return { ctes: newCtes };
       });
+      void get().saveField('ctes', get().ctes);
+    },
+    patchCte: (index: number, patch: Partial<CteState>) => {
+      const oldCte = get().ctes[index];
+      if (!oldCte) return;
+      // Patch semantics: `undefined` deletes the key from the CTE,
+      // anything else replaces it. A spread (`{ ...oldCte, ...patch }`)
+      // would leave the key present with an `undefined` value, so the
+      // runtime field disappears but the `in`-check still passes --
+      // `stripCteForSerialize` relies on the key being absent to
+      // distinguish "use main-model default" from "override with this
+      // explicit value".
+      const merged: CteState = { ...oldCte };
+      for (const k of Object.keys(patch) as Array<keyof CteState>) {
+        const v = patch[k];
+        if (v === undefined) {
+          delete (merged as Record<string, unknown>)[k as string];
+        } else {
+          (merged as Record<string, unknown>)[k as string] = v;
+        }
+      }
+      // If the name changed via patchCte, route through applyCteRename so all
+      // references get rewritten atomically. Otherwise it's just a field
+      // update.
+      if (patch.name !== undefined && patch.name !== oldCte.name) {
+        set((state) => {
+          const newCtes = [...state.ctes];
+          newCtes[index] = merged;
+          return { ctes: newCtes };
+        });
+        get().applyCteRename(oldCte.name, merged.name);
+      } else {
+        set((state) => {
+          const newCtes = [...state.ctes];
+          newCtes[index] = merged;
+          return { ctes: newCtes };
+        });
+        void get().saveField('ctes', get().ctes);
+      }
     },
     removeCte: (index: number) => {
-      set((state) => ({
-        ctes: state.ctes.filter((_, i) => i !== index),
-      }));
+      const removed = get().ctes[index];
+      set((state) => {
+        const newCtes = state.ctes.filter((_, i) => i !== index);
+        // Walk every reference site and strip references to the removed CTE.
+        // Downstream sites are left in a deliberately invalid state so the
+        // user sees a clear validation error and can fix it intentionally;
+        // we never "auto-fix" semantically meaningful gaps.
+        if (!removed?.name) {
+          return { ctes: newCtes };
+        }
+        const draft = visitCteRefs(
+          {
+            ctes: newCtes,
+            modelingState: state.modelingState as unknown as Record<
+              string,
+              unknown
+            >,
+          },
+          (_kind, name) => (name === removed.name ? '' : undefined),
+        );
+        return {
+          ctes: draft.ctes ?? newCtes,
+          modelingState: (draft.modelingState ??
+            (state.modelingState as unknown as Record<
+              string,
+              unknown
+            >)) as unknown as ModelingStateAdapter,
+          editingCteIndex:
+            state.editingCteIndex === index ? null : state.editingCteIndex,
+        };
+      });
+      void get().saveField('ctes', get().ctes);
+      void get().saveField('from', get().modelingState.from);
+      void get().saveField(
+        'select',
+        buildSelectConfig(get().basicFields, get().modelingState),
+      );
     },
     moveCte: (fromIndex: number, toIndex: number) => {
       set((state) => {
@@ -1395,6 +1802,100 @@ export const useModelStore = create<ModelStore>()(
         newCtes.splice(toIndex, 0, moved);
         return { ctes: newCtes };
       });
+      void get().saveField('ctes', get().ctes);
+    },
+    duplicateCte: (index: number) => {
+      set((state) => {
+        const source = state.ctes[index];
+        if (!source) return {};
+        // Deep clone to avoid sharing nested references with the source CTE.
+        const cloned: CteState = JSON.parse(JSON.stringify(source));
+        // Suffix the copied CTE name to keep names unique within the model.
+        const baseName = (source.name || `cte_${index + 1}`).replace(
+          /_copy(\d*)$/,
+          '',
+        );
+        const existingNames = new Set(state.ctes.map((c) => c.name));
+        let suffix = 1;
+        let nextName = `${baseName}_copy`;
+        while (existingNames.has(nextName)) {
+          suffix += 1;
+          nextName = `${baseName}_copy${suffix}`;
+        }
+        cloned.name = nextName;
+        const newCtes = [...state.ctes];
+        newCtes.splice(index + 1, 0, cloned);
+        return { ctes: newCtes };
+      });
+      void get().saveField('ctes', get().ctes);
+    },
+    applyCteRename: (oldName: string, newName: string) => {
+      if (!oldName || !newName || oldName === newName) return;
+      set((state) => {
+        const draft = visitCteRefs(
+          {
+            ctes: state.ctes,
+            modelingState: state.modelingState as unknown as Record<
+              string,
+              unknown
+            >,
+          },
+          (_kind, name) => (name === oldName ? newName : undefined),
+        );
+        return {
+          ctes: draft.ctes ?? state.ctes,
+          modelingState: (draft.modelingState ??
+            (state.modelingState as unknown as Record<
+              string,
+              unknown
+            >)) as unknown as ModelingStateAdapter,
+        };
+      });
+      void get().saveField('ctes', get().ctes);
+      void get().saveField('from', get().modelingState.from);
+      void get().saveField(
+        'select',
+        buildSelectConfig(get().basicFields, get().modelingState),
+      );
+    },
+    openCteEditor: (index: number) => {
+      set({ editingCteIndex: index });
+    },
+    closeCteEditor: () => {
+      set({ editingCteIndex: null });
+    },
+    setCteAnalysis: (next: Partial<CteAnalysisState>) => {
+      set((state) => ({
+        cteAnalysis: { ...state.cteAnalysis, ...next },
+      }));
+    },
+    setCteNodeMeasuredHeight: (height: number | null) => {
+      // Skip no-op writes -- ResizeObserver fires for every subpixel change
+      // and triggers a layout recompute. Round to nearest pixel and only
+      // commit when the rounded value actually moves.
+      const prev = get().cteNodeMeasuredHeight;
+      const next = height === null ? null : Math.round(height);
+      if (prev === next) return;
+      set({ cteNodeMeasuredHeight: next });
+    },
+    setManualPosition: (id: string, pos: { x: number; y: number }) => {
+      set((state) => ({
+        manualPositions: { ...state.manualPositions, [id]: pos },
+      }));
+    },
+    pruneManualPositions: (presentIds: string[]) => {
+      const presentSet = new Set(presentIds);
+      const current = get().manualPositions;
+      const filteredEntries = Object.entries(current).filter(([id]) =>
+        presentSet.has(id),
+      );
+      // Avoid a no-op set so we don't re-trigger consumers on every layout pass.
+      if (filteredEntries.length === Object.keys(current).length) return;
+      set({ manualPositions: Object.fromEntries(filteredEntries) });
+    },
+    clearManualPositions: () => {
+      if (Object.keys(get().manualPositions).length === 0) return;
+      set({ manualPositions: {} });
     },
 
     buildModelJson: () => {
@@ -1437,9 +1938,29 @@ export const useModelStore = create<ModelStore>()(
         ...additionalFields,
       };
 
-      // Add CTEs if defined
+      // Add CTEs if defined. Strip UI-only keys + drop empty `select` /
+      // empty `from.union.{ctes,models}` so the serialized output passes
+      // Ajv against `model.cte.schema.json` (Cross-cutting Invariants 2 + 3).
       if (state.ctes.length > 0) {
-        modelJson.ctes = state.ctes;
+        // Pass `additionalFields` so CTE-level exclude flags that match the
+        // main model's values are dropped from the preview JSON. The CTE
+        // schema treats absent flags as "inherit from the main model", so
+        // omitting matching values keeps the rendered SQL identical while
+        // making the preview easier to scan.
+        const inheritedFlags = {
+          exclude_framework_artifacts:
+            state.additionalFields.exclude_framework_artifacts,
+          exclude_date_filter: state.additionalFields.exclude_date_filter,
+          exclude_daily_filter: state.additionalFields.exclude_daily_filter,
+          exclude_datetime: state.additionalFields.exclude_datetime,
+          exclude_portal_partition_columns:
+            state.additionalFields.exclude_portal_partition_columns,
+          exclude_portal_source_count:
+            state.additionalFields.exclude_portal_source_count,
+        };
+        modelJson.ctes = state.ctes.map((cte) =>
+          stripCteForSerialize(cte, inheritedFlags),
+        );
       }
 
       // Add Lightdash configuration if it has meaningful data
@@ -1541,10 +2062,27 @@ export function convertSchemaModelGroupByToModelStoreGroupBy(
 // Exclude `undefined` entries so the backend merge preserves original values
 // for fields the UI never loaded. Only explicit values (including `null` via
 // empty-string/false conversion) are sent; `null` tells the backend to delete.
+// Field keys whose `[]` state means "field absent" rather than "explicitly
+// cleared", and so should be omitted from the serialized output. Fields with
+// dedicated null-coercion (e.g. `partitioned_by`, handled by buildModelJson)
+// must NOT be listed here: they rely on `[]` reaching that path to be
+// converted to `null` for backend deletion semantics.
+const DROP_EMPTY_ARRAY_FIELDS = new Set<string>(['tags']);
+
 function buildAdditionalFields(additionalFields: AdditionalFieldsSchema) {
   return Object.fromEntries(
     Object.entries(additionalFields)
-      .filter(([, value]) => value !== undefined)
+      .filter(([key, value]) => {
+        if (value === undefined) return false;
+        if (
+          DROP_EMPTY_ARRAY_FIELDS.has(key) &&
+          Array.isArray(value) &&
+          value.length === 0
+        ) {
+          return false;
+        }
+        return true;
+      })
       .map(([key, value]) => {
         if (value === '' || value === false) {
           return [key, null];
