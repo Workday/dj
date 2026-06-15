@@ -422,6 +422,16 @@ import { useModelStore } from '@web/stores/useModelStore';
 - **Strict mode**: enabled
 - Paths configured for import aliases (see above)
 
+### Comment & Doc Style
+
+Comments and JSDoc must be neutral, self-contained descriptions of the code as it exists. They serve both newcomers and contributors familiar with the codebase, so phrasing that references past iterations, chat threads, code reviews, or the bug that prompted a change is noise to either audience. Apply these rules:
+
+- **No chat or review artifacts.** Don't write "the user reported …", "as discussed", "we just fixed …", or quote bug reports.
+- **No before/after framing.** Avoid "used to", "previously", "this used to flash", "now updated", "has been fixed". Describe present behavior and the invariant it maintains, regardless of whether the code has shipped.
+- **Cite the alternative, not the bug.** When a comment justifies a non-obvious design choice, contrast it with the alternative ("a poll here would race the in-flight RPC"), not with the prior broken version or the discussion that motivated it. Chat / review context can become a comment only when reframed as a forward-looking design rationale.
+- **Prefer one sentence of intent over a paragraph of narration.** Skip restating what the code clearly does ("Set loading to true.") and only call out non-obvious why.
+- **No duplicated docstrings.** If the JSDoc on a context field already says everything, don't repeat it inline at the call site.
+
 ### Test Configuration
 
 **Jest Configuration** (jest.config.js):
@@ -451,6 +461,9 @@ When adding features or making notable changes, update `CHANGELOG.md`:
 - Use the same style as existing entries — short, descriptive, no prefix labels
 - Group related changes into a single bullet when possible
 - Do not add date suffixes or create new version headings unless explicitly asked
+- **Write for end users, not for reviewers.** Lead with capability ("Lets you do X") and the user-facing command / setting name. Skip internal identifiers — REST endpoint paths, API parameter names (`prefer: 'persisted' | 'rest'`), TypeScript class names, CSS / theme tokens, schema filenames — unless the user will actually type or read them.
+- **Keep each bullet skim-readable.** Aim for 2–4 short sentences. If a bullet runs longer than ~100 words, split it or trim it. Bombarding the reader with every implementation detail makes the changelog unreadable.
+- **Cite paths users will inspect** (e.g. `.dj/diagnostics/`, `~/.dbt/profiles.yml`, `templates/skills/<skill>/SKILL.md`) and omit paths they won't (internal source files under `src/` or `web/src/`).
 
 ### Naming Conventions
 

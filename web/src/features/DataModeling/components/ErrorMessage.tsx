@@ -49,7 +49,9 @@ export const ErrorMessage: React.FC<ErrorMessageProps> = ({
       {false && (
         <ExclamationCircleIcon
           className={`w-4 h-4 flex-shrink-0 mt-0.5 ${
-            variant === 'warning' ? 'text-amber-600 dark:text-amber-400' : 'text-error'
+            variant === 'warning'
+              ? 'text-amber-600 dark:text-amber-400'
+              : 'text-error'
           }`}
         />
       )}
