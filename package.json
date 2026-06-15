@@ -878,14 +878,6 @@
           "name": "Lineage Graph",
           "icon": "$(graph)"
         }
-      ],
-      "dj-column-lineage": [
-        {
-          "id": "dj.view.columnLineage",
-          "type": "webview",
-          "name": "Column Lineage",
-          "icon": "$(type-hierarchy)"
-        }
       ]
     },
     "viewsWelcome": [
@@ -907,11 +899,6 @@
           "id": "dj-lineage",
           "title": "Data Explorer",
           "icon": "$(graph)"
-        },
-        {
-          "id": "dj-column-lineage",
-          "title": "Column Lineage",
-          "icon": "$(type-hierarchy)"
         }
       ]
     }

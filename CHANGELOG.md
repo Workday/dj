@@ -16,6 +16,7 @@
 
 - **YAML reserved tokens round-trip safely.** Values like `OFF`, `ON`, `YES`, `NO` (and lowercase variants) are now quoted on emit and tolerated on load, so `time_intervals: OFF` no longer turns into `false` in the manifest and crashes sync. Per-column meta failures also name the offending column.
 - **Sync errors surface the real cause.** SQL/YML generation failures now show the underlying message instead of always pointing at `expr` syntax.
+- **Removed the empty Column Lineage panel.** Column lineage lives in the Data Explorer's Column view; `DJ: Column Lineage` opens it as before.
 
 ## 1.7.1
 
