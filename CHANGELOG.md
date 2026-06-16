@@ -18,6 +18,7 @@
 ### Agent skills
 
 - **`convert-sql-to-model` skill renamed to `dj-convert-sql-to-model`** so every DJ skill shares the `dj-` prefix. The stale `.agents/skills/convert-sql-to-model/` folder from earlier releases is removed automatically the next time skills are deployed.
+- **Resolve git merge and rebase conflicts the DJ way through your AI assistant.** When `dj.codingAgent` is enabled, a new skill at `.agents/skills/dj-resolve-merge-conflicts/SKILL.md` teaches an IDE agent to merge only the `.model.json` / `.source.json` sources of truth and let the generated `.sql` / `.yml` regenerate instead of hand-merging them. When an incoming branch looks old or built on an older DJ schema, it flags the divergence and offers a guided port of just the models you need instead of a full merge.
 
 ### Bug fixes
 
