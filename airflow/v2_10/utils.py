@@ -205,6 +205,7 @@ def build_runs(
     id_dates_list: list[dict],
     etl_timestamp: str,
     date_limit: int = None,
+    chronological: bool = False
 ):
 
     ids_by_event_date: dict[str, list[str]] = {}
@@ -226,8 +227,8 @@ def build_runs(
             ids.append(id)
             ids_by_event_date[event_date] = ids
 
-    # Sort in descending order of event date so most recent runs are first
-    ids_by_event_date = dict(sorted(ids_by_event_date.items(), reverse=True))
+    # Sorting based on chronological order value
+    ids_by_event_date = dict(sorted(ids_by_event_date.items(), reverse=not chronological))
 
     event_dates_by_ids: dict[str, list[str]] = {}
     for (
