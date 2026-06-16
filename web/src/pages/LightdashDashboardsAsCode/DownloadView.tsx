@@ -130,7 +130,7 @@ export function DownloadView() {
             level: delResp.success ? 'info' : 'error',
             message: delResp.success
               ? `Removed ${paths.length} file${paths.length === 1 ? '' : 's'} from the previous project.`
-              : (delResp.error ?? 'Failed to remove previous project files.'),
+              : delResp.error ?? 'Failed to remove previous project files.',
             timestamp: new Date().toISOString(),
           });
         }
