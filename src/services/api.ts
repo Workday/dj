@@ -94,6 +94,7 @@ export class Api {
       case 'lightdash-yaml-delete-files':
       case 'lightdash-yaml-get-default-path':
       case 'lightdash-yaml-set-default-path':
+      case 'lightdash-yaml-get-path-project':
       case 'lightdash-yaml-ensure-gitignore':
         // Lazy resolution - gets handler only when needed
         return (await this.getLightdashHandler()(

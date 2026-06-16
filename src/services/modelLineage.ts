@@ -134,7 +134,13 @@ export class ModelLineage {
 
         case 'data-explorer-list-lightdash-assets': {
           try {
-            await this.coder.lightdashContent.ensurePopulated();
+            // `force` re-scans the content directory (manual Refresh);
+            // otherwise serve the already-populated in-memory index.
+            if (payload.request?.force) {
+              await this.coder.lightdashContent.rebuild();
+            } else {
+              await this.coder.lightdashContent.ensurePopulated();
+            }
             return apiResponse<typeof payload.type>({
               assets: this.coder.lightdashContent.listAssets(),
               lightdashAvailable: this.coder.lightdashContent.isPopulated(),

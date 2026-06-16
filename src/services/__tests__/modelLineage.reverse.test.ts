@@ -83,9 +83,11 @@ function makeCoder(withManifest: boolean): Coder {
     : new Map<string, unknown>();
 
   const lightdashContent = {
-    ensurePopulated: () => undefined,
+    ensurePopulated: jest.fn(() => undefined),
+    rebuild: jest.fn(() => Promise.resolve()),
     isPopulated: () => true,
     getResolvedPath: () => 'lightdash',
+    listAssets: () => [],
     getAssetModels: () => assetResult,
   };
 
@@ -236,5 +238,40 @@ describe('ModelLineage.getReverseLineage', () => {
     expect(data.models).toEqual([]);
     // Still lists what the asset depends on so the webview can prompt a parse.
     expect(data.staleModels).toEqual(['mart_orders', 'mart_customers']);
+  });
+});
+
+describe('ModelLineage list-lightdash-assets force re-scan', () => {
+  type LightdashContentSpies = {
+    rebuild: jest.Mock;
+    ensurePopulated: jest.Mock;
+  };
+
+  async function listAssets(
+    coder: Coder,
+    request: { force?: boolean } | null,
+  ): Promise<void> {
+    const modelLineage = new ModelLineage({ coder });
+    await modelLineage.handleApi({
+      type: 'data-explorer-list-lightdash-assets',
+      service: 'model-lineage',
+      request,
+    } as never);
+  }
+
+  it('rebuilds from disk when force is set', async () => {
+    const coder = makeCoder(true);
+    const lc = coder.lightdashContent as unknown as LightdashContentSpies;
+    await listAssets(coder, { force: true });
+    expect(lc.rebuild).toHaveBeenCalledTimes(1);
+    expect(lc.ensurePopulated).not.toHaveBeenCalled();
+  });
+
+  it('serves the populated index when force is absent', async () => {
+    const coder = makeCoder(true);
+    const lc = coder.lightdashContent as unknown as LightdashContentSpies;
+    await listAssets(coder, null);
+    expect(lc.ensurePopulated).toHaveBeenCalledTimes(1);
+    expect(lc.rebuild).not.toHaveBeenCalled();
   });
 });

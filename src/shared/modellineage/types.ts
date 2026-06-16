@@ -217,7 +217,13 @@ export type ModelLineageApi =
   | {
       type: 'data-explorer-list-lightdash-assets';
       service: 'model-lineage';
-      request: null;
+      /**
+       * `force` re-scans the Lightdash content directory from disk before
+       * listing, rather than serving the already-populated in-memory index.
+       * The manual Refresh / re-scan action sets it so newly downloaded (or
+       * removed) charts/dashboards are picked up within a session.
+       */
+      request: { force?: boolean } | null;
       response: LightdashAssetListResult;
     }
   | {

@@ -3,6 +3,7 @@ import {
   ArrowPathIcon,
   ChartBarIcon,
   ExclamationTriangleIcon,
+  FolderIcon,
   Squares2X2Icon,
 } from '@heroicons/react/24/outline';
 import type { LightdashAssetSummary } from '@shared/modellineage/types';
@@ -143,6 +144,7 @@ export function LightdashReverseLineage() {
     setApiHandler,
     fetchAssets,
     fetchReverseLineage,
+    clearLineage,
     openDashboardsAsCode,
     refreshProjects,
   } = useReverseLineageStore();
@@ -322,17 +324,55 @@ export function LightdashReverseLineage() {
             icon={<ArrowPathIcon className="w-4 h-4" />}
             title={
               anchorRef
-                ? 'Reload lineage'
+                ? 'Re-scan content & reload lineage'
                 : 'Re-scan for downloaded Lightdash content'
             }
             onClick={() => {
-              if (anchorRef) {
-                void fetchReverseLineage(anchorRef);
-              } else {
-                void fetchAssets();
-              }
+              void (async () => {
+                // Always re-scan the content directory so newly downloaded
+                // (or removed) assets show up in the picker.
+                await fetchAssets(true);
+                const current = anchorRef;
+                if (!current) {
+                  return;
+                }
+                // Reload the selected anchor only if it survived the re-scan;
+                // otherwise drop the now-missing selection and its graph.
+                const stillPresent = useReverseLineageStore
+                  .getState()
+                  .assets.some(
+                    (a) => a.kind === current.kind && a.slug === current.slug,
+                  );
+                if (stillPresent) {
+                  await fetchReverseLineage(current);
+                } else {
+                  clearLineage();
+                  setSelected(null);
+                }
+              })();
             }}
           />
+          {lightdashResolvedPath && (
+            <>
+              <div className="h-6 w-px border-l border-neutral" />
+              <div
+                className="flex items-center gap-1.5 text-xs text-background-contrast/60"
+                title={
+                  `Lineage is computed from the Lightdash content under "${lightdashResolvedPath}" ` +
+                  `(the dj.lightdash.dashboardsAsCodePath setting). Download to a different folder, ` +
+                  `or set a new default path in the Dashboards as Code panel, to view another project.`
+                }
+              >
+                <FolderIcon className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate max-w-[14rem]">
+                  Lineage from{' '}
+                  <span className="font-medium text-background-contrast/80">
+                    {lightdashResolvedPath}
+                  </span>
+                </span>
+              </div>
+            </>
+          )}
         </div>
 
         {isLoading && (

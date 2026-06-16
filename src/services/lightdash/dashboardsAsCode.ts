@@ -196,7 +196,12 @@ function runLightdash(
   });
 }
 
-function resolveAbsoluteWorkingDir(rawPath?: string): string {
+/**
+ * Resolve a raw (possibly relative / blank) dashboards-as-code path to an
+ * absolute filesystem path, matching how `download` / `upload` resolve their
+ * `-p` target. A blank value falls back to the configured default.
+ */
+export function resolveAbsoluteWorkingDir(rawPath?: string): string {
   const trimmed = rawPath?.trim();
   if (!trimmed) {
     return getDashboardsAsCodeAbsolutePath();

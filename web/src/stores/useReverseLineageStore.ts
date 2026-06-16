@@ -65,8 +65,10 @@ interface ReverseLineageStore {
   setApiHandler: (handler: any) => void;
 
   // Actions
-  fetchAssets: () => Promise<void>;
+  fetchAssets: (force?: boolean) => Promise<void>;
   fetchReverseLineage: (anchor: ReverseAnchorRef) => Promise<void>;
+  /** Drop the current anchor + graph (e.g. when a re-scan removes it). */
+  clearLineage: () => void;
   expandUpstreamNode: (modelName: string, projectName: string) => Promise<void>;
   isNodeUpstreamExpanded: (nodeId: string) => boolean;
   resetExpansion: () => void;
@@ -105,16 +107,19 @@ export const useReverseLineageStore = create<ReverseLineageStore>(
     _apiHandler: null,
     setApiHandler: (handler: any) => set({ _apiHandler: handler }),
 
-    fetchAssets: async () => {
+    fetchAssets: async (force?: boolean) => {
       const { _apiHandler } = get();
       if (!_apiHandler) {
         return;
       }
       set({ isLoadingAssets: true });
       try {
+        // `force` re-scans the content directory on the backend so newly
+        // downloaded (or removed) charts/dashboards show up; the default
+        // (mount) path serves the already-populated index.
         const response = (await _apiHandler({
           type: 'data-explorer-list-lightdash-assets',
-          request: null,
+          request: force ? { force: true } : null,
         })) as LightdashAssetListResult;
         set({
           assets: response?.assets ?? [],
@@ -127,6 +132,16 @@ export const useReverseLineageStore = create<ReverseLineageStore>(
         set({ isLoadingAssets: false });
       }
     },
+
+    clearLineage: () =>
+      set({
+        anchorRef: null,
+        data: null,
+        error: null,
+        expandedUpstream: new Set<string>(),
+        additionalNodes: [],
+        additionalEdges: [],
+      }),
 
     fetchReverseLineage: async (anchor: ReverseAnchorRef) => {
       const { _apiHandler } = get();
@@ -346,8 +361,8 @@ export const useReverseLineageStore = create<ReverseLineageStore>(
           type: 'data-explorer-refresh-projects',
           request: null,
         });
-        // Re-resolve the current anchor so the (now-parsed) manifest is
-        // reflected without the user re-selecting the asset.
+        // Re-resolve the current anchor so the re-read manifest is reflected
+        // without the user re-selecting the asset.
         if (anchorRef) {
           await fetchReverseLineage(anchorRef);
         }

@@ -541,6 +541,13 @@ export function AppProvider() {
                     }),
                   );
                 }
+                case 'lightdash-yaml-get-path-project': {
+                  // No recorded project in the mock, so the Download tab never
+                  // raises the cross-project replace prompt during dev.
+                  return resolve(
+                    apiResponse<typeof payloadType>({ project: undefined }),
+                  );
+                }
                 case 'lightdash-yaml-set-default-path': {
                   const newPath = (payload.request as { path: string }).path;
                   return resolve(
@@ -764,6 +771,8 @@ export function AppProvider() {
                   );
                 }
                 case 'data-explorer-list-lightdash-assets': {
+                  // `request.force` (manual re-scan) is a no-op against the
+                  // static mock; it always returns the same fixture list.
                   return resolve(
                     apiResponse<typeof payloadType>({
                       assets: [

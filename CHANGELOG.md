@@ -4,10 +4,14 @@
 
 ### Lightdash reverse lineage
 
-- **Trace a Lightdash dashboard or chart back to its dbt models.** The new `DJ: Lightdash — Reverse Lineage` command opens a **Lightdash Lineage** panel where you pick an asset and see the `mart_*` model(s) it depends on. Each model node's icons act on that model directly — view columns, compile, or run a preview — and you can keep expanding further upstream. You can also open the view by clicking a dashboard or chart node in the Data Explorer model-lineage graph.
-- **An asset picker built for large projects.** The picker is searchable and filterable (**All / Dashboards / Charts / Standalone**) and stays responsive even with thousands of charts and dashboards. Each entry shows a kind badge and, for charts, which dashboard(s) it belongs to (or **Standalone**); selecting a chart also shows its parent dashboard(s) in the graph.
-- **Helpful prerequisite states.** The view flags referenced models that aren't in the project, shows a download banner when no Lightdash content is present, and offers a one-click **Refresh Projects** when the dbt manifest hasn't been built yet.
+- **Trace a Lightdash dashboard or chart back to its dbt models.** The `DJ: Lightdash — Reverse Lineage` command opens a **Lightdash Lineage** panel where you pick an asset, see the `mart_*` model(s) it depends on, and keep expanding upstream. Each model node can view columns, compile, or run a preview; you can also open the view from a dashboard or chart node in the Data Explorer graph.
+- **An asset picker built for large projects.** Searchable and filterable (**All / Dashboards / Charts / Standalone**), and responsive across thousands of charts and dashboards. Each entry shows a kind badge and, for charts, the dashboard(s) it belongs to (or **Standalone**); selecting a chart also shows its parent dashboard(s) in the graph.
+- **Helpful states.** Flags referenced models missing from the project and shows a download banner when no Lightdash content is present. When the dbt manifest isn't parsed, it points you to run `dbt parse`, then **Refresh Projects** to re-read it. A toolbar label names the folder it reads from (`dj.lightdash.dashboardsAsCodePath`); **Refresh** re-reads that folder to pick up assets you've downloaded or removed.
 - **More reliable model resolution** for Lightdash charts that don't name an explore, fixing both the forward and reverse Lightdash lineage.
+
+### Dashboards as Code
+
+- **One project per download folder.** Downloading a different Lightdash project into a folder that already holds one prompts you to **Replace** the existing files or **Cancel** and pick another **Save to Path**, so a folder's YAML always reflects a single project.
 
 ## 1.6.0
 
