@@ -85,6 +85,11 @@ export const COMMAND_ID = {
   FRAMEWORK_JUMP_MODEL: 'dj.command.frameworkJumpModel',
   FRAMEWORK_JUMP_YAML: 'dj.command.frameworkYaml',
   JSON_SYNC: 'dj.command.jsonSync',
+  QUERY_CONTROL_CENTER: 'dj.command.queryControlCenter',
+  ANALYZE_QUERY: 'dj.command.analyzeQuery',
+  SET_TRINO_CREDENTIALS: 'dj.command.setTrinoCredentials',
+  SELECT_TRINO_PROFILE: 'dj.command.selectTrinoProfile',
+  JUMP_TO_MODEL_FROM_QUERY: 'dj.command.jumpToModelFromQuery',
   TEST_TRINO_CONNECTION: 'dj.command.testTrinoConnection',
 } as const;
 

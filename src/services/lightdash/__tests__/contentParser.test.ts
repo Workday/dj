@@ -187,7 +187,10 @@ describe('applyGitignoreEntry', () => {
     // pair so future DJ-managed entries can land inside the same block.
     expect(updatedBody).toMatch(/^# dj$/m);
     expect(updatedBody).toMatch(/^# \/dj$/m);
-    expect(updatedBody).toContain('lightdash/\n');
+    // The entry is root-anchored with a leading slash so a directory of
+    // the same name nested elsewhere isn't accidentally ignored.
+    expect(updatedBody).toMatch(/^\/lightdash\/$/m);
+    expect(updatedBody).not.toMatch(/^lightdash\/$/m);
     expect(updatedBody.endsWith('\n')).toBe(true);
   });
 
@@ -197,10 +200,10 @@ describe('applyGitignoreEntry', () => {
     expect(alreadyPresent).toBe(false);
     expect(updatedBody.startsWith(existing)).toBe(true);
     expect(updatedBody).toContain(GITIGNORE_MARKER_BEGIN);
-    expect(updatedBody).toContain('lightdash/');
+    expect(updatedBody).toMatch(/^\/lightdash\/$/m);
   });
 
-  it('treats an entry already present outside the marker block as already-present (idempotent)', () => {
+  it('treats a legacy unanchored entry outside the marker block as already-present (idempotent)', () => {
     const existing = '# user-managed\nlightdash/\n';
     const { updatedBody, alreadyPresent } = applyGitignoreEntry(existing, PATH);
     expect(alreadyPresent).toBe(true);
@@ -208,10 +211,17 @@ describe('applyGitignoreEntry', () => {
     expect(updatedBody).not.toContain(GITIGNORE_MARKER_BEGIN);
   });
 
-  it('also matches when the existing entry is missing the trailing slash', () => {
+  it('matches a legacy entry missing the trailing slash', () => {
     const existing = 'lightdash\n';
     const { alreadyPresent } = applyGitignoreEntry(existing, PATH);
     expect(alreadyPresent).toBe(true);
+  });
+
+  it('matches an existing root-anchored entry (round-trip idempotent)', () => {
+    const existing = '/lightdash/\n';
+    const { updatedBody, alreadyPresent } = applyGitignoreEntry(existing, PATH);
+    expect(alreadyPresent).toBe(true);
+    expect(updatedBody).toBe(existing);
   });
 
   it('inserts inside an existing managed block instead of duplicating it', () => {
@@ -231,21 +241,21 @@ describe('applyGitignoreEntry', () => {
       (updatedBody.match(new RegExp(GITIGNORE_MARKER_END, 'g')) || []).length,
     ).toBe(1);
     expect(updatedBody).toContain('old-path/');
-    expect(updatedBody).toContain('lightdash/');
+    expect(updatedBody).toMatch(/^\/lightdash\/$/m);
     // New entry should land before the closing marker.
-    const newEntryIdx = updatedBody.indexOf('lightdash/');
+    const newEntryIdx = updatedBody.indexOf('/lightdash/');
     const endIdx = updatedBody.indexOf(GITIGNORE_MARKER_END);
     expect(newEntryIdx).toBeLessThan(endIdx);
   });
 
-  it('normalizes paths: strips ./ prefix and adds trailing slash', () => {
+  it('normalizes paths: strips ./ prefix and root-anchors with a trailing slash', () => {
     const { updatedBody } = applyGitignoreEntry('', './my-lightdash');
-    expect(updatedBody).toContain('my-lightdash/');
+    expect(updatedBody).toMatch(/^\/my-lightdash\/$/m);
     expect(updatedBody).not.toContain('./my-lightdash');
   });
 
-  it('falls back to lightdash/ when given an empty path', () => {
+  it('falls back to /lightdash/ when given an empty path', () => {
     const { updatedBody } = applyGitignoreEntry('', '   ');
-    expect(updatedBody).toContain('lightdash/');
+    expect(updatedBody).toMatch(/^\/lightdash\/$/m);
   });
 });

@@ -2,9 +2,29 @@
 
 ## 1.8.0
 
-### Agent Skill
+- **Author CTEs visually in the Model Wizard.** Models that compile to `WITH ... SELECT ...` open with a draggable CTE list above the SELECT step. Click a CTE to edit its source, columns, filters, and framework artifact overrides in a side panel; the wizard validates the model as you type and surfaces any CTE errors before the Next step.
 
+### Dashboards as Code
+
+- **New `dj.lightdash.restrictedProjects` setting** — flag Lightdash project UUIDs as `block` (the Upload tab refuses with an inline error) or `warn` (upload proceeds only after a confirmation dialog).
+- **`Add path to .gitignore` now defaults to on**, overridable via the new `dj.lightdash.defaultAddPathToGitignore` setting (`false` keeps it opt-in). The written entry is now root-anchored (e.g. `/lightdash/`) so a same-named directory nested elsewhere isn't ignored.
+
+### Trino Query Control Center
+
+- **New Query Control Center (`DJ: Query Control Center`)** — a master-detail panel that replaces the Query View for inspecting and triaging Trino queries. A **Live** tab (queries from your active coordinator, or the local Trino CLI when no profile is set, with a "dbt runs only" filter) and a **History** tab both support search, state, and user/source filtering. Selecting a query shows its summary, stage tree, slowest operators, failure details, and SQL, plus **Jump to Model** (opens the matching `.model.json`) and **Analyze with AI**, which saves sanitized JSON under `.dj/diagnostics/` so analyzed queries reopen even after the coordinator evicts them (~15 min).
+- **Named Trino connection profiles.** `dj.trino.profiles` and `dj.trino.activeProfile` define coordinator profiles (dev / staging / prod) you switch from the panel or `DJ: Select Trino Connection Profile...`. Each profile resolves its secret at request time from VS Code SecretStorage (set via `DJ: Set Trino Credentials...`), an environment variable, a password file, or your `~/.dbt/profiles.yml` — never plain text in settings — and the panel shows a coordinator status indicator with one-click refresh for expired tokens.
+- **New `dj-trino-analyzer` agent skill** (`.agents/skills/dj-trino-analyzer/SKILL.md`, written when `dj.codingAgent` is on) gives a coding agent operator-level heuristics for diagnosing slow or failed Trino queries from the sanitized JSON, plus a bundled Trino QueryInfo field reference (`references/`, verified against the Trino 479 source) for deep dives into the raw `.dj/diagnostics/<id>.full.json` — schema tables, enum gotchas, and ready-to-paste jq recipes. The sanitizer doubles as a tool firewall: payloads containing row data are rejected before they reach disk, so customer data never reaches an LLM prompt.
+
+### Agent skills
+
+- **`convert-sql-to-model` skill renamed to `dj-convert-sql-to-model`** so every DJ skill shares the `dj-` prefix. The stale `.agents/skills/convert-sql-to-model/` folder from earlier releases is removed automatically the next time skills are deployed.
 - **Resolve git merge and rebase conflicts the DJ way through your AI assistant.** When `dj.codingAgent` is enabled, a new skill at `.agents/skills/dj-resolve-merge-conflicts/SKILL.md` teaches an IDE agent to merge only the `.model.json` / `.source.json` sources of truth and let the generated `.sql` / `.yml` regenerate instead of hand-merging them. When an incoming branch looks old or built on an older DJ schema, it flags the divergence and offers a guided port of just the models you need instead of a full merge.
+
+### Bug fixes
+
+- **YAML reserved tokens round-trip safely.** Values like `OFF`, `ON`, `YES`, `NO` (and lowercase variants) are now quoted on emit and tolerated on load, so `time_intervals: OFF` no longer turns into `false` in the manifest and crashes sync. Per-column meta failures also name the offending column.
+- **Sync errors surface the real cause.** SQL/YML generation failures now show the underlying message instead of always pointing at `expr` syntax.
+- **Removed the empty Column Lineage panel.** Column lineage lives in the Data Explorer's Column view; `DJ: Column Lineage` opens it as before.
 
 ## 1.7.1
 

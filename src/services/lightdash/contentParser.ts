@@ -249,12 +249,19 @@ export function applyGitignoreEntry(
 ): { updatedBody: string; entry: string; alreadyPresent: boolean } {
   const entry = normalizeGitignoreEntry(rawPath);
 
+  // A line counts as already-present if it matches the anchored entry or
+  // any looser/legacy variant (with or without a leading or trailing
+  // slash). This keeps us from appending a duplicate next to a
+  // pre-existing unanchored `lightdash/` written by an older version.
+  const core = entry.replace(/^\/+/, '').replace(/\/+$/, '');
+  const equivalents = new Set([entry, `/${core}`, `${core}/`, core]);
+
   for (const line of body.split(/\r?\n/)) {
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#')) {
       continue;
     }
-    if (trimmed === entry || trimmed === entry.replace(/\/$/, '')) {
+    if (equivalents.has(trimmed)) {
       return { updatedBody: body, entry, alreadyPresent: true };
     }
   }
@@ -267,11 +274,16 @@ export function applyGitignoreEntry(
 }
 
 function normalizeGitignoreEntry(rawPath: string): string {
-  const trimmed = rawPath.trim().replace(/^\.\//, '');
-  if (!trimmed) {
-    return 'lightdash/';
-  }
-  return trimmed.endsWith('/') ? trimmed : `${trimmed}/`;
+  const cleaned = rawPath
+    .trim()
+    .replace(/^\.\//, '') // drop a leading ./
+    .replace(/^\/+/, '') // drop leading slashes; we re-anchor below
+    .replace(/\/+$/, ''); // drop trailing slashes; we re-add exactly one
+  const core = cleaned || 'lightdash';
+  // Root-anchor with a leading slash so a directory of the same name
+  // nested elsewhere in the tree (e.g. `src/services/lightdash/`) is NOT
+  // accidentally ignored - only the top-level content dir is matched.
+  return `/${core}/`;
 }
 
 function appendInsideManagedBlock(body: string, entry: string): string {

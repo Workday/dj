@@ -84,6 +84,7 @@ export function Button({
           {..._props}
           className={makeClassName(
             'p-2 rounded flex gap-1 items-center hover:text-primary',
+            'disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-inherit',
             !className?.includes('justify-') && 'justify-center',
             fullWidth && 'w-full',
             className,
@@ -104,6 +105,7 @@ export function Button({
           {..._props}
           className={makeClassName(
             'p-2 rounded flex gap-2 items-center justify-center text-primary border border-primary',
+            'disabled:opacity-50 disabled:cursor-not-allowed',
             fullWidth && 'w-full',
             className,
           )}

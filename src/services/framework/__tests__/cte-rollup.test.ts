@@ -411,6 +411,63 @@ describe('CTE Rollup', () => {
 
       expect(sql).toContain("date_trunc('year', datetime) as datetime");
     });
+
+    // Schema allows `from.join` and `from.rollup` on the same CTE
+    // `from` object. Combined, SQL generation must:
+    //   - emit the join (left join on the column list)
+    //   - emit `date_trunc(<interval>, datetime) as datetime`
+    //   - wrap fct columns with their suffix-agg in the rolled-up grain
+    //   - synthesize a GROUP BY across the surviving dims and the
+    //     truncated datetime expression
+    test('CTE supports from.join + from.rollup combined', () => {
+      const project = projectWithRollupSourceModel('day');
+      // Add a lookup model so the inner join has a valid target.
+      project.manifest.nodes['model.project.dim_category'] = {
+        columns: {
+          category: {
+            name: 'category',
+            data_type: 'varchar',
+            meta: { type: 'dim' },
+          },
+          category_label: {
+            name: 'category_label',
+            data_type: 'varchar',
+            meta: { type: 'dim' },
+          },
+        },
+      } as any;
+
+      const cte: FrameworkCTE = {
+        name: 'monthly_joined',
+        from: {
+          model: 'stg_events',
+          rollup: { interval: 'month' },
+          join: [
+            { model: 'dim_category', on: { and: ['category'] }, type: 'left' },
+          ],
+        },
+        select: [
+          { name: 'category', type: 'dim' },
+          { name: 'amount_sum', type: 'fct' },
+        ],
+      } as any;
+
+      const registry = frameworkBuildCteColumnRegistry({
+        ctes: [cte],
+        project,
+      });
+      const sql = frameworkGenerateCteSql({
+        cte,
+        cteRegistry: registry,
+        project,
+      });
+
+      expect(sql).toContain("date_trunc('month', datetime) as datetime");
+      expect(sql).toMatch(/left join\s+\{\{\s*ref\('dim_category'\)\s*\}\}/);
+      expect(sql).toContain('stg_events.category=dim_category.category');
+      expect(sql).toMatch(/sum\(amount_sum\) as amount_sum/);
+      expect(sql).toMatch(/group by/);
+    });
   });
 
   describe('Validators', () => {

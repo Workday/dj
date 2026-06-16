@@ -1,3 +1,4 @@
+import type { LightdashRestrictionStatus } from '@shared/lightdash/restrictions';
 import type { SchemaLightdashDimension } from '@shared/schema/types/lightdash.dimension.schema';
 import type { SchemaLightdashMetric } from '@shared/schema/types/lightdash.metric.schema';
 import type { SchemaLightdashTable } from '@shared/schema/types/lightdash.table.schema';
@@ -158,12 +159,33 @@ export type LightdashApi =
         includeCharts?: boolean;
         /** See `lightdash-yaml-download` `project`. Same rules apply. */
         project: string;
+        /**
+         * Set by the UI after the user explicitly confirms a `warn`-mode
+         * restriction. The backend rejects warn-mode uploads when this
+         * flag is missing — see `dj.lightdash.restrictedProjects` and
+         * `resolveLightdashUploadRestriction`.
+         */
+        acknowledgedWarning?: boolean;
       };
       response: {
         success: boolean;
         uploadedFiles?: string[];
         error?: string;
+        /**
+         * Populated when the upload was refused (or would have been
+         * refused) by the restricted-projects policy. The UI uses this
+         * to surface the right inline error / confirmation prompt even
+         * when the pre-flight `lightdash-yaml-check-upload-policy` was
+         * skipped (e.g. settings changed mid-flight).
+         */
+        restriction?: LightdashRestrictionStatus;
       };
+    }
+  | {
+      type: 'lightdash-yaml-check-upload-policy';
+      service: 'lightdash';
+      request: { project: string };
+      response: LightdashRestrictionStatus;
     }
   | {
       type: 'lightdash-yaml-delete-files';
@@ -176,6 +198,17 @@ export type LightdashApi =
       service: 'lightdash';
       request: null;
       response: { path: string; absolutePath: string };
+    }
+  | {
+      type: 'lightdash-yaml-get-download-defaults';
+      service: 'lightdash';
+      request: null;
+      /**
+       * Seeds the Download tab's option defaults from VS Code settings.
+       * `addPathToGitignore` mirrors `dj.lightdash.defaultAddPathToGitignore`
+       * (default `true`).
+       */
+      response: { addPathToGitignore: boolean };
     }
   | {
       type: 'lightdash-yaml-set-default-path';
