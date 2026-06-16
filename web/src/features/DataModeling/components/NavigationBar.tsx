@@ -11,9 +11,10 @@ import {
 } from '@heroicons/react/24/solid';
 import { Button, Icon } from '@web/elements';
 import { mapNodeTypeToGuideStep } from '@web/features/Tutorial/config/assistMe/assistSteps';
+import { useModelStore } from '@web/stores/useModelStore';
 import { useTutorialStore } from '@web/stores/useTutorialStore';
 import { Panel, useReactFlow } from '@xyflow/react';
-import React, { useCallback } from 'react';
+import React, { useCallback, useMemo } from 'react';
 
 import { MODEL_TYPES } from '../types';
 import { HoverTooltip } from './HoverTooltip';
@@ -96,21 +97,22 @@ export const NavigationBar: React.FC<NavigationBarProps> = ({
     return null;
   }, [currentModelType]);
 
-  // Only show CTE navigation for model types that support inline CTE definitions
+  // Only show CTE navigation for model types that support inline CTE definitions.
+  // Keep this list in sync with `CTE_CAPABLE_TYPES` in `web/src/stores/utils.ts`
+  // -- diverging the two means the wizard nav and the canvas can disagree on
+  // which model types accept CTEs.
   const supportsCtes =
     currentModelType &&
     (currentModelType.includes('int_select_model') ||
       currentModelType.includes('int_join_models') ||
+      currentModelType.includes('int_union_models') ||
       currentModelType.includes('mart_select_model') ||
       currentModelType.includes('mart_join_models'));
 
   const navigationItems: NavigationItem[] = [
-    {
-      id: 'model',
-      label: 'Model',
-      icon: CubeIcon,
-      nodeType: 'selectNode',
-    },
+    // CTEs lead the sidebar when the model type supports them so the nav
+    // ordering matches the canvas (CTE list -> SELECT FROM -> ...) and the
+    // SQL itself (`WITH ... SELECT FROM ...`).
     ...(supportsCtes
       ? [
           {
@@ -121,6 +123,12 @@ export const NavigationBar: React.FC<NavigationBarProps> = ({
           },
         ]
       : []),
+    {
+      id: 'model',
+      label: 'Model',
+      icon: CubeIcon,
+      nodeType: 'selectNode',
+    },
     ...(getTransformationNode() ? [getTransformationNode()!] : []),
     {
       id: 'columns',
@@ -206,6 +214,19 @@ export const NavigationBar: React.FC<NavigationBarProps> = ({
     isNodeCompleted(item.nodeType),
   );
 
+  // Aggregate CTE diagnostic counts so the CTE nav item can show a chip
+  // even when the user is focused elsewhere on the canvas.
+  const cteDiagnostics = useModelStore((s) => s.cteAnalysis.diagnostics);
+  const cteCounts = useMemo(() => {
+    let errors = 0;
+    let warnings = 0;
+    for (const d of cteDiagnostics) {
+      if (d.severity === 'error') errors += 1;
+      else warnings += 1;
+    }
+    return { errors, warnings };
+  }, [cteDiagnostics]);
+
   return (
     <Panel position="center-left" style={{ top: '55%' }}>
       <div
@@ -227,42 +248,63 @@ export const NavigationBar: React.FC<NavigationBarProps> = ({
         <div className="flex flex-col">
           {completedItems.map((item) => {
             const isCompleted = isNodeCompleted(item.nodeType);
+            const isCteItem = item.nodeType === 'cteNode';
+            const showErrorChip = isCteItem && cteCounts.errors > 0;
+            const showWarningChip =
+              isCteItem && cteCounts.errors === 0 && cteCounts.warnings > 0;
 
             return (
               <HoverTooltip
                 key={item.id}
-                content={`Navigate to ${item.label}`}
+                content={
+                  isCteItem && cteCounts.errors > 0
+                    ? `${item.label} (${cteCounts.errors} error${cteCounts.errors === 1 ? '' : 's'})`
+                    : isCteItem && cteCounts.warnings > 0
+                      ? `${item.label} (${cteCounts.warnings} warning${cteCounts.warnings === 1 ? '' : 's'})`
+                      : `Navigate to ${item.label}`
+                }
                 disabled={!isCompleted}
                 placement="right"
               >
-                <Button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    handleNavigateToNode(item.nodeType);
-                  }}
-                  variant="iconButton"
-                  label=""
-                  disabled={!isCompleted}
-                  className={`
-                    flex flex-col items-center justify-center py-2 px-1 transition-all duration-200 group w-full
-                    ${
-                      isCompleted
-                        ? 'cursor-pointer hover:bg-surface/50'
-                        : 'cursor-not-allowed opacity-50'
-                    }
-                  `}
-                  icon={
-                    <item.icon
-                      className={`w-4 h-4 transition-colors ${
+                <div className="relative">
+                  <Button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      handleNavigateToNode(item.nodeType);
+                    }}
+                    variant="iconButton"
+                    label=""
+                    disabled={!isCompleted}
+                    className={`
+                      flex flex-col items-center justify-center py-2 px-1 transition-all duration-200 group w-full
+                      ${
                         isCompleted
-                          ? 'text-background-contrast group-hover:text-primary'
-                          : 'text-muted-foreground'
+                          ? 'cursor-pointer hover:bg-surface/50'
+                          : 'cursor-not-allowed opacity-50'
+                      }
+                    `}
+                    icon={
+                      <item.icon
+                        className={`w-4 h-4 transition-colors ${
+                          isCompleted
+                            ? 'text-background-contrast group-hover:text-primary'
+                            : 'text-muted-foreground'
+                        }`}
+                      />
+                    }
+                  />
+                  {(showErrorChip || showWarningChip) && (
+                    <span
+                      className={`absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] px-1 rounded-full text-[10px] leading-[14px] text-center text-white font-bold ${
+                        showErrorChip ? 'bg-error' : 'bg-warning'
                       }`}
-                    />
-                  }
-                />
+                    >
+                      {showErrorChip ? cteCounts.errors : cteCounts.warnings}
+                    </span>
+                  )}
+                </div>
               </HoverTooltip>
             );
           })}

@@ -54,34 +54,30 @@ When you create a source, DJ connects to Trino to browse catalogs and retrieve t
 
 ## Query Engine Monitoring
 
-The Query Engine view in the sidebar provides real-time monitoring of your Trino cluster activity.
+The Query Engine view in the sidebar gives at-a-glance Trino cluster status and a one-click entry point to the full Query Control Center.
 
 **What You Can Monitor:**
 
 - **Nodes** - Active Trino worker nodes and their status (active/inactive)
-- **My Queries** - Your currently running queries with states:
-  - 🟢 FINISHED - Query completed successfully
-  - 🔵 RUNNING - Query is currently executing
-  - ⚪ QUEUED - Query waiting to execute
-  - 🔴 FAILED - Query encountered an error
+- **Query Control Center** - Click to open the master-detail webview that lists live and persisted Trino queries with stage/operator stats, an `Analyze with AI` action that writes a sanitized diagnostic JSON, and a `Jump to Model` action that resolves the SQL back to the originating `.model.json`.
 
 **Accessing Query Engine View:**
 
 1. Open DJ sidebar in VS Code (Activity Bar icon)
 2. Locate "Query Engine" view (database icon)
-3. Expand sections to see:
+3. The view shows:
    - **Nodes** (with count of active nodes)
-   - **My Queries** (with count of queries)
+   - **Query Control Center** shortcut
 
 **What's Monitored:**
 
-This view shows queries executed by DJ when:
+The Query Control Center surfaces:
 
-- Running dbt models in Data Explorer
-- Compiling models that query Trino
-- Creating sources (Trino introspection queries)
+- **Live** queries on the active Trino coordinator (polled every 5s; optional "My dbt runs only" filter chip)
+- **Recent (persisted)** queries from `.dj/diagnostics/` — survives coordinator in-memory eviction
+- For each query: state, wall/CPU time, peak memory, splits, blocked time, data-skew score, largest operator, stage tree, operator table with heuristic chips, the failure block for `FAILED` queries, and the SQL viewer
 
-**Note:** This is a **monitoring view only** - you cannot execute custom SQL queries through this interface. It displays activity from DJ operations that use Trino internally.
+**Note:** Custom SQL execution still happens through dbt / the Data Explorer; the Query Engine view itself is a monitoring entry point only.
 
 ## Model Execution
 

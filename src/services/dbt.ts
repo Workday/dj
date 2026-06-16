@@ -137,6 +137,14 @@ export class Dbt implements ApiEnabledService<'dbt'> {
     iconPath: new vscode.ThemeIcon('add'),
     label: 'Create Source',
   };
+  treeItemQueryCreate: TreeItem = {
+    command: {
+      command: COMMAND_ID.QUERY_DRAFT_CREATE,
+      title: 'Create New Query',
+    },
+    iconPath: new vscode.ThemeIcon('file-add'),
+    label: 'Create New Query',
+  };
 
   // Webview panels
   webviewPanelSourceCreate: vscode.WebviewPanel | undefined;
@@ -1872,6 +1880,8 @@ ${macro.macro_sql}`;
         vscode.Uri.file(BASE_SKILLS_PATH),
       );
 
+      await this.removeLegacySkillDirectories();
+
       const writePromises = skillEntries
         .filter(([, type]) => type === vscode.FileType.Directory)
         .map(async ([skillDirName]) => {
@@ -1893,6 +1903,29 @@ ${macro.macro_sql}`;
       await Promise.all(writePromises);
     } catch (err: unknown) {
       this.log.error('Error writing skill files:', err);
+    }
+  }
+
+  /**
+   * Delete deployed skill directories whose skills were renamed in a later
+   * release. Deployment only ever copies, so without this a renamed skill
+   * would leave agents seeing two copies under different names.
+   */
+  private async removeLegacySkillDirectories(): Promise<void> {
+    // Directory names that shipped in earlier releases and no longer match a
+    // template (e.g. `convert-sql-to-model` -> `dj-convert-sql-to-model`).
+    const legacySkillDirNames = ['convert-sql-to-model'];
+
+    for (const legacyDirName of legacySkillDirNames) {
+      const legacyDir = vscode.Uri.file(
+        path.join(WORKSPACE_ROOT, '.agents', 'skills', legacyDirName),
+      );
+      try {
+        await vscode.workspace.fs.delete(legacyDir, { recursive: true });
+        this.log.info(`Removed legacy skill directory: ${legacyDirName}`);
+      } catch {
+        // Directory not present — nothing to clean up.
+      }
     }
   }
 
@@ -2234,6 +2267,7 @@ ${macro.macro_sql}`;
       this.treeItemProjectClean,
       this.treeItemModelCreate,
       this.treeItemSourceCreate,
+      this.treeItemQueryCreate,
       this.coder.lightdash.treeItemLightdashPreview,
       this.coder.lightdash.treeItemLightdashDashboardsAsCode,
       this.treeItemModelRun,

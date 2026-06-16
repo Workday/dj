@@ -26,7 +26,16 @@
     }
   }
 
-  /* Override VSCode default code tag styles in SyntaxHighlighter */
+  /* Override VS Code's default `<code>` styling inside SyntaxHighlighter
+     output. The webview ships defaults (background tint, padding,
+     border-radius, border) that paint over the highlighter theme and
+     produce a "striped line" artifact in both light and dark mode.
+     `dj-code-block` is applied unconditionally by `CodeBlock` (see
+     `web/src/elements/CodeBlock.tsx`) so every consumer is covered.
+     The page-specific classes are kept for callers that wrap CodeBlock
+     with extra chrome and rely on those wrappers historically. */
+  .dj-code-block code,
+  .dj-code-block pre code,
   .live-preview pre code,
   .final-preview pre code,
   .dbt-run-preview pre code,
@@ -34,6 +43,20 @@
     font-family: monospace !important;
     color: inherit !important;
     background-color: inherit !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
+    border: none !important;
+  }
+
+  /* The highlighter writes inline `color: <token>` on each <span>;
+     we only neutralize the box styles (background/padding/border)
+     and intentionally leave `color` alone so token colors survive. */
+  .dj-code-block code span,
+  .live-preview pre code span,
+  .final-preview pre code span,
+  .dbt-run-preview pre code span,
+  .compiled-sql-preview pre code span {
+    background-color: transparent !important;
     padding: 0 !important;
     border-radius: 0 !important;
     border: none !important;

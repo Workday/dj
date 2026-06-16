@@ -39,6 +39,47 @@ describe('Skills', () => {
     },
   );
 
+  test.each(skillDirs.map((d) => d.name))(
+    '%s relative markdown links resolve to bundled files',
+    (dirName) => {
+      const skillDir = path.join(SKILLS_DIR, dirName);
+      const mdFiles: string[] = [];
+      const walk = (dir: string) => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          const full = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            walk(full);
+          } else if (entry.name.endsWith('.md')) {
+            mdFiles.push(full);
+          }
+        }
+      };
+      walk(skillDir);
+
+      for (const mdFile of mdFiles) {
+        const content = fs.readFileSync(mdFile, 'utf-8');
+        const links = [...content.matchAll(/\]\(([^)\s]+)\)/g)].map(
+          (m) => m[1],
+        );
+        for (const target of links) {
+          // Skip external URLs (scheme prefix) and in-page anchors.
+          if (/^[a-z][a-z+.-]*:/i.test(target) || target.startsWith('#')) {
+            continue;
+          }
+          const resolved = path.resolve(
+            path.dirname(mdFile),
+            target.split('#')[0],
+          );
+          const link = { in: path.relative(SKILLS_DIR, mdFile), target };
+          expect({ ...link, exists: fs.existsSync(resolved) }).toEqual({
+            ...link,
+            exists: true,
+          });
+        }
+      }
+    },
+  );
+
   test('_AGENTS.md template exists and contains expected content', () => {
     const content = fs.readFileSync(AGENTS_TEMPLATE, 'utf-8');
     expect(content).toBeTruthy();

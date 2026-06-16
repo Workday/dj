@@ -14,6 +14,14 @@ type LightdashHandler = (
   payload: ApiPayload<'lightdash'>,
 ) => Promise<ApiResponse>;
 
+/**
+ * Handler function for QueryDraft API calls.
+ * This is a lazy getter to break the circular dependency with QueryDraftService.
+ */
+type QueryDraftHandler = (
+  payload: ApiPayload<'query-draft'>,
+) => Promise<ApiResponse>;
+
 export class Api {
   constructor(
     private readonly dbt: Dbt,
@@ -26,6 +34,11 @@ export class Api {
      * This is called only when a lightdash-* message needs to be routed.
      */
     private readonly getLightdashHandler: () => LightdashHandler,
+    /**
+     * Lazy getter for QueryDraft handler to break circular dependency.
+     * This is called only when a query-draft-* message needs to be routed.
+     */
+    private readonly getQueryDraftHandler: () => QueryDraftHandler,
   ) {}
 
   /**
@@ -77,6 +90,7 @@ export class Api {
       case 'framework-column-lineage':
       case 'framework-check-model-exists':
       case 'framework-preferences':
+      case 'framework-model-cte-analysis':
         return (await this.framework.handleApi(
           payload as any,
         )) as ApiResponse<T>;
@@ -91,8 +105,10 @@ export class Api {
       case 'lightdash-yaml-edit-file':
       case 'lightdash-yaml-download':
       case 'lightdash-yaml-upload':
+      case 'lightdash-yaml-check-upload-policy':
       case 'lightdash-yaml-delete-files':
       case 'lightdash-yaml-get-default-path':
+      case 'lightdash-yaml-get-download-defaults':
       case 'lightdash-yaml-set-default-path':
       case 'lightdash-yaml-get-path-project':
       case 'lightdash-yaml-ensure-gitignore':
@@ -124,19 +140,32 @@ export class Api {
         )) as ApiResponse<T>;
       case 'trino-fetch-catalogs':
       case 'trino-fetch-columns':
-      case 'trino-fetch-current-schema':
       case 'trino-fetch-etl-sources':
       case 'trino-fetch-schemas':
       case 'trino-fetch-system-nodes':
-      case 'trino-fetch-system-queries':
-      case 'trino-fetch-system-query-with-task':
-      case 'trino-fetch-system-query-sql':
       case 'trino-fetch-tables':
+      case 'trino-fetch-query-info':
+      case 'trino-fetch-active-queries':
+      case 'trino-fetch-persisted-queries':
+      case 'trino-delete-persisted-query':
+      case 'trino-analyze-query':
+      case 'trino-list-profiles':
+      case 'trino-save-profile':
+      case 'trino-delete-profile':
+      case 'trino-set-active-profile':
+      case 'trino-set-credentials':
+      case 'trino-ping-coordinator':
+      case 'trino-jump-to-model-from-query':
         return (await this.trino.handleApi(payload as any)) as ApiResponse<T>;
       case 'state-load':
       case 'state-save':
       case 'state-clear':
         return (await this.stateManager.handleApi(
+          payload as any,
+        )) as ApiResponse<T>;
+      case 'query-draft-create':
+      case 'query-draft-execute':
+        return (await this.getQueryDraftHandler()(
           payload as any,
         )) as ApiResponse<T>;
       default:

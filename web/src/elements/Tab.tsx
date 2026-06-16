@@ -43,9 +43,9 @@ export function Tab({ tabs, panels, onChange, defaultIndex }: TabProps) {
           </HeadlessTab>
         ))}
       </TabList>
-      <TabPanels className="p-4 bg-[var(--color-tab-contrast)] flex-1 min-h-0">
+      <TabPanels className="p-4 bg-[var(--color-tab-contrast)] flex-1 min-h-0 flex flex-col">
         {panels.map((panel, index) => (
-          <TabPanel key={index} className="h-full min-h-0">
+          <TabPanel key={index} className="flex-1 min-h-0 overflow-hidden">
             {panel}
           </TabPanel>
         ))}

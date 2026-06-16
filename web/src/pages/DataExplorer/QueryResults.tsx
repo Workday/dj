@@ -1,5 +1,6 @@
 import {
   ArrowDownTrayIcon,
+  ArrowTopRightOnSquareIcon,
   ChevronDownIcon,
   ChevronUpIcon,
   ClockIcon,
@@ -22,6 +23,7 @@ interface QueryResultsProps {
   isMaximized?: boolean;
   onToggleMaximize?: () => void;
   onViewSql?: () => void;
+  onOpenFile?: () => void;
 }
 
 type SortDirection = 'asc' | 'desc' | null;
@@ -59,6 +61,7 @@ export default function QueryResults({
   isMaximized: _isMaximized = false,
   onToggleMaximize: _onToggleMaximize,
   onViewSql,
+  onOpenFile,
 }: QueryResultsProps) {
   const [limitValue, setLimitValue] = useState('500');
   const [sortConfig, setSortConfig] = useState<SortConfig>({
@@ -237,6 +240,15 @@ export default function QueryResults({
                   title="View Compiled SQL"
                 >
                   <CodeBracketIcon className="w-4 h-4 text-surface-contrast" />
+                </button>
+              )}
+              {onOpenFile && (
+                <button
+                  onClick={onOpenFile}
+                  className="p-1 rounded hover:bg-surface transition-colors"
+                  title="Open Draft SQL"
+                >
+                  <ArrowTopRightOnSquareIcon className="w-4 h-4 text-surface-contrast" />
                 </button>
               )}
               <button

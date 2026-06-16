@@ -9,6 +9,14 @@ const LAYOUT_CONFIG = {
   nodeHeight: 200,
 
   stages: {
+    // Pre-source lane reserved for the CTE list. CTEs declare upstream of
+    // SELECT FROM (mirrors WITH ... SELECT in SQL). Uses a tighter rankSep
+    // than the transformation lanes so the CTE node visually leads directly
+    // into Select rather than sitting in a separate canvas region.
+    preSource: {
+      rankSep: 240,
+      nodeSep: 450,
+    },
     source: {
       rankSep: 600,
       nodeSep: 450,
@@ -28,6 +36,10 @@ const LAYOUT_CONFIG = {
   },
 
   nodeTypes: {
+    // CTE list sits above the SELECT FROM picker so the canvas reads
+    // top-down as `WITH cte AS (...) SELECT FROM ...`. Priority 0.5 keeps
+    // it ahead of selectNode (1) without renumbering downstream priorities.
+    cteNode: { stage: 'preSource', priority: 0.5 },
     selectNode: { stage: 'source', priority: 1 },
     joinNode: { stage: 'transformation', priority: 2 },
     joinColumnNode: { stage: 'transformation', priority: 2 },
@@ -56,9 +68,12 @@ const getLightdashNodePriority = (modelType?: string | null): number => {
   return 4; // For all other modelTypes
 };
 
-// Function to get dynamic priority for ColumnSelectionNode based on context
+// Function to get dynamic priority for ColumnSelectionNode based on context.
+// CTE node lives in its own preSource lane upstream of selectNode now, so
+// it doesn't influence column-selection placement -- only the join /
+// transformation lanes matter for whether column-selection gets its own row
+// (priority 3) or sits in the source row (priority 2).
 const getColumnSelectionPriority = (nodes: Node[]): number => {
-  // Check for transformation nodes (rollup, lookback, union, join)
   const hasTransformationNodes = nodes.some(
     (n) =>
       n.type === 'rollupNode' ||
@@ -68,8 +83,6 @@ const getColumnSelectionPriority = (nodes: Node[]): number => {
       n.type === 'joinColumnNode',
   );
 
-  // If there are transformation nodes, column selection should be priority 3
-  // If no transformation nodes, column selection should be priority 2
   return hasTransformationNodes ? 3 : 2;
 };
 
@@ -77,6 +90,12 @@ export const useLayoutManager = () => {
   const analyzeNodeStages = useCallback(
     (nodes: Node[], layoutConfig = LAYOUT_CONFIG) => {
       const stageAnalysis = {
+        preSource: nodes.filter(
+          (node) =>
+            layoutConfig.nodeTypes[
+              node.type as keyof typeof layoutConfig.nodeTypes
+            ]?.stage === 'preSource',
+        ),
         source: nodes.filter(
           (node) =>
             layoutConfig.nodeTypes[
@@ -112,14 +131,24 @@ export const useLayoutManager = () => {
     (nodes: Node[], layoutConfig = LAYOUT_CONFIG) => {
       const stages = analyzeNodeStages(nodes, layoutConfig);
 
-      const stageWithMostNodes = Object.entries(stages).reduce(
-        (max, [stageName, stageNodes]) => {
-          return stageNodes.length > max.nodes
-            ? { stage: stageName, nodes: stageNodes.length }
-            : max;
-        },
-        { stage: 'source', nodes: 0 },
-      );
+      // Tie-break: ignore `preSource` (the CTE list) when picking the
+      // baseline stage. The CTE node renders one DOM box but reports a
+      // single "node" to the layout; using its rankSep (240) as the
+      // baseline when it happens to have the most logical entries
+      // collapses every downstream gap and causes Source -> Joins, etc.
+      // to overlap. `transformation` is the next-busiest lane in
+      // join/union models, so falling back to `source` (the safe
+      // default) keeps the canvas readable.
+      const stageWithMostNodes = Object.entries(stages)
+        .filter(([stageName]) => stageName !== 'preSource')
+        .reduce(
+          (max, [stageName, stageNodes]) => {
+            return stageNodes.length > max.nodes
+              ? { stage: stageName, nodes: stageNodes.length }
+              : max;
+          },
+          { stage: 'source', nodes: 0 },
+        );
 
       const baseConfig =
         layoutConfig.stages[
@@ -145,6 +174,16 @@ export const useLayoutManager = () => {
       direction: string,
       customLayoutConfig?: typeof LAYOUT_CONFIG,
       modelType?: string | null,
+      /**
+       * Optional measured heights keyed by React Flow node type. Today only
+       * `cteNode` is observed (see `CteNode.tsx`'s ResizeObserver); the
+       * value flows in via `DataModelingFlow`. Used to compute the
+       * `preSource -> source` Y delta against the real rendered height
+       * instead of `LAYOUT_CONFIG.nodeHeight` (200px), which is
+       * dramatically smaller than a CTE list with even a handful of rows
+       * and causes the SelectNode to overlap the CTE node.
+       */
+      measuredHeights?: Partial<Record<string, number>>,
     ) => {
       if (nodes.length === 0) return nodes;
 
@@ -252,8 +291,27 @@ export const useLayoutManager = () => {
             (node) => node.type === 'rollupNode',
           );
 
+          // Per-stage override hook -- when the current stage has its own
+          // entry in `LAYOUT_CONFIG.stages`, prefer that stage's rankSep over
+          // the global one. Used today for the `preSource` lane (CTE list)
+          // which wants to sit much closer to its downstream SelectNode than
+          // the source-stage's 600px would imply. The global `rankSep` here
+          // already has the complexity multiplier baked in (see
+          // `calculateLayoutConfig`), so we scale the preSource rankSep by
+          // the same ratio (`preSource.rankSep / source.rankSep`) instead of
+          // recomputing the multiplier.
+          const hasCteNode = stageNodes.some((node) => node.type === 'cteNode');
+          const nextStageHasSelectNode =
+            nextStage?.some((node) => node.type === 'selectNode') || false;
+          const isPreSourceToSource = hasCteNode && nextStageHasSelectNode;
+
           // Adjust spacing based on node types and relationships
-          if (hasAddJoinButton && nextStageHasJoinNodes) {
+          if (isPreSourceToSource) {
+            const ratio =
+              layoutConfig.stages.preSource.rankSep /
+              layoutConfig.stages.source.rankSep;
+            stageSpacing = Math.round(rankSep * ratio);
+          } else if (hasAddJoinButton && nextStageHasJoinNodes) {
             stageSpacing = rankSep * 0.2;
           } else if (hasTransformationNodes && nextStageHasColumnSelection) {
             if (hasJoinNodes) {
@@ -268,7 +326,15 @@ export const useLayoutManager = () => {
             stageSpacing = rankSep * 2.0;
           }
 
-          currentStagePosition += nodeHeight + stageSpacing;
+          // Use the measured CTE height for the preSource lane instead of
+          // the (much smaller) fixed `nodeHeight: 200`. Without this, the
+          // SelectNode's Y is computed from where a 200px-tall CTE node
+          // would end, so any CTE list taller than ~200px (i.e. any non-
+          // empty list) ends up overlapped by the SelectNode below.
+          const advanceHeight = isPreSourceToSource
+            ? measuredHeights?.cteNode ?? nodeHeight
+            : nodeHeight;
+          currentStagePosition += advanceHeight + stageSpacing;
         } else {
           const totalHeight = (nodesInStage - 1) * (nodeHeight + nodeSep);
           stageNodes.forEach((node, nodeIndex) => {
@@ -316,7 +382,20 @@ export const useLayoutManager = () => {
           const hasColumnSelection = stageNodes.some(
             (node) => node.type === 'columnSelectionNode',
           );
-          if (hasAddJoinButton && nextStageHasJoinNodes) {
+          // Mirrors the TB branch's preSource override (see comment above).
+          const hasCteNodeLR = stageNodes.some(
+            (node) => node.type === 'cteNode',
+          );
+          const nextStageHasSelectNodeLR =
+            nextStage?.some((node) => node.type === 'selectNode') || false;
+          const isPreSourceToSourceLR =
+            hasCteNodeLR && nextStageHasSelectNodeLR;
+          if (isPreSourceToSourceLR) {
+            const ratio =
+              layoutConfig.stages.preSource.rankSep /
+              layoutConfig.stages.source.rankSep;
+            stageSpacing = Math.round(rankSep * ratio);
+          } else if (hasAddJoinButton && nextStageHasJoinNodes) {
             stageSpacing = rankSep * 0.2;
           } else if (hasTransformationNodes && nextStageHasColumnSelection) {
             stageSpacing = rankSep * 1.6;
@@ -324,6 +403,9 @@ export const useLayoutManager = () => {
             stageSpacing = rankSep * 2.0;
           }
 
+          // LR doesn't need measured width today (CTE node sits in its
+          // own column anyway). Keep symmetry with the TB branch by using
+          // the same fixed `nodeWidth` lookup.
           currentStagePosition += nodeWidth + stageSpacing;
         }
       });
@@ -341,52 +423,66 @@ export const useLayoutManager = () => {
       );
       const centerX = layoutedSelectNode?.position.x || 100;
 
+      // First pass: compute the override Y for `column-selection` so we
+      // can re-anchor downstream final-processing nodes (groupBy / where
+      // / lightdash) by the same delta. Without this, the column-
+      // selection Y can jump down 500-1000px (e.g. in join models the
+      // override pushes it +1450 below the joins) while groupBy stays
+      // at its layout-pass Y -- visually overlapping the column list.
+      const originalColumnSelection = layoutedNodes.find(
+        (n) => n.id === 'column-selection',
+      );
+      const computeColumnSelectionY = (): number => {
+        let correctY = 400; // Default
+
+        if (currentModelType === 'int_join_column') {
+          // Position below JoinColumnNode - needs more space due to larger node size
+          const joinColumnNodes = layoutedNodes.filter(
+            (n) => n.type === 'joinColumnNode',
+          );
+          if (joinColumnNodes.length > 0) {
+            correctY = joinColumnNodes[0].position.y + 1000;
+          }
+        } else if (currentModelType.includes('join')) {
+          const joinNodes = layoutedNodes.filter((n) => n.type === 'joinNode');
+          if (joinNodes.length > 0) {
+            const maxJoinY = Math.max(...joinNodes.map((n) => n.position.y));
+            correctY = maxJoinY + 1450;
+          }
+        } else if (
+          currentModelType.includes('rollup') ||
+          currentModelType.includes('lookback') ||
+          currentModelType.includes('union')
+        ) {
+          const transformNodes = layoutedNodes.filter(
+            (n) =>
+              n.type === 'rollupNode' ||
+              n.type === 'lookbackNode' ||
+              n.type === 'unionNode',
+          );
+          if (transformNodes.length > 0) {
+            correctY = transformNodes[0].position.y + 550;
+          }
+        } else if (currentModelType.includes('select')) {
+          if (layoutedSelectNode) {
+            correctY = layoutedSelectNode.position.y + 950;
+          }
+        }
+
+        return correctY;
+      };
+
+      const newColumnSelectionY = computeColumnSelectionY();
+      const columnSelectionDelta =
+        originalColumnSelection !== undefined
+          ? newColumnSelectionY - originalColumnSelection.position.y
+          : 0;
+
       return layoutedNodes.map((node) => {
         if (node.id === 'column-selection') {
-          let correctY = 400; // Default
-
-          if (currentModelType === 'int_join_column') {
-            // Position below JoinColumnNode - needs more space due to larger node size
-            const joinColumnNodes = layoutedNodes.filter(
-              (n) => n.type === 'joinColumnNode',
-            );
-            if (joinColumnNodes.length > 0) {
-              correctY = joinColumnNodes[0].position.y + 1000; // Increased from 800 to 1000
-            }
-          } else if (currentModelType.includes('join')) {
-            // Position below all join nodes
-            const joinNodes = layoutedNodes.filter(
-              (n) => n.type === 'joinNode',
-            );
-            if (joinNodes.length > 0) {
-              const maxJoinY = Math.max(...joinNodes.map((n) => n.position.y));
-              correctY = maxJoinY + 1450;
-            }
-          } else if (
-            currentModelType.includes('rollup') ||
-            currentModelType.includes('lookback') ||
-            currentModelType.includes('union')
-          ) {
-            // Position below transformation node
-            const transformNodes = layoutedNodes.filter(
-              (n) =>
-                n.type === 'rollupNode' ||
-                n.type === 'lookbackNode' ||
-                n.type === 'unionNode',
-            );
-            if (transformNodes.length > 0) {
-              correctY = transformNodes[0].position.y + 550;
-            }
-          } else if (currentModelType.includes('select')) {
-            // Position below SelectNode
-            if (layoutedSelectNode) {
-              correctY = layoutedSelectNode.position.y + 950;
-            }
-          }
-
           return {
             ...node,
-            position: { x: centerX, y: correctY },
+            position: { x: centerX, y: newColumnSelectionY },
           };
         } else if (node.type === 'joinNode') {
           // Position join nodes horizontally in a row with gaps
@@ -421,12 +517,18 @@ export const useLayoutManager = () => {
           node.type === 'groupByNode' ||
           node.type === 'whereNode'
         ) {
-          // Preserve horizontal positioning for final processing nodes (already calculated in layout)
-          // Keep the x position as calculated by the layout algorithm to maintain horizontal spacing
+          // Re-anchor final-processing nodes by the same Y delta we
+          // applied to `column-selection`. They sit immediately below
+          // the column list in every model type; otherwise they overlap
+          // it whenever the alignment pass shifts the column list down.
+          // X is preserved so the horizontal triangle (where | groupBy |
+          // lightdash) stays intact.
           return {
             ...node,
-            // Keep the original x position calculated by the layout to maintain spacing
-            position: { x: node.position.x, y: node.position.y },
+            position: {
+              x: node.position.x,
+              y: node.position.y + columnSelectionDelta,
+            },
           };
         } else {
           // Center all other nodes horizontally with SelectNode
@@ -484,3 +586,127 @@ export const useLayoutManager = () => {
     findNodeToCenter,
   };
 };
+
+// ---------------------------------------------------------------------
+// Pure-function exports for unit testing.
+//
+// The hook above wraps each layout helper in `useCallback`; none of the
+// helpers actually need React state -- the memoization is purely for
+// referential stability across re-renders. Re-exporting the underlying
+// pure functions here lets us assert on the layout math without booting
+// React + @testing-library. The shape is intentionally a thin re-export
+// rather than a refactor so the prod call-site keeps its memoization.
+// ---------------------------------------------------------------------
+
+/** Default layout dimensions; tests use this to pin against constants. */
+export const LAYOUT_CONFIG_FOR_TESTS = LAYOUT_CONFIG;
+
+/**
+ * Pure version of `calculateLayoutConfig`. Used by tests to verify the
+ * tie-break: `preSource` must never become the baseline stage even
+ * when it has the most nodes (its `rankSep: 240` would collapse the
+ * downstream gaps).
+ */
+export function calculateLayoutConfigForTests(
+  nodes: Node[],
+  layoutConfig: typeof LAYOUT_CONFIG = LAYOUT_CONFIG,
+): { rankSep: number; nodeSep: number } {
+  const stages = {
+    preSource: nodes.filter(
+      (node) =>
+        layoutConfig.nodeTypes[node.type as keyof typeof layoutConfig.nodeTypes]
+          ?.stage === 'preSource',
+    ),
+    source: nodes.filter(
+      (node) =>
+        layoutConfig.nodeTypes[node.type as keyof typeof layoutConfig.nodeTypes]
+          ?.stage === 'source',
+    ),
+    transformation: nodes.filter(
+      (node) =>
+        layoutConfig.nodeTypes[node.type as keyof typeof layoutConfig.nodeTypes]
+          ?.stage === 'transformation',
+    ),
+    columnSelection: nodes.filter(
+      (node) =>
+        layoutConfig.nodeTypes[node.type as keyof typeof layoutConfig.nodeTypes]
+          ?.stage === 'columnSelection',
+    ),
+    finalProcessing: nodes.filter(
+      (node) =>
+        layoutConfig.nodeTypes[node.type as keyof typeof layoutConfig.nodeTypes]
+          ?.stage === 'finalProcessing',
+    ),
+  };
+
+  const stageWithMostNodes = Object.entries(stages)
+    .filter(([stageName]) => stageName !== 'preSource')
+    .reduce(
+      (max, [stageName, stageNodes]) => {
+        return stageNodes.length > max.nodes
+          ? { stage: stageName, nodes: stageNodes.length }
+          : max;
+      },
+      { stage: 'source', nodes: 0 },
+    );
+
+  const baseConfig =
+    layoutConfig.stages[
+      stageWithMostNodes.stage as keyof typeof layoutConfig.stages
+    ];
+  const totalNodes = nodes.length;
+  const complexityMultiplier = Math.min(1 + (totalNodes - 1) * 0.05, 1.5);
+  return {
+    rankSep: Math.round(baseConfig.rankSep * complexityMultiplier),
+    nodeSep: Math.round(baseConfig.nodeSep * complexityMultiplier),
+  };
+}
+
+/**
+ * Pure helper that computes the Y delta `alignNodesWithCenterX` applies
+ * to `column-selection`. The alignment pass overrides Column Selection's
+ * Y to "below the busiest upstream"; we then shift every final-
+ * processing node (groupBy/where/lightdash) by the same delta so they
+ * don't overlap. Tests verify the delta is positive and matches the
+ * model-type math.
+ */
+export function computeColumnSelectionYForTests(
+  layoutedNodes: Node[],
+  currentModelType: string,
+): number {
+  const layoutedSelectNode = layoutedNodes.find((n) => n.type === 'selectNode');
+  let correctY = 400;
+  if (currentModelType === 'int_join_column') {
+    const joinColumnNodes = layoutedNodes.filter(
+      (n) => n.type === 'joinColumnNode',
+    );
+    if (joinColumnNodes.length > 0) {
+      correctY = joinColumnNodes[0].position.y + 1000;
+    }
+  } else if (currentModelType.includes('join')) {
+    const joinNodes = layoutedNodes.filter((n) => n.type === 'joinNode');
+    if (joinNodes.length > 0) {
+      const maxJoinY = Math.max(...joinNodes.map((n) => n.position.y));
+      correctY = maxJoinY + 1450;
+    }
+  } else if (
+    currentModelType.includes('rollup') ||
+    currentModelType.includes('lookback') ||
+    currentModelType.includes('union')
+  ) {
+    const transformNodes = layoutedNodes.filter(
+      (n) =>
+        n.type === 'rollupNode' ||
+        n.type === 'lookbackNode' ||
+        n.type === 'unionNode',
+    );
+    if (transformNodes.length > 0) {
+      correctY = transformNodes[0].position.y + 550;
+    }
+  } else if (currentModelType.includes('select')) {
+    if (layoutedSelectNode) {
+      correctY = layoutedSelectNode.position.y + 950;
+    }
+  }
+  return correctY;
+}

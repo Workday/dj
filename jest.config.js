@@ -7,8 +7,14 @@ const config = {
     '@services': ['<rootDir>/src/services'],
     '@shared/(.*)': ['<rootDir>/src/shared/$1'],
     '@shared': ['<rootDir>/src/shared'],
-    '@web/(.*)': ['<rootDir>/web/src/shared/$1'],
-    '@web': ['<rootDir>/web/src/shared'],
+    '@web/(.*)': ['<rootDir>/web/src/$1'],
+    '@web': ['<rootDir>/web/src'],
+  },
+  // `isolatedModules: true` keeps ts-jest in transpile-only mode for imported
+  // files, so cross-package type resolution (e.g. the web tree's DOM globals
+  // and `@web/*` paths) does not need to be wired into the root tsconfig.
+  transform: {
+    '^.+\\.tsx?$': ['ts-jest', { isolatedModules: true }],
   },
   testPathIgnorePatterns: [
     '<rootDir>/out/',

@@ -9,63 +9,119 @@
     {%- set dest_columns = arg_dict["dest_columns"] -%}
     {%- set dest_cols_csv = get_quoted_csv(dest_columns | map(attribute="name")) -%}
 
+    {#- 1. Parse the table's configuration to see how it is partitioned -#}
     {%- if "partitioning" in config_properties -%}
         {%- set raw_partitioning = config_properties["partitioning"] | string -%}
         {%- set partitioned_by = (raw_partitioning | replace("ARRAY['", "") | replace("']", "") | replace("'", "")).split(", ") -%}
     {%- else -%}
         {%- set partitioned_by = [] -%}
     {%- endif -%}
-
     {%- set partitioned_by = partitioned_by | reject('==', '') | list -%}
-    {%- set mat_relation = temp_relation.incorporate(path={"identifier": temp_relation.identifier ~ "_mat"}) -%}
 
-    {% if execute %}
-        {# 1. Create the materialized table once #}
-        {%- do run_query("create or replace table " ~ mat_relation ~ " as (select " ~ dest_cols_csv ~ " from " ~ temp_relation ~ ")") -%}
-    {% endif %}
+    {% if is_incremental() %}
+        {#- 2. Pull the raw variable string -#}
+        {%- set raw_date_var = var('execute_date', var('event_dates', modules.datetime.date.today().strftime('%Y-%m-%d'))) | string -%}
 
-    {% if is_incremental() and partitioned_by | length > 0 %}
-        {%- set target_columns = adapter.get_columns_in_relation(target_relation) -%}
-        {%- set col_types = {} -%}
-        {%- for col in target_columns -%}
-            {%- do col_types.update({col.name | lower: col.data_type}) -%}
-        {%- endfor -%}
+        {#- 3. Handle ~ range, comma-separated list (source_etl), or single date -#}
+        {%- set is_range = false -%}
+        {%- set is_date_list = false -%}
+        {%- set date_list = [] -%}
+        {%- set month_list = [] -%}
+        {%- set start_date = none -%}
+        {%- set end_date = none -%}
+        {%- set start_month = none -%}
+        {%- set end_month = none -%}
 
-        {%- set get_partitions_sql -%}
-            select distinct {{ partitioned_by | join(", ") }} from {{ mat_relation }}
-        {%- endset -%}
-        {%- set partition_results = run_query(get_partitions_sql) -%}
-
-        {% if execute and partition_results.rows | length > 0 %}
-            {# 3. Run individual DELETEs. 
-               Trino treats these as simple metadata drops. No OR-complexity issues. #}
-            {%- for row in partition_results.rows -%}
-                {%- set row_conditions = [] -%}
-                {%- for val in row.values() -%}
-                    {%- set col_name = partitioned_by[loop.index0] | replace('"', '') | replace('`', '') | lower -%}
-                    {%- set col_type = col_types.get(col_name, 'varchar') | lower -%}
-                    
-                    {%- if val is none -%}
-                        {%- do row_conditions.append(partitioned_by[loop.index0] ~ " IS NULL") -%}
-                    {%- elif 'date' in col_type -%}
-                        {%- do row_conditions.append(partitioned_by[loop.index0] ~ " = DATE '" ~ val ~ "'") -%}
-                    {%- elif 'timestamp' in col_type -%}
-                        {%- do row_conditions.append(partitioned_by[loop.index0] ~ " = CAST('" ~ val ~ "' AS " ~ col_type ~ ")") -%}
-                    {%- else -%}
-                        {%- do row_conditions.append(partitioned_by[loop.index0] ~ " = '" ~ (val | string | replace("'", "''")) ~ "'") -%}
+        {%- if '~' in raw_date_var -%}
+            {%- set date_parts = raw_date_var.split('~') -%}
+            {%- set start_date = date_parts[0] | trim -%}
+            {%- set end_date = date_parts[1] | trim -%}
+            {%- set start_month = start_date[0:7] ~ "-01" -%}
+            {%- set end_month = end_date[0:7] ~ "-01" -%}
+            {%- set is_range = true -%}
+        {%- elif ',' in raw_date_var -%}
+            {%- set is_date_list = true -%}
+            {%- for date_part in raw_date_var.split(',') -%}
+                {%- set date_part = date_part | trim -%}
+                {%- if date_part -%}
+                    {%- do date_list.append(date_part) -%}
+                    {%- set month_part = date_part[0:7] ~ "-01" -%}
+                    {%- if month_part not in month_list -%}
+                        {%- do month_list.append(month_part) -%}
                     {%- endif -%}
-                {%- endfor -%}
-                
-                delete from {{ target_relation }} where {{ row_conditions | join(" AND ") }};
+                {%- endif -%}
             {%- endfor -%}
-        {% endif %}
-    {% elif is_incremental() %}
-        delete from {{ target_relation }};
+        {%- else -%}
+            {%- set start_date = raw_date_var | trim -%}
+            {%- set start_month = start_date[0:7] ~ "-01" -%}
+        {%- endif -%}
+
+        {#- 4. Build the delete conditions based on the precise structural rules -#}
+        {%- set delete_conditions = [] -%}
+
+        {#- Monthly rule applies if column is a partition -#}
+        {%- if 'portal_partition_monthly' in partitioned_by -%}
+            {%- if is_range -%}
+                {%- do delete_conditions.append("portal_partition_monthly BETWEEN DATE '" ~ start_month ~ "' AND DATE '" ~ end_month ~ "'") -%}
+            {%- elif is_date_list -%}
+                {%- if month_list | length == 1 -%}
+                    {%- do delete_conditions.append("portal_partition_monthly = DATE '" ~ month_list[0] ~ "'") -%}
+                {%- else -%}
+                    {%- set month_literals = [] -%}
+                    {%- for month_part in month_list -%}
+                        {%- do month_literals.append("DATE '" ~ month_part ~ "'") -%}
+                    {%- endfor -%}
+                    {%- do delete_conditions.append("portal_partition_monthly IN (" ~ month_literals | join(", ") ~ ")") -%}
+                {%- endif -%}
+            {%- else -%}
+                {%- do delete_conditions.append("portal_partition_monthly = DATE '" ~ start_month ~ "'") -%}
+            {%- endif -%}
+        {%- endif -%}
+
+        {#- Daily and Hourly tables both get the additional daily filter block -#}
+        {%- if 'portal_partition_daily' in partitioned_by or 'portal_partition_hourly' in partitioned_by -%}
+            {%- if is_range -%}
+                {%- do delete_conditions.append("portal_partition_daily BETWEEN DATE '" ~ start_date ~ "' AND DATE '" ~ end_date ~ "'") -%}
+            {%- elif is_date_list -%}
+                {%- if date_list | length == 1 -%}
+                    {%- do delete_conditions.append("portal_partition_daily = DATE '" ~ date_list[0] ~ "'") -%}
+                {%- else -%}
+                    {%- set daily_literals = [] -%}
+                    {%- for date_part in date_list -%}
+                        {%- do daily_literals.append("DATE '" ~ date_part ~ "'") -%}
+                    {%- endfor -%}
+                    {%- do delete_conditions.append("portal_partition_daily IN (" ~ daily_literals | join(", ") ~ ")") -%}
+                {%- endif -%}
+            {%- else -%}
+                {%- do delete_conditions.append("portal_partition_daily = DATE '" ~ start_date ~ "'") -%}
+            {%- endif -%}
+        {%- endif -%}
+
+        {#- Dynamic environment filtering if 'env_type' is passed and exists as a partition -#}
+        {%- if 'wd_env_type' in partitioned_by and var('env_type', none) is not none -%}
+            {%- do delete_conditions.append("wd_env_type = '" ~ var('env_type') ~ "'") -%}
+        {%- endif -%}
+
+        {#- Run the clear down if conditions were built -#}
+        {%- if delete_conditions | length > 0 %}
+            delete from {{ target_relation }}
+            where {{ delete_conditions | join(" and ") }};
+        {%- else -%}
+            {#- 
+              FALLBACK FOR UNPARTITIONED TABLES:
+              If the table has no partitions, clear the entire table to prevent 
+              data duplication during the subsequent INSERT phase.
+            -#}
+            delete from {{ target_relation }};
+        {%- endif -%}
+
     {% endif %}
 
-    {# 4. Finally, insert the new data #}
+    {#- 5. Stream data directly from the view straight to the target table -#}
     insert into {{ target_relation }} ({{ dest_cols_csv }})
-    select {{ dest_cols_csv }} from {{ mat_relation }};
+    (
+        select {{ dest_cols_csv }}
+        from {{ temp_relation }}
+    );
 
-    drop table if exists {{ mat_relation }};
 {% endmacro %}

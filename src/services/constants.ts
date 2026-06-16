@@ -50,6 +50,10 @@ export const COMMAND_ID = {
   COLUMN_ORIGIN: 'dj.command.columnOrigin',
   COLUMN_LINEAGE: 'dj.command.columnLineage',
   CLEAR_SYNC_CACHE: 'dj.command.clearSyncCache',
+  CONVERT_DRAFT_TO_MODEL: 'dj.command.convertDraftToModel',
+  CONVERT_DRAFT_TO_MODEL_COPILOT: 'dj.command.convertDraftToModelCopilot',
+  CONVERT_DRAFT_TO_MODEL_CURSOR: 'dj.command.convertDraftToModelCursor',
+  CONVERT_DRAFT_TO_MODEL_CLAUDE: 'dj.command.convertDraftToModelClaude',
   DEFER_RUN: 'dj.command.deferRun',
   DISCARD_EDIT_DRAFT: 'dj.command.discardEditDraft',
   LIGHTDASH_DASHBOARDS_AS_CODE: 'dj.command.lightdashDashboardsAsCode',
@@ -70,6 +74,9 @@ export const COMMAND_ID = {
   OPEN_TARGET_COMPILED_SQL: 'dj.command.openTargetCompiledSql',
   OPEN_TARGET_RUN_SQL: 'dj.command.openTargetRunSql',
   PROJECT_CLEAN: 'dj.command.projectClean',
+  QUERY_DRAFT_CREATE: 'dj.command.queryDraftCreate',
+  QUERY_DRAFT_RUN: 'dj.command.queryDraftRun',
+  QUERY_VIEW: 'dj.command.queryView',
   REFRESH_PROJECTS: 'dj.command.refreshProjects',
   SOURCE_CREATE: 'dj.command.sourceCreate',
   SOURCE_NAVIGATE: 'dj.command.sourceNavigate',
@@ -79,7 +86,11 @@ export const COMMAND_ID = {
   FRAMEWORK_JUMP_MODEL: 'dj.command.frameworkJumpModel',
   FRAMEWORK_JUMP_YAML: 'dj.command.frameworkYaml',
   JSON_SYNC: 'dj.command.jsonSync',
-  QUERY_VIEW: 'dj.command.queryView',
+  QUERY_CONTROL_CENTER: 'dj.command.queryControlCenter',
+  ANALYZE_QUERY: 'dj.command.analyzeQuery',
+  SET_TRINO_CREDENTIALS: 'dj.command.setTrinoCredentials',
+  SELECT_TRINO_PROFILE: 'dj.command.selectTrinoProfile',
+  JUMP_TO_MODEL_FROM_QUERY: 'dj.command.jumpToModelFromQuery',
   TEST_TRINO_CONNECTION: 'dj.command.testTrinoConnection',
 } as const;
 
@@ -89,9 +100,9 @@ export const VIEW_ID = {
   MODEL_ACTIONS: 'dj.view.modelActions',
   SELECTED_RESOURCE: 'dj.view.selectedResource',
   QUERY_ENGINE: 'dj.view.queryEngine',
+  QUERY_PREVIEW: 'dj.view.queryPreview',
+  QUERY_PREVIEW_FOCUS: 'dj.view.queryPreview.focus',
   EDIT_DRAFTS: 'dj.view.editDrafts',
-  COLUMN_LINEAGE: 'dj.view.columnLineage',
-  COLUMN_LINEAGE_FOCUS: 'dj.view.columnLineage.focus',
   MODEL_CREATE: 'dj.view.modelCreate',
   MODEL_EDIT: 'dj.view.modelEdit',
   MODEL_RUN: 'dj.view.modelRun',
@@ -103,10 +114,6 @@ export const VIEW_ID = {
   LIGHTDASH_PREVIEW_MANAGER: 'dj.view.lightdashPreviewManager',
   LIGHTDASH_REVERSE_LINEAGE: 'dj.view.lightdashReverseLineage',
   LIGHTDASH_REVERSE_LINEAGE_FOCUS: 'dj.view.lightdashReverseLineage.focus',
-  // VS Code built-in commands for focusing view containers
-  COLUMN_LINEAGE_CONTAINER_FOCUS: 'workbench.view.extension.dj-column-lineage',
-  LIGHTDASH_LINEAGE_CONTAINER_FOCUS:
-    'workbench.view.extension.dj-lightdash-lineage',
 } as const;
 
 // Lightdash Dashboards-as-Code JSON schema URLs (used by the

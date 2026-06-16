@@ -71,6 +71,7 @@ override_sources: list[str] = (
     if var("dj_etl_override_sources")
     else []
 )
+run_chronological: bool = var("dj_etl_run_chronological", "false").lower() == "true"
 schedule_cron: str = var("dj_etl_schedule_cron", "0 */6 * * *")
 storage_type: str = var("dj_etl_storage_type", "delta_lake")
 skip_sources: bool = var("dj_etl_skip_sources", "false").lower() == "true"

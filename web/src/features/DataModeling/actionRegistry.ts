@@ -10,6 +10,12 @@ export interface GroupByStoreSpec {
   expressions: string[]; // Custom expressions
 }
 
+// Action types that participate in the declarative registry below. The CTE
+// list lives upstream of the SELECT FROM picker (not as a column-selection
+// downstream node) so it doesn't fit the registry's "build nodes off of
+// column-selection" shape -- DataModeling.tsx places it inline instead.
+export type RegisteredActionType = Exclude<ActionType, ActionType.CTE>;
+
 // Mapped return types for each action's resetState
 export interface ActionResetMap {
   [ActionType.GROUPBY]: GroupByStoreSpec;
@@ -17,7 +23,7 @@ export interface ActionResetMap {
   [ActionType.LIGHTDASH]: SchemaModelLightdash;
 }
 
-export interface ActionSpec<T extends ActionType> {
+export interface ActionSpec<T extends RegisteredActionType> {
   type: T;
   resetState(): ActionResetMap[T];
   nodeId: string;
@@ -26,7 +32,7 @@ export interface ActionSpec<T extends ActionType> {
 }
 
 type ActionSpecRecord = {
-  [K in ActionType]: ActionSpec<K>;
+  [K in RegisteredActionType]: ActionSpec<K>;
 };
 
 /**
@@ -134,5 +140,5 @@ export const ACTION_SPECS: ActionSpecRecord = {
  * Convenience helpers
  */
 
-export const resetActionState = <T extends ActionType>(action: T) =>
+export const resetActionState = <T extends RegisteredActionType>(action: T) =>
   ACTION_SPECS[action].resetState();
