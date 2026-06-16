@@ -1,10 +1,12 @@
 import { CircleStackIcon } from '@heroicons/react/24/outline';
+import { Square3Stack3DIcon } from '@heroicons/react/24/solid';
 import type { DbtProject } from '@shared/dbt/types';
 import DataSearchIcon from '@web/assets/icons/data-search.svg?react';
 import { useApp } from '@web/context';
 import { Button, SelectSingle, Tooltip } from '@web/elements';
 import { type SchemaSelect, useModelStore } from '@web/stores/useModelStore';
 import { useTutorialStore } from '@web/stores/useTutorialStore';
+import { isCteCapableType } from '@web/stores/utils';
 import {
   filterAvailableModels,
   getUsedModelsForSelect,
@@ -20,8 +22,13 @@ import React, {
 } from 'react';
 
 import { ModelColumns } from '../components/ModelColumns';
-import type { Column, SelectionType, SelectionTypeValues } from '../types';
-import { supportsColumnName, supportsExprOnly } from '../types';
+import type {
+  Column,
+  SelectionSourceKind,
+  SelectionType,
+  SelectionTypeValues,
+} from '../types';
+import { ActionType, supportsColumnName, supportsExprOnly } from '../types';
 import { extractColumnsFromNode } from '../utils/manifestColumns';
 import { buildUpdatedSelections } from '../utils/selectionUtils';
 
@@ -37,6 +44,21 @@ export const SelectNode: React.FC<NodeProps> = ({ data: _data }) => {
 
   const { modelingState, updateFromState, updateSelectState, basicFields } =
     useModelStore();
+  // CTE awareness: surface CTE names in the FROM picker for CTE-capable
+  // model types and resolve their columns from the analysis API rather than
+  // the manifest (CTEs aren't in the manifest -- they live in the draft
+  // model.json under `ctes`).
+  const ctes = useModelStore((state) => state.ctes);
+  const cteAnalysisColumns = useModelStore(
+    (state) => state.cteAnalysis.columns,
+  );
+  // "Create CTE" shortcut: enable the CTE list action, seed a stub row,
+  // and pop the editor open. Mirrors CteNode's empty-state Add CTE button
+  // for users who haven't toggled the action via the side rail yet.
+  const activeActions = useModelStore((state) => state.activeActions);
+  const toggleAction = useModelStore((state) => state.toggleAction);
+  const addCte = useModelStore((state) => state.addCte);
+  const openCteEditor = useModelStore((state) => state.openCteEditor);
 
   // Tutorial integration
   const { isPlayTutorialActive } = useTutorialStore((state) => ({
@@ -66,6 +88,20 @@ export const SelectNode: React.FC<NodeProps> = ({ data: _data }) => {
     [modelingState],
   );
 
+  const cteNames = useMemo(
+    () => new Set(ctes.map((c) => c.name).filter(Boolean)),
+    [ctes],
+  );
+
+  // Discriminates the upstream this SELECT is reading from. Sources are
+  // hard-locked by model type; everything else picks between `model` and
+  // `cte` based on whether the chosen identifier matches a draft CTE name.
+  const sourceKind: SelectionSourceKind = useMemo(() => {
+    if (isTypeSource) return 'source';
+    if (selectedModel && cteNames.has(selectedModel.value)) return 'cte';
+    return 'model';
+  }, [isTypeSource, selectedModel, cteNames]);
+
   const modelOptions = useMemo(() => {
     const storedIdentifier = isTypeSource
       ? modelingState.from?.source
@@ -77,7 +113,24 @@ export const SelectNode: React.FC<NodeProps> = ({ data: _data }) => {
       ? [currentSelectedModel as string]
       : [];
 
-    return filterAvailableModels(models, usedModels, currentSelections);
+    const baseOptions = filterAvailableModels(
+      models,
+      usedModels,
+      currentSelections,
+    );
+
+    // CTEs only appear for non-source flows. Source-typed models can never
+    // FROM a CTE (the schema rejects it; sources are upstream-only).
+    if (isTypeSource) return baseOptions;
+
+    // Prefix CTE labels so users can distinguish them at a glance from
+    // manifest-resolved models. The value remains the bare CTE name so the
+    // store sees a clean identifier.
+    const cteOptions = ctes
+      .filter((c) => Boolean(c.name))
+      .map((c) => ({ label: `[CTE] ${c.name}`, value: c.name }));
+
+    return [...cteOptions, ...baseOptions];
   }, [
     models,
     usedModels,
@@ -86,6 +139,7 @@ export const SelectNode: React.FC<NodeProps> = ({ data: _data }) => {
     modelingState.from.model,
     modelingState.from.source,
     modelingState.from.cte,
+    ctes,
   ]);
 
   // Memoize the default value - only depend on selectedModel, not modelingState.select
@@ -131,16 +185,20 @@ export const SelectNode: React.FC<NodeProps> = ({ data: _data }) => {
         }
       }
 
-      // Get model/source-based selection (all_from_model, dims_from_model, etc.)
+      // Get the upstream-keyed selection (all_from_model, dims_from_cte, ...)
+      // matching the chosen source. The lookup key depends on `sourceKind`
+      // so CTE-shaped entries (`{ cte: 'pre_agg', type: 'dims_from_cte' }`)
+      // are matched alongside model/source-shaped entries.
       const modelSelection = modelingState.select.find((s) => {
-        // Skip string column names
         if (typeof s === 'string') {
           return false;
         }
 
-        let value;
-        if (isTypeSource) {
+        let value: string | undefined;
+        if (sourceKind === 'source') {
           value = 'source' in s ? s.source : undefined;
+        } else if (sourceKind === 'cte') {
+          value = 'cte' in s ? (s as { cte: string }).cte : undefined;
         } else {
           value = 'model' in s ? s.model : undefined;
         }
@@ -197,6 +255,7 @@ export const SelectNode: React.FC<NodeProps> = ({ data: _data }) => {
   }, [
     selectedModel,
     isTypeSource,
+    sourceKind,
     columns,
     modelingState.select,
     basicFields.type,
@@ -223,12 +282,12 @@ export const SelectNode: React.FC<NodeProps> = ({ data: _data }) => {
         selection,
         shouldClear: shouldClear ?? false,
         selectedModelValue: selectedModel.value,
-        isTypeSource,
+        sourceKind,
         columns,
       });
       updateSelectState(updated);
     },
-    [selectedModel, updateSelectState, isTypeSource, columns],
+    [selectedModel, updateSelectState, sourceKind, columns],
   );
 
   const fetchInitialData = useCallback(async () => {
@@ -298,44 +357,86 @@ export const SelectNode: React.FC<NodeProps> = ({ data: _data }) => {
     void fetchInitialData();
   }, [fetchInitialData]);
 
+  // Refresh CTE-sourced columns whenever the analysis API delivers a fresh
+  // result for the currently-selected CTE. Manifest-sourced columns never
+  // change without a project refresh, so we only re-derive in the CTE case.
+  useEffect(() => {
+    if (!selectedModel?.value || !cteNames.has(selectedModel.value)) return;
+    const cteCols = cteAnalysisColumns[selectedModel.value] ?? [];
+    setColumns(
+      cteCols.map((c) => ({
+        name: c.name,
+        dataType: c.dataType ?? 'unknown',
+        type: c.type === 'fct' ? 'fact' : 'dimension',
+        description: c.description ?? '',
+        modelName: selectedModel.value,
+      })),
+    );
+  }, [cteAnalysisColumns, cteNames, selectedModel]);
+
   const handleModelChange = useCallback(
     (option: AvailableModel | null) => {
       // Store the previous model/source and its selection type to preserve it
       const previousModel = selectedModel?.value;
       let previousSelectionType: SelectionType | undefined;
 
-      // Get the previous model's selection to preserve the filter type
+      // Get the previous model's selection to preserve the filter type.
+      // The previous upstream may have been keyed by `model`, `source`, or
+      // `cte` -- the lookup needs to match all three so a CTE-to-model
+      // switch still preserves the prior filterType.
       if (previousModel) {
         const currentSelections = useModelStore.getState().modelingState.select;
         const previousSelection = currentSelections.find(
-          (existingSelection) =>
-            typeof existingSelection !== 'string' &&
-            'model' in existingSelection &&
-            existingSelection.model === previousModel,
+          (existingSelection) => {
+            if (typeof existingSelection !== 'string') {
+              if (
+                'model' in existingSelection &&
+                existingSelection.model === previousModel
+              )
+                return true;
+              if (
+                'source' in existingSelection &&
+                existingSelection.source === previousModel
+              )
+                return true;
+              if (
+                'cte' in existingSelection &&
+                (existingSelection as { cte: string }).cte === previousModel
+              )
+                return true;
+            }
+            return false;
+          },
         );
 
         if (previousSelection && typeof previousSelection !== 'string') {
           previousSelectionType = previousSelection.type as SelectionType;
         }
 
-        // Remove the previous model's selection AND any string column names (SchemaColumnName)
+        // Remove the previous upstream's selection AND any bare string column
+        // names (SchemaColumnName). Match on `model`/`source`/`cte` so a
+        // CTE-shaped entry doesn't get orphaned when the user switches
+        // upstream type.
         const filteredSelections = currentSelections.filter(
           (existingSelection) => {
-            // Remove string column names
             if (typeof existingSelection === 'string') {
               return false;
             }
-            // Remove previous model's selection
-            if ('model' in existingSelection || 'source' in existingSelection) {
-              const existingModel =
+            if (
+              'model' in existingSelection ||
+              'source' in existingSelection ||
+              'cte' in existingSelection
+            ) {
+              const existingValue =
                 'model' in existingSelection
                   ? existingSelection.model
                   : 'source' in existingSelection
                     ? existingSelection.source
-                    : undefined;
-              return existingModel !== previousModel;
+                    : 'cte' in existingSelection
+                      ? (existingSelection as { cte: string }).cte
+                      : undefined;
+              return existingValue !== previousModel;
             }
-            // Keep everything else (expr-based columns, etc.)
             return true;
           },
         );
@@ -347,6 +448,23 @@ export const SelectNode: React.FC<NodeProps> = ({ data: _data }) => {
       if (!option?.value || !currentProject?.manifest) {
         setColumns([]);
         updateFromState({ model: '', source: '' });
+        return;
+      }
+
+      // CTE branch: when the user picks a CTE, route through `from.cte`
+      // and resolve columns from the analysis API. The manifest never
+      // contains CTE columns since they live inside the draft model.json.
+      if (cteNames.has(option.value)) {
+        const cteCols = cteAnalysisColumns[option.value] ?? [];
+        const projected: Column[] = cteCols.map((c) => ({
+          name: c.name,
+          dataType: c.dataType ?? 'unknown',
+          type: c.type === 'fct' ? 'fact' : 'dimension',
+          description: c.description ?? '',
+          modelName: option.value,
+        }));
+        setColumns(projected);
+        updateFromState({ model: '', source: '', cte: option.value });
         return;
       }
 
@@ -415,20 +533,32 @@ export const SelectNode: React.FC<NodeProps> = ({ data: _data }) => {
         updateFromState({ model: option.value, source: '' });
       }
 
-      // Apply the preserved filter type to the new model if it existed
+      // Apply the preserved filter type to the new upstream if it existed.
+      // Pick the upstream key based on the new selection's kind so a switch
+      // from model→CTE writes `{ cte, type }` rather than `{ model, type }`.
       if (option?.value && previousSelectionType) {
         const currentSelections = useModelStore.getState().modelingState.select;
+        const newKind: SelectionSourceKind = isTypeSource
+          ? 'source'
+          : cteNames.has(option.value)
+            ? 'cte'
+            : 'model';
 
-        // Add the new model with the previous filter type but no column selections
-        const newSelection = isTypeSource
-          ? {
-              source: option.value,
-              type: previousSelectionType as SelectionTypeValues,
-            }
-          : {
-              model: option.value,
-              type: previousSelectionType as SelectionTypeValues,
-            };
+        const newSelection =
+          newKind === 'source'
+            ? {
+                source: option.value,
+                type: previousSelectionType as SelectionTypeValues,
+              }
+            : newKind === 'cte'
+              ? {
+                  cte: option.value,
+                  type: previousSelectionType as SelectionTypeValues,
+                }
+              : {
+                  model: option.value,
+                  type: previousSelectionType as SelectionTypeValues,
+                };
 
         updateSelectState([...currentSelections, newSelection as SchemaSelect]);
       }
@@ -491,6 +621,28 @@ export const SelectNode: React.FC<NodeProps> = ({ data: _data }) => {
     handleModelChange,
   ]);
 
+  // Symmetric reset: when the store's upstream identifier disappears (e.g.
+  // the chosen CTE was removed and `removeCte` stripped `from.cte` via
+  // visitCteRefs), drop the locally-cached `selectedModel` so the picker
+  // re-renders empty instead of pointing at a vanished name. Clearing
+  // `hasPrefilledRef` allows the prefill effect above to run again if the
+  // user later re-points `from` to something else.
+  useEffect(() => {
+    const storedIdentifier = isTypeSource
+      ? modelingState.from.source
+      : modelingState.from.model || modelingState.from.cte;
+    if (!storedIdentifier && selectedModel) {
+      setSelectedModel(null);
+      hasPrefilledRef.current = false;
+    }
+  }, [
+    isTypeSource,
+    modelingState.from.source,
+    modelingState.from.model,
+    modelingState.from.cte,
+    selectedModel,
+  ]);
+
   // Tutorial: Auto-open dropdown when tutorial highlights this node
   useEffect(() => {
     if (isPlayTutorialActive && selectWrapperRef.current && !selectedModel) {
@@ -525,6 +677,25 @@ export const SelectNode: React.FC<NodeProps> = ({ data: _data }) => {
       },
     });
   }, [api, selectedModel, currentProject]);
+
+  // Shortcut: enable the CTE list (idempotent if already enabled), seed a
+  // stub `cte_N` row, and open the editor on it. The newly added CTE's
+  // index is `ctes.length` (pre-add length). When the action is already
+  // active, only the addCte + openCteEditor steps run -- the toggle would
+  // disable it again.
+  const cteCapable =
+    typeof basicFields.type === 'string' && isCteCapableType(basicFields.type);
+  const handleCreateCte = useCallback(() => {
+    if (!activeActions.has(ActionType.CTE)) {
+      toggleAction(ActionType.CTE);
+    }
+    const newIndex = ctes?.length || 0;
+    addCte({
+      name: `cte_${newIndex + 1}`,
+      from: { model: '' },
+    });
+    openCteEditor(newIndex);
+  }, [activeActions, toggleAction, addCte, openCteEditor, ctes]);
 
   // Handler for opening Column Lineage with a specific column
   const handleColumnLineageClick = useCallback(
@@ -638,20 +809,34 @@ export const SelectNode: React.FC<NodeProps> = ({ data: _data }) => {
               variant="outline"
             />
           </div>
-          {selectedModel && !isTypeSource && (
-            <Button
-              onClick={(e) => {
-                e.stopPropagation();
-                handleOpenDataExplorer();
-              }}
-              disabled={!selectedModel}
-              variant="iconButton"
-              label="DATA EXPLORER"
-              icon={<DataSearchIcon className="w-3 h-3" />}
-              iconLabelClassName="text-xs"
-              className="text-tiny bg-primary text-white hover:text-white font-bold p-0.5 px-2"
-            />
-          )}
+          <div className="flex items-center gap-1">
+            {cteCapable && !isTypeSource && (
+              <Button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleCreateCte();
+                }}
+                variant="outlineIconButton"
+                label="CREATE CTE"
+                icon={<Square3Stack3DIcon className="w-3 h-3" />}
+                className="text-xs text-primary font-bold px-1 py-0.5"
+              />
+            )}
+            {selectedModel && !isTypeSource && (
+              <Button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleOpenDataExplorer();
+                }}
+                disabled={!selectedModel}
+                variant="iconButton"
+                label="DATA EXPLORER"
+                icon={<DataSearchIcon className="w-3 h-3" />}
+                iconLabelClassName="text-xs"
+                className="bg-primary text-white hover:text-white font-bold py-0.5 px-2"
+              />
+            )}
+          </div>
         </div>
 
         <div
@@ -685,12 +870,25 @@ export const SelectNode: React.FC<NodeProps> = ({ data: _data }) => {
         <ModelColumns
           columns={columns}
           nodeId="1"
-          isSourceModel={isTypeSource}
+          sourceKind={sourceKind}
           onSelectionChange={handleSelectionChange}
           defaultValue={columnDefaultValue}
           onColumnLineageClick={handleColumnLineageClick}
         />
       )}
+
+      <Handle
+        type="target"
+        position={Position.Top}
+        id="input"
+        style={{
+          background: '#757575',
+          border: '1px solid #757575',
+          width: '8px',
+          height: '8px',
+        }}
+        className="bg-muted"
+      />
 
       <Handle
         type="source"

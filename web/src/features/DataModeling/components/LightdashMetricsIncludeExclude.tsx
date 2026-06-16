@@ -101,17 +101,20 @@ export const LightdashMetricsIncludeExclude: React.FC<
               className="flex items-center gap-2 px-3 py-1 border border-border rounded-full bg-muted/20"
             >
               <span className="text-sm text-foreground">{metric}</span>
-              <button
+              <Button
+                variant="iconButton"
+                title="Remove metric"
+                aria-label={`Remove ${metric}`}
+                className="hover:bg-muted rounded-full p-0.5 transition-colors"
+                icon={
+                  <XMarkIcon className="w-3 h-3 text-muted-foreground hover:text-red-500" />
+                }
                 onClick={(e) => {
                   e.stopPropagation();
                   handleRequestMetricRemoval(metric);
                 }}
                 onMouseDown={(e) => e.stopPropagation()}
-                className="hover:bg-muted rounded-full p-0.5 transition-colors"
-                title="Remove metric"
-              >
-                <XMarkIcon className="w-3 h-3 text-muted-foreground hover:text-red-500" />
-              </button>
+              />
             </div>
           ))}
         </div>

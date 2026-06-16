@@ -59,6 +59,17 @@ export type FrameworkApi =
         exclude_portal_source_count?: boolean;
         from?: {
           model?: string;
+          // CTE-shaped `from` variants. Required for the preview RPC so the
+          // wizard's `from: { cte: '...' }` and `from: { union: { ctes: [...] } }`
+          // shapes round-trip through `frameworkMakeModelTemplate` instead of
+          // being silently rewritten to `{ model: '' }`.
+          cte?: string;
+          union?: {
+            models?: string[];
+            ctes?: string[];
+            sources?: any[];
+          };
+          source?: string;
           rollup?: {
             interval: 'day' | 'hour' | 'month' | 'year';
           };
@@ -68,11 +79,11 @@ export type FrameworkApi =
             type: string;
           }>;
         };
-        select?: Array<{
-          type: string;
-          model: string;
-          include?: string[];
-        }>;
+        select?: Array<any>;
+        // CTE definitions for model types that allow inline CTEs. The
+        // template helper treats this as an opaque pass-through; per-CTE
+        // validation happens in the sync-engine processors, not here.
+        ctes?: Array<any>;
         group_by?: Array<string | { expr: string } | { type: 'dims' }>;
         where?:
           | string
@@ -312,6 +323,61 @@ export type FrameworkApi =
         fileName: string;
         filePath: string;
       };
+    }
+  | {
+      /**
+       * Read-only CTE column inference + diagnostics for the model wizard.
+       *
+       * Wraps `frameworkBuildCteColumnRegistry` and the CTE-specific
+       * validators in `modelValidation.ts`. The handler is side-effect-free:
+       * it MUST NOT push to the Problems tab, mutate shared state, or trigger
+       * sync. The Problems tab is owned by the existing sync-time validators
+       * in `ModelProcessor`; this API exists purely to power the wizard's
+       * live column preview and inline validation chips.
+       *
+       * Input is the full `buildModelJson()` draft (not a partial CTE slice)
+       * because the cross-cutting validators
+       * (`validateMainModelAggregation`, `validateDeadOuterLayer`,
+       * `validateExcludeDatetimeRollupConflict`, `validateSubqueries`) walk
+       * the whole model.
+       */
+      type: 'framework-model-cte-analysis';
+      service: 'framework';
+      request: {
+        projectName: string;
+        modelJson: Record<string, any>;
+      };
+      response: {
+        /** Per-CTE inferred output columns, keyed by CTE name. */
+        columns: Record<
+          string,
+          Array<{
+            name: string;
+            type?: 'dim' | 'fct';
+            dataType?: string;
+            description?: string;
+          }>
+        >;
+        /** Flat diagnostic list. The panel groups by `cteIndex` for display. */
+        diagnostics: Array<{
+          severity: 'error' | 'warning';
+          /** Optional CTE index for chip placement on CTE rows. */
+          cteIndex?: number;
+          /**
+           * Optional JSON-pointer-ish path
+           * (e.g. `ctes/2/select/3/include`) so the panel can highlight the
+           * offending field.
+           */
+          path?: string;
+          message: string;
+        }>;
+        /**
+         * `target/manifest.json` mtime in epoch ms, surfaced as a "manifest
+         * from <ts>" hint in the Validation tab when columns look stale.
+         * `null` when the project has not been compiled yet.
+         */
+        manifestTimestamp: number | null;
+      };
     };
 
 async function apiHandler(p: {
@@ -362,6 +428,10 @@ async function apiHandler(p: {
   type: 'framework-check-model-exists';
   request: ApiRequest<'framework-check-model-exists'>;
 }): Promise<ApiResponse<'framework-check-model-exists'>>;
+async function apiHandler(p: {
+  type: 'framework-model-cte-analysis';
+  request: ApiRequest<'framework-model-cte-analysis'>;
+}): Promise<ApiResponse<'framework-model-cte-analysis'>>;
 function apiHandler(
   _p: Omit<FrameworkApi, 'response' | 'service'>,
 ): Promise<unknown> {

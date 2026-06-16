@@ -42,11 +42,21 @@ export function CodeBlock({
     },
   };
 
+  // The `dj-code-block` class anchors a global CSS override in
+  // `web/src/main.css` that neutralizes the VS Code webview's default
+  // `<code>` styling (background, padding, border-radius, border).
+  // Without it those defaults paint a per-line tint over the highlighted
+  // tokens and produce the "striped lines" artifact in both light and
+  // dark themes. Keeping this class on every CodeBlock means consumers
+  // don't need to remember to wrap with `.live-preview` /
+  // `.final-preview` / `.compiled-sql-preview` etc. to get clean output.
+  const wrapperClassName = `dj-code-block ${className}`.trim();
+
   return (
     <SyntaxHighlighter
       language={language}
       style={customStyle}
-      className={className}
+      className={wrapperClassName}
       wrapLines={wrapLines}
       wrapLongLines={wrapLines}
       showLineNumbers={showLineNumbers}

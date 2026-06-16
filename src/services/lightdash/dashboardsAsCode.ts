@@ -1,9 +1,14 @@
+import { getDjConfig } from '@services/config';
 import {
   LIGHTDASH_CHART_SCHEMA_URL,
   LIGHTDASH_DASHBOARD_SCHEMA_URL,
 } from '@services/constants';
 import type { DJLogger } from '@services/djLogger';
 import { buildProcessEnv } from '@services/utils/process';
+import {
+  describeLightdashRestriction,
+  resolveLightdashUploadRestriction,
+} from '@shared/lightdash/restrictions';
 import type {
   LightdashYamlLog,
   LightdashYamlNode,
@@ -305,6 +310,8 @@ export async function executeLightdashUpload(
     force?: boolean;
     includeCharts?: boolean;
     project: string;
+    /** See `LightdashApi['lightdash-yaml-upload'].request`. */
+    acknowledgedWarning?: boolean;
   },
   log: DJLogger,
   onLog: StreamLogFn,
@@ -312,6 +319,7 @@ export async function executeLightdashUpload(
   success: boolean;
   uploadedFiles?: string[];
   error?: string;
+  restriction?: import('@shared/lightdash/restrictions').LightdashRestrictionStatus;
 }> {
   const absolutePath = resolveAbsoluteWorkingDir(request.path);
   const project = request.project.trim();
@@ -324,6 +332,45 @@ export async function executeLightdashUpload(
       timestamp: new Date().toISOString(),
     });
     return { success: false, error };
+  }
+
+  // Defense-in-depth: re-check the restricted-projects policy here even
+  // though the UI pre-flights via `lightdash-yaml-check-upload-policy`.
+  // The setting may have changed between the pre-flight and the actual
+  // upload, and direct API callers can bypass the UI entirely.
+  const restriction = resolveLightdashUploadRestriction(
+    project,
+    getDjConfig().lightdashRestrictedProjects ?? [],
+  );
+  if (restriction.status === 'block') {
+    const error =
+      describeLightdashRestriction(restriction) ??
+      `Upload blocked: project ${project} is on the DJ restricted list.`;
+    onLog({
+      level: 'error',
+      message: error,
+      timestamp: new Date().toISOString(),
+    });
+    return {
+      success: false,
+      error,
+      restriction: { ...restriction, message: error },
+    };
+  }
+  if (restriction.status === 'warn' && !request.acknowledgedWarning) {
+    const error =
+      describeLightdashRestriction(restriction) ??
+      `Upload requires confirmation: project ${project} is marked as warn.`;
+    onLog({
+      level: 'warning',
+      message: error,
+      timestamp: new Date().toISOString(),
+    });
+    return {
+      success: false,
+      error,
+      restriction: { ...restriction, message: error },
+    };
   }
 
   const args: string[] = ['upload', '-p', absolutePath, '--project', project];

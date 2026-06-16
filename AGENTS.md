@@ -16,74 +16,21 @@ The extension provides a rich visual UI built with React, including interactive 
 - Trino CLI integration for data catalog browsing and query execution
 - Lightdash CLI integration for BI dashboards
 
-## Setup Commands
+## Common Commands
 
-```bash
-# Install dependencies
-npm install
+Run `npm install` first. The live source of truth for every script is `package.json`; the ones below cover day-to-day work.
 
-# Start all watchers (recommended for active development)
-npm run dev
+| Command                                     | Purpose                                                                 |
+| ------------------------------------------- | ----------------------------------------------------------------------- |
+| `npm run dev`                               | Start all watchers (recommended for active development)                 |
+| `npm test`                                  | Run the full Jest suite (`npm run fixtures:update` to refresh fixtures) |
+| `npm run lint:all` / `npm run lint:fix:all` | Lint (or autofix) both the extension and web surfaces                   |
+| `npm run compile` / `npm run compile:web`   | Build the extension / web TypeScript                                    |
+| `npm run schema`                            | Regenerate TypeScript types after editing `schemas/`                    |
+| `npm run format` / `npm run format:check`   | Apply / verify Prettier formatting                                      |
+| `npm run package`                           | Produce the `.vsix` package                                             |
 
-# Watch specific components
-npm run watch:esbuild      # Extension JS bundle
-npm run watch:tsc          # Extension TypeScript
-npm run watch:web-build    # Web assets (Vite build)
-npm run watch:web-tsc      # Web TypeScript
-npm run watch:test         # Tests in watch mode
-```
-
-## Testing
-
-```bash
-npm test                   # Run all tests
-npm run watch:test         # Watch mode
-npm run fixtures:update    # Update test fixtures
-```
-
-## Building
-
-```bash
-npm run compile            # Compile extension TypeScript
-npm run compile:web        # Build web assets (Vite)
-npm run vscode:prepublish  # Full production build with linting
-npm run package            # Create .vsix package
-```
-
-## Linting & Formatting
-
-```bash
-npm run lint               # Extension only
-npm run lint:web           # Web only
-npm run lint:all           # Both extension and web
-npm run lint:fix:all       # Fix both
-
-npm run format             # Format all files (Prettier)
-npm run format:check       # Check formatting
-```
-
-## Schema Management
-
-```bash
-npm run schema             # Regenerate TypeScript types from JSON schemas
-npm run update-test-schemas
-```
-
-## Running the Extension
-
-### Method 1: Extension Development Host (F5)
-
-1. Open project in VS Code
-2. Press `F5` to launch Extension Development Host
-3. Open a dbt project in the new window
-4. Make changes and press `Cmd+Shift+F5` to reload
-
-### Method 2: Install VSIX
-
-```bash
-npm run package
-code --install-extension dj-*.vsix
-```
+Local iteration is covered under [Development Tips](#development-tips).
 
 ## Architecture
 
@@ -279,120 +226,11 @@ All API message types defined in `src/shared/api/types.ts` with full TypeScript 
 
 ## Project Structure
 
-```text
-dj/
-├── src/
-│   ├── extension.ts              # Entry point - activates Coder service
-│   ├── admin.ts                  # Platform utilities (paths, process runners)
-│   ├── services/
-│   │   ├── coder/                # Main orchestrator (ServiceLocator, commands, views)
-│   │   │   ├── index.ts
-│   │   │   └── types.ts
-│   │   ├── api.ts                # Message router between webviews and services
-│   │   ├── ServiceLocator.ts     # ServiceLocator for dependency injection
-│   │   ├── framework/            # JSON↔SQL/YAML sync engine
-│   │   │   ├── index.ts
-│   │   │   ├── FrameworkState.ts
-│   │   │   ├── handlers/         # UIHandlers, ModelCrudHandlers, etc.
-│   │   │   └── utils/            # column-utils, model-utils, source-utils, sql-utils
-│   │   ├── sync/                 # Sync engine components
-│   │   │   ├── SyncEngine.ts
-│   │   │   ├── ModelProcessor.ts
-│   │   │   ├── SourceProcessor.ts
-│   │   │   ├── ManifestManager.ts
-│   │   │   ├── ValidationService.ts
-│   │   │   ├── dependencyGraph.ts
-│   │   │   ├── cacheManager.ts
-│   │   │   ├── fileOperations.ts
-│   │   │   ├── RenameHandler.ts
-│   │   │   └── SyncQueue.ts
-│   │   ├── dbt.ts                # dbt integration and manifest parsing
-│   │   ├── trino.ts              # Trino CLI integration
-│   │   ├── dataExplorer.ts       # Model lineage visualization
-│   │   ├── modelLineage.ts       # Model lineage graph
-│   │   ├── columnLineage.ts      # Column-level lineage
-│   │   ├── lightdash/            # Lightdash BI integration
-│   │   ├── agent/                # AI agent support (prompts, utils, decorators)
-│   │   ├── webview/              # Webview providers and utilities
-│   │   ├── modelEdit.ts          # Model editing service
-│   │   ├── config.ts             # Configuration service
-│   │   ├── djLogger.ts           # Logging service
-│   │   ├── statemanager.ts       # State management
-│   │   ├── modelValidation.ts    # Model validation functions
-│   │   ├── constants.ts          # Command IDs and constants
-│   │   └── utils/                # fileNavigation, fileSystem, git, process, sql
-│   └── shared/                   # Cross-environment utilities
-│       ├── api/                  # API message types and routing
-│       ├── dbt/                  # dbt types and utilities
-│       ├── framework/            # Framework types
-│       ├── trino/                # Trino types and constants
-│       ├── lightdash/            # Lightdash types
-│       ├── modellineage/         # Model lineage types
-│       ├── lineage/              # Lineage shared types
-│       ├── dataexplorer/         # Data explorer types
-│       ├── schema/types/         # Generated from schemas/ via `npm run schema`
-│       ├── state/                # State types and constants
-│       ├── types/                # Common types and config
-│       ├── sql/                  # SQL utilities
-│       ├── web/                  # Web constants
-│       └── webview/              # Webview types
-├── web/                          # React webview frontend (Vite)
-│   ├── src/
-│   │   ├── pages/
-│   │   │   ├── ModelCreate.tsx
-│   │   │   ├── SourceCreate.tsx
-│   │   │   ├── Home.tsx
-│   │   │   ├── QueryView.tsx
-│   │   │   ├── DataExplorer/
-│   │   │   ├── ModelLineage/
-│   │   │   ├── ModelRun/
-│   │   │   ├── ModelTest/
-│   │   │   ├── ColumnLineage/
-│   │   │   └── LightdashPreviewManager/
-│   │   ├── features/             # DataModeling, Lineage, ModelWizard, Tutorial
-│   │   ├── context/              # React contexts (Environment, App, Trino)
-│   │   ├── elements/             # Reusable React components
-│   │   ├── forms/                # Form components
-│   │   ├── hooks/                # Custom React hooks
-│   │   ├── stores/               # Zustand stores
-│   │   ├── utils/                # Utility functions
-│   │   └── styles/               # CSS styles
-│   └── vite.config.ts            # Builds to ../dist/web
-├── schemas/                      # JSON Schema definitions (93+ files)
-│   ├── model.schema.json         # Root schema (anyOf 11 model types)
-│   ├── model.type.*.schema.json  # 11 model type schemas
-│   ├── model.cte.schema.json     # Single CTE definition
-│   ├── model.ctes.schema.json    # CTE array configuration
-│   ├── model.subquery.schema.json      # Inline subquery definition
-│   ├── model.materialization.schema.json # Materialization (string or object)
-│   ├── model.from.rollup.schema.json   # Rollup configuration
-│   ├── model.select.cte.schema.json    # Select columns from a CTE
-│   ├── source.schema.json        # Source definition schema
-│   └── column.*.schema.json      # Column properties schemas
-├── macros/                       # dbt macros shipped with extension
-├── airflow/                      # Airflow DAG templates
-│   ├── v2_7/
-│   └── v2_10/
-├── templates/                    # Code templates
-├── tests/                        # Test files and fixtures
-│   ├── fixtures/                 # Test data (manifest + model files)
-│   ├── update-fixtures.ts
-│   └── update-test-schemas.ts
-├── docs/                         # Documentation
-│   ├── models/                   # 11 model type docs
-│   ├── setup/                    # Setup guides (Trino, Lightdash)
-│   └── integrations/             # Integration guides
-├── .github/                      # GitHub workflows and actions
-├── dist/                         # Build output
-│   ├── extension/
-│   └── web/
-├── CONTRIBUTING.md
-├── DEVELOPMENT_SETUP.md
-├── CODE_OF_CONDUCT.md
-├── CHANGELOG.md
-├── ROADMAP.md
-└── Makefile
-```
+Backend code lives under `src/`: entry point `src/extension.ts`, domain services under `src/services/` (each major integration is its own service or folder — `framework/`, `sync/`, `dbt.ts`, `trino.ts`, `lightdash/`, `agent/`, the lineage services), and cross-environment utilities and types under `src/shared/` (`api/`, `framework/`, `trino/`, `sql/`, `schema/types/`, etc.).
+
+Webview code lives under `web/src/`: top-level views under `web/src/pages/`, reusable design-system primitives under `web/src/elements/`, feature bundles under `web/src/features/`, Zustand stores under `web/src/stores/`, custom hooks under `web/src/hooks/`, and React contexts under `web/src/context/`.
+
+Supporting trees: JSON schemas under `schemas/` (regenerate types with `npm run schema`), dbt macros under `macros/`, Airflow DAG templates under `airflow/v2_7/` and `airflow/v2_10/` (dual-tree — see Pitfalls), agent skill templates under `templates/`, tests and fixtures under `tests/`, docs under `docs/`, and build output under `dist/`. Use file-search tooling for exact paths rather than relying on a snapshotted tree.
 
 ## Code Style and Conventions
 
@@ -422,6 +260,28 @@ import { useModelStore } from '@web/stores/useModelStore';
 - **Strict mode**: enabled
 - Paths configured for import aliases (see above)
 
+### Comment & Doc Style
+
+Comments and JSDoc must be neutral, self-contained descriptions of the code as it exists. They serve both newcomers and contributors familiar with the codebase, so phrasing that references past iterations, chat threads, code reviews, or the bug that prompted a change is noise to either audience. Apply these rules:
+
+- **No chat or review artifacts.** Don't write "the user reported …", "as discussed", "we just fixed …", or quote bug reports.
+- **No before/after framing.** Avoid "used to", "previously", "this used to flash", "now updated", "has been fixed". Describe present behavior and the invariant it maintains, regardless of whether the code has shipped.
+- **Cite the alternative, not the bug.** When a comment justifies a non-obvious design choice, contrast it with the alternative ("a poll here would race the in-flight RPC"), not with the prior broken version or the discussion that motivated it. Chat / review context can become a comment only when reframed as a forward-looking design rationale.
+- **Prefer one sentence of intent over a paragraph of narration.** Skip restating what the code clearly does ("Set loading to true.") and only call out non-obvious why.
+- **No duplicated docstrings.** If the JSDoc on a context field already says everything, don't repeat it inline at the call site.
+
+### Web Design System & Component Authoring
+
+- Prefer the primitives in [`web/src/elements/`](web/src/elements/) over native HTML — `Button`, `SelectSingle`, `SelectMulti`, `InputText`, `Checkbox`, `DialogBox`, `Tab`, `Alert`, `Tooltip`, `Spinner`, `Progress`, `CodeBlock`, `Text`, `Box`, `Banner`, `Switch`, `Popover`, `RadioGroup`. Reach for native `<button>` / `<select>` / `<input>` / `<dialog>` or a hand-rolled `<pre>` + `react-syntax-highlighter` only when no element fits.
+- One component per file. Multi-component features use the folder-as-component pattern: a PascalCase folder named after the public component, with `index.tsx` exporting it and private siblings co-located.
+- Promotion to [`web/src/elements/`](web/src/elements/) requires all three: two or more features need it, it has no domain-specific props, and its name is not feature-coined. Otherwise leave it in the feature folder.
+- Renames on unreleased code are full renames — no legacy aliases or deprecation shims. Aliases are reserved for shipped public surfaces (settings keys, command IDs, schema fields, dbt macro names).
+
+### Shared Utilities & DRY
+
+- When the same parser / formatter / transform appears in two or more services, or in a service plus a webview, factor it into `src/shared/`. Existing exemplars: [`src/shared/sql/`](src/shared/sql/) for SQL helpers and [`src/shared/trino/types.ts`](src/shared/trino/types.ts) for cross-environment types.
+- During a refactor that moves a utility, keep a small backward-compat re-export at the original location so call sites can migrate independently. Drop the re-export only after every consumer has switched.
+
 ### Test Configuration
 
 **Jest Configuration** (jest.config.js):
@@ -448,9 +308,14 @@ When adding features or making notable changes, update `CHANGELOG.md`:
 
 - Always check `package.json` for the current `version` field and add entries under the matching `## <version>` heading in `CHANGELOG.md`
 - If the heading for the current version doesn't exist yet, create it above the previous version
-- Use the same style as existing entries — short, descriptive, no prefix labels
+- Match the _formatting_ conventions of existing entries (`## <version>` heading, feature sub-heading, bold lead-in, no prefix labels) — but **not their length**. Several current entries are too verbose; do not treat them as a length template.
 - Group related changes into a single bullet when possible
 - Do not add date suffixes or create new version headings unless explicitly asked
+- **Write for end users, not for reviewers.** Lead with capability ("Lets you do X") and the user-facing command / setting name. Skip internal identifiers — REST endpoint paths, API parameter names (`prefer: 'persisted' | 'rest'`), TypeScript class names, CSS / theme tokens, schema filenames — unless the user will actually type or read them.
+- **Keep each bullet skim-readable.** Aim for 1–3 short sentences (~60 words). If a bullet runs longer, _trim_ it — do not split it into more bullets.
+- **One bullet per user-visible capability.** Do not add a separate bullet for each implementation refinement (perf tuning, layout tweaks, internal bug fixes, robustness work); fold it into the capability it supports, or drop it. A single feature should rarely need more than 3–4 bullets.
+- **Cite paths users will inspect** (e.g. `.dj/diagnostics/`, `~/.dbt/profiles.yml`, `templates/skills/<skill>/SKILL.md`) and omit paths they won't (internal source files under `src/` or `web/src/`).
+- **Litmus test:** a reader skims the changelog to learn _what they can now do differently_. If a clause does not change that, cut it.
 
 ### Naming Conventions
 
@@ -462,58 +327,10 @@ When adding features or making notable changes, update `CHANGELOG.md`:
 
 ## Key VS Code Integration Points
 
-### Commands (28 registered in package.json)
+Commands, keybindings, and views are declared in `package.json` under `contributes.*`; handlers register against the `dj.command.*` IDs defined in [`src/services/constants.ts`](src/services/constants.ts). Read `package.json` for the full list.
 
-Important commands:
-
-- `dj.command.jsonSync` — Regenerate SQL/YAML from JSON
-- `dj.command.modelCreate` — Open model creation wizard
-- `dj.command.modelEdit` — Edit model (opens draft)
-- `dj.command.modelClone` — Clone existing model
-- `dj.command.modelCompile` — Compile with dbt
-- `dj.command.modelRun` — Run model with dbt
-- `dj.command.modelPreview` — Preview model results
-- `dj.command.modelLineage` — Open Data Explorer
-- `dj.command.columnLineage` — Open Column Lineage panel
-- `dj.command.lightdashPreview` — Start Lightdash preview
-- `dj.command.sourceCreate` — Create source from Trino catalog
-- `dj.command.refreshProjects` — Refresh dbt projects
-- `dj.command.clearSyncCache` — Clear JSON sync cache
-- `dj.command.testTrinoConnection` — Test Trino connection
-
-### Keybindings
-
-- `Cmd+Shift+C` — Compile model
-- `Cmd+Shift+J` — Jump to JSON
-- `Cmd+Shift+M` — Jump to Model SQL
-- `Cmd+Shift+Y` — Jump to YAML
-- `Cmd+Shift+L` — Open Data Explorer
-- `Cmd+Enter` — Preview model (when editor focused and DJ active)
-- `Cmd+'` — Open target compiled SQL (when editor focused and DJ active)
-
-### Views
-
-**Activity Bar (sidebar):**
-
-- Project Navigator — dbt project tree
-- Selected Resource — current model/source details
-- Query Engine — Trino connection and query history
-- Actions — quick actions (create model/source)
-- Edit Drafts — in-progress model edits
-
-**Panel (bottom):**
-
-- Data Explorer — model lineage graph (webview)
-- Column Lineage — column-level lineage (webview)
-
-### File Watchers
-
-Extension watches for changes to:
-
-- `.model.json` — triggers JSON sync
-- `.source.json` — triggers JSON sync
-- `manifest.json` — triggers manifest reload
-- `.sql` / `.yml` — for related updates
+- Most-used commands while iterating: `dj.command.jsonSync` (regenerate SQL/YAML), `dj.command.modelCompile`, `dj.command.modelPreview`, `dj.command.modelLineage` (Data Explorer).
+- File watchers are registered in the Coder service ([`src/services/coder/index.ts`](src/services/coder/index.ts)) and react to `.model.json`, `.source.json`, `manifest.json`, and the generated `.sql` / `.yml` they produce.
 
 ## Common Workflows
 
@@ -555,13 +372,11 @@ Extension watches for changes to:
 
 ## Development Tips
 
-### Debugging
+### Local Iteration
 
-- **Extension logs**: View → Output → "DJ"
-- **Log level**: configurable via `dj.logLevel` setting (debug, info, warn, error)
-- **Reload extension**: `Cmd+Shift+F5` in Extension Development Host
-- **Webview debugging**: Developer → Open Webview Developer Tools
-- **Full reload**: Developer → Reload Window
+- Press `F5` to launch the Extension Development Host; `Cmd+Shift+F5` reloads after edits. `Developer: Reload Window` does a full reload.
+- Build a `.vsix` with `npm run package`; install it with `code --install-extension dj-*.vsix`.
+- Extension logs: View → Output → "DJ"; verbosity is controlled by the `dj.logLevel` setting (debug, info, warn, error). Webview DevTools: `Developer: Open Webview Developer Tools` from the command palette.
 
 ### Working with Services
 
@@ -570,6 +385,7 @@ Extension watches for changes to:
 3. Be careful with circular dependencies — use ServiceLocator to break cycles
 4. Handler pattern preferred for large services (see Framework service `handlers/` directory)
 5. All service API messages must be typed in `src/shared/api/types.ts`
+6. **API surface discipline.** Reuse an existing per-id message in a client-side loop rather than adding a bulk endpoint when N is small (typical history lists, profile sets, model batches). Add a new message type only when the operation must be atomic on the backend, the client-side loop would create thousands of round-trips, or the operation needs filesystem / network resources the client can't reach.
 
 ### Working with Schemas
 
@@ -589,10 +405,31 @@ To add/modify JSON schemas:
 5. State management with Zustand stores in `web/src/stores/`
 6. Reusable components in `web/src/elements/`
 
+### Webview UI Patterns
+
+- **Dark-mode borders.** Use the neutral border token for card and panel surfaces; the heavy bordered `Box` variant reads too bright on dark themes.
+- **Scroll containment.** Keep overflow inside tab panels and tall cards rather than letting the whole page scroll. This needs a height constraint at each level of the flex chain so the inner region — not the page — is what scrolls.
+- **Layout-shift prevention.** Anchor primary actions to a fixed position and let conditionally-rendered controls fill the remaining space, so the primary action doesn't jump as controls appear and disappear.
+- **Accessibility minimums.** Disabled controls must look disabled, not just behave that way — the shared `Button` variants already encode this. Use a native `title` for short tooltips and the design-system `Tooltip` for longer explanations, and pick semantic icons for actions.
+- **Empty states.** When a panel has no content yet, show a brief hero — icon, one-line heading, and one sentence pointing at the next action — rather than a bare sentence.
+- **Syntax highlighting.** Render code through the shared [`CodeBlock`](web/src/elements/CodeBlock.tsx) so highlighting and theme handling stay consistent; see the webview `<code>` styling pitfall before hand-rolling a highlighter.
+
+### Webview State & Polling
+
+- **Centralize polling.** Prefer a single shared ticker / fetch loop that consumers read from, over per-component intervals that duplicate work and race each other.
+- **Optimistic UI for slow backend ops.** Reflect the user's action immediately and show an in-flight indicator until the backend confirms; reconcile on success or roll back on failure.
+- **Distinguish first load from background refresh.** Show the full loading state only on the initial load; silent background refreshes should update in place without flashing a spinner.
+- **Lazy-load expensive payloads.** Prefer cached or persisted reads and hit the network only on explicit user action, not on hover, tab switch, or auto-select.
+- **Freeze action scope at trigger time.** When an action depends on the current selection or filters, capture its targets when it is triggered so later state changes can't silently alter what it operates on.
+- **Document sentinels where they originate.** Magic values — an empty id meaning "clear selection", a negative index meaning "append" — belong in a comment at the producing site, not only in the consumer.
+
 ### Working with Tests
 
 - CTE, subquery, partition, and storage-type code paths are high-regression zones — always add or update tests when modifying these areas. Tests live in `src/services/framework/__tests__/`.
 - Run `npm test` before submitting changes to SQL generation or schema validation code.
+- **Pre-submit verification.** Before considering work done, run all four pipelines and confirm zero new errors: `npm run lint:web`, `npm run compile:web`, `npm run compile`, `npm test`. Pre-existing warnings unrelated to the change may remain; new errors or warnings on the change must not.
+- **Pair fixes with regression tests.** Every parser / SQL-generator / schema-validator / sanitizer fix lands with a regression test in the same change.
+- **Don't double-test composed paths.** A bulk operation that loops a tested per-id call doesn't need its own end-to-end test — cover the per-id path and trust composition.
 
 ### File System Operations
 
@@ -635,32 +472,21 @@ To add/modify JSON schemas:
 - `lightdash.table.sql_filter` accepts `string | null` per the schema in `schemas/lightdash.table.schema.json`; `null` means "explicitly disable, ignore the global default".
 - When changing the precedence rules, update the `lightdash global sql_filter default` describe block in `src/services/framework/__tests__/index.test.ts` (covers all six branches).
 
+### Extension-Host Errors Across `postMessage`
+
+- Errors thrown in the extension host cross the `postMessage` boundary as structured-cloned plain objects, so on the webview side they are not `Error` instances — naive `String(err)` or `err.message` rendering can show `[object Object]` or nothing.
+- When a webview displays an error returned from an `api.send()` / `api.post()` call, normalize it to a readable string at the boundary (handle `Error`-shaped objects, plain strings, and `{ message }` shapes) before showing or logging it.
+
+### VS Code Webview `<code>` / `<pre>` Styling
+
+- The webview ships default styling for `<code>` / `<pre>` (background, padding, border) that bleeds through `react-syntax-highlighter` and tints lines and tokens in both themes. [`web/src/main.css`](web/src/main.css) neutralizes it for the existing highlighted surfaces via per-wrapper override rules.
+- Render code through the shared [`CodeBlock`](web/src/elements/CodeBlock.tsx) so it inherits this treatment. If you add a new highlighted surface, extend the existing override rather than restyling ad hoc — and when you do, reset only the box styles (background / padding / border) and leave `color` alone, since the highlighter sets token colors inline on the spans.
+
 ## Configuration
 
 ### Extension Settings (dj.\*)
 
-| Setting | Type | Default | Description |
-| --- | --- | --- | --- |
-| `dj.pythonVenvPath` | string | — | Python virtual environment path (e.g., `.venv`) |
-| `dj.trinoPath` | string | `trino-cli` | Trino CLI executable path |
-| `dj.dbtProjectNames` | array | `[]` | Restrict which dbt projects to recognize |
-| `dj.dbtMacroPath` | string | `_ext_` | Subfolder for extension-provided macros |
-| `dj.airflowGenerateDags` | boolean | `false` | Toggle Airflow DAG generation |
-| `dj.airflowTargetVersion` | string | `2.7` | Target Airflow version (2.7, 2.8, 2.9, 2.10) |
-| `dj.airflowDagsPath` | string | `dags/_ext_` | Folder where extension writes Airflow DAGs |
-| `dj.syncDebounceMs` | number | `1500` | Debounce delay (ms) before triggering sync |
-| `dj.logLevel` | string | `info` | Logging level (debug, info, warn, error) |
-| `dj.codingAgent` | boolean | `false` | Enable AI agent integration (AGENTS.md + skills) |
-| `dj.aiHintTag` | string | — | Standard tag for resources with AI Hints |
-| `dj.columnLineage.autoRefresh` | boolean | `true` | Auto-refresh Column Lineage on file switch |
-| `dj.dataExplorer.autoRefresh` | boolean | `false` | Auto-refresh Data Explorer on file switch |
-| `dj.lightdashProjectPath` | string | — | Custom path to dbt project for Lightdash |
-| `dj.lightdashProfilesPath` | string | — | Custom path to dbt profiles for Lightdash |
-| `dj.lightdash.defaultSqlFilter` | string | — | Global default `sql_filter` injected into models with a `lightdash` block but no `sql_filter`. Per-model values win; `"sql_filter": null` explicitly disables. |
-| `dj.lightdash.defaultSqlFilterRequiredColumns` | array | `[]` | Columns that must exist on a model for `dj.lightdash.defaultSqlFilter` to apply. If any are missing, the global filter is silently skipped. |
-| `dj.lightdash.defaultPartitionColumnCaseSensitive` | boolean | `false` | Auto-emit `meta.dimension.case_sensitive: true` on partition columns in generated YAML (stops Lightdash from wrapping partition columns in `UPPER()`, preserving Trino predicate pushdown). Requires `DJ: Sync to SQL and YML` to apply. |
-| `dj.materialization.defaultIncrementalStrategy` | string | `overwrite_existing_partitions` | Default incremental strategy: `append`, `delete+insert`, `merge`, `overwrite_existing_partitions`, or `dj_iceberg_partition_overwrite` |
-| `dj.autoGenerateTests` | object | — | (Experimental) Auto-generate tests on models |
+The full settings reference is [`docs/SETTINGS.md`](docs/SETTINGS.md); the live source of truth for names, types, and defaults is `package.json` under `contributes.configuration`. Settings with non-obvious behavior are documented where that behavior lives: `dj.materialization.defaultIncrementalStrategy` under [Storage-Type Branching](#storage-type-branching), and `dj.lightdash.defaultSqlFilter` / `dj.lightdash.defaultSqlFilterRequiredColumns` under [Lightdash Global `sql_filter` Default](#lightdash-global-sql_filter-default).
 
 ### Environment Variables
 
@@ -685,15 +511,7 @@ LIGHTDASH_TRINO_HOST=host.docker.internal  # Trino host override for Docker
 
 ## AI Agent Integration
 
-The extension includes built-in support for AI coding agents to help users create DJ-compliant dbt models.
-
-**Project-level AGENTS.md generation:** When installed in a dbt project, the extension generates an `AGENTS.md` file at `.agents/dj/AGENTS.md` in the workspace root. This file contains DJ (Data JSON) Framework-specific instructions (model types, JSON schema structure, naming conventions, column definitions) that users can reference in their LLM workflows to generate valid `.model.json` and `.source.json` files. The generated file is tailored to the project's configuration and available models/sources.
-
-**Skill files (`.agents/skills/`):** The extension writes agent-agnostic skill directories to the workspace root's `.agents/skills/` directory, following the [Agent Skills](https://agentskills.io) open standard. Each skill is a subdirectory containing a `SKILL.md` file with YAML frontmatter (`name` and `description`) and markdown instructions (e.g., `.agents/skills/dj-create-new-model/SKILL.md`). Skill templates are bundled with the extension in `templates/skills/` and copied to the workspace at activation time.
-
-**Coding agent setting (`dj.codingAgent`):** Set to `true` to enable AI agent integration. When enabled, `AGENTS.md` is written to `.agents/dj/` and skill files to `.agents/skills/` at the workspace root. Legacy string values (`github-copilot`, `claude-code`, `cline`) are still accepted but deprecated — skills are now agent-agnostic.
-
-**Agent service (`src/services/agent/`):** Contains `utils.ts` with `generateAgentsMd()` for reading the `templates/_AGENTS.md` template. Skill files are read from `templates/skills/` and written to `.agents/skills/` at the workspace root by `writeSkillFiles()` in the Dbt service.
+When `dj.codingAgent` is `true`, the extension generates a project-tailored `AGENTS.md` at `.agents/dj/AGENTS.md` and copies agent-agnostic skill directories from [`templates/`](templates/) to `.agents/skills/` at workspace activation, following the [Agent Skills](https://agentskills.io) open standard (each skill is a folder with a `SKILL.md`). The agent code lives in [`src/services/agent/`](src/services/agent/); skill files are written by the Dbt service.
 
 ## Additional Resources
 
