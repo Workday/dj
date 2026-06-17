@@ -20,6 +20,7 @@ import {
   frameworkGetModelPrefix,
 } from '@services/framework/utils';
 import {
+  validateBucketAndSortedBy,
   validateCteColumnReferences,
   validateDeadOuterLayer,
   validateDjIcebergPartitionOverwrite,
@@ -237,6 +238,26 @@ export class ModelProcessor {
         for (const w of matPartitionsWarnings) {
           this.config.logger.warn?.(`${modelName}: ${w.message}`);
           validationWarnings.push(w);
+        }
+      }
+
+      // Bucket / sorted_by validity against the resolved storage format:
+      // hard Errors for format-incompatible configs (Delta unsupported, Hive
+      // shared bucket_count, Hive sorted_by requires bucket) and Warnings for
+      // bucket / sort columns missing from the select. Mixed severities ride
+      // the same warning channel, so honor each detail's severity when logging.
+      const bucketSortDetails = validateBucketAndSortedBy(
+        modelJson,
+        project.variables?.storage_type,
+      );
+      if (bucketSortDetails.length > 0) {
+        for (const d of bucketSortDetails) {
+          if (d.severity === 'error') {
+            this.config.logger.error(`${modelName}: ${d.message}`);
+          } else {
+            this.config.logger.warn?.(`${modelName}: ${d.message}`);
+          }
+          validationWarnings.push(d);
         }
       }
 

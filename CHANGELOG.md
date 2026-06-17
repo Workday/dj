@@ -1,5 +1,11 @@
 # Change Log
 
+## Next
+
+### Materialization
+
+- **Bucket and sort incremental tables.** Add `bucket` and `sorted_by` to a model's `materialization` to control how large incremental tables are bucketed and sorted on disk for faster reads. DJ generates the correct table properties for your storage format (Iceberg, Hive/Glue, or Delta Lake) and flags combinations a format can't support — such as bucketing on Delta Lake or uneven bucket counts on Hive — in the Problems tab.
+
 ## 1.8.0
 
 - **Author CTEs visually in the Model Wizard.** Models that compile to `WITH ... SELECT ...` open with a draggable CTE list above the SELECT step. Click a CTE to edit its source, columns, filters, and framework artifact overrides in a side panel; the wizard validates the model as you type and surfaces any CTE errors before the Next step.
