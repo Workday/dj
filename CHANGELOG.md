@@ -1,5 +1,12 @@
 # Change Log
 
+## 1.9.0
+
+### Bug fixes
+
+- **`DJ: Jump to YAML` works again.** The command and its `Cmd+Shift+Y` shortcut now open the generated `.yml`; a command-ID mismatch had left both failing with "command not found".
+- **Removed dead Command Palette entries.** `DJ: Defer Run` and `DJ: Run Model Lineage` no longer appear — they were never wired up and errored when invoked. Deferred runs are configured via the Defer option inside `DJ: Run Model`.
+
 ## 1.8.0
 
 - **Author CTEs visually in the Model Wizard.** Models that compile to `WITH ... SELECT ...` open with a draggable CTE list above the SELECT step. Click a CTE to edit its source, columns, filters, and framework artifact overrides in a side panel; the wizard validates the model as you type and surfaces any CTE errors before the Next step.
