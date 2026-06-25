@@ -4,8 +4,7 @@
 
 ### Agent skills
 
-- **Author brand-new Lightdash charts and dashboards as YAML through your AI assistant.** When `dj.codingAgent` is enabled, a new skill at `.agents/skills/dj-create-lightdash-yaml/SKILL.md` guides an agent through scaffolding net-new chart/dashboard YAML for a deployed explore — deriving exact field IDs (via a bundled read-only lookup script), honoring model-level required filters, and uploading with `--validate`. Lets you say "build me a dashboard for this model" instead of hand-writing YAML.
-- **Editing existing Lightdash YAML now cross-links the create skill.** The `dj-edit-lightdash-yaml` skill adds a shared field-ID reference, a date-window edit recipe, and clearer guidance on when an edit is safe in-place versus when it needs a real field ID.
+- **Have your AI assistant build Lightdash charts and dashboards from scratch.** With `dj.codingAgent` enabled, the new `dj-create-lightdash-yaml` skill scaffolds and uploads chart/dashboard YAML for a deployed explore — resolving the exact field IDs and honoring the model's required filters — so "build me a dashboard for this model" no longer means hand-writing YAML. The companion `dj-edit-lightdash-yaml` skill now cross-links it and clarifies which filter edits are safe in place versus which need a real field ID.
 
 ## 1.8.0
 
