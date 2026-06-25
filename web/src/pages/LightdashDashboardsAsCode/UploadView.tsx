@@ -98,9 +98,17 @@ export function UploadView() {
         },
       });
       if (resp.success) {
-        setLastUploadedFiles(
-          resp.uploadedFiles ?? (allSelected ? allFilePaths : selected),
-        );
+        // An entire-project upload sends no -c/-d slugs, so the backend
+        // echoes back an empty list. Fall back to the locally-known paths
+        // (every file for "select all", otherwise the explicit selection) so
+        // the post-upload dialog can still scope a refresh to just these files.
+        const uploaded =
+          resp.uploadedFiles && resp.uploadedFiles.length > 0
+            ? resp.uploadedFiles
+            : allSelected
+              ? allFilePaths
+              : selected;
+        setLastUploadedFiles(uploaded);
         setShowPostUploadDialog(true);
       } else if (resp.restriction && resp.restriction.status !== 'allow') {
         // Race-recovery: the policy changed between the UI pre-flight

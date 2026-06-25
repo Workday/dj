@@ -3,6 +3,7 @@ import {
   ArrowDownTrayIcon,
   CheckCircleIcon,
   TrashIcon,
+  XMarkIcon,
 } from '@heroicons/react/24/outline';
 import { useApp } from '@web/context';
 import { Button, RadioGroup } from '@web/elements';
@@ -147,10 +148,21 @@ export function PostUploadDialog() {
       <div className="fixed inset-0 bg-black/40" aria-hidden="true" />
       <div className="fixed inset-0 flex items-center justify-center p-4">
         <DialogPanel className="bg-background border border-surface rounded-lg max-w-md w-full p-5 space-y-4">
-          <DialogTitle className="text-lg font-semibold flex items-center gap-2 text-surface-contrast">
-            <CheckCircleIcon className="w-5 h-5 text-green-500" />
-            Upload complete
-          </DialogTitle>
+          <div className="flex items-start justify-between gap-2">
+            <DialogTitle className="text-lg font-semibold flex items-center gap-2 text-surface-contrast">
+              <CheckCircleIcon className="w-5 h-5 text-green-500" />
+              Upload complete
+            </DialogTitle>
+            <Button
+              variant="iconButton"
+              aria-label="Close"
+              title="Close (keeps local files as-is)"
+              icon={<XMarkIcon className="w-5 h-5" />}
+              disabled={!!busy}
+              onClick={close}
+              className="-mr-2 -mt-1 text-neutral-500"
+            />
+          </div>
           <p className="text-sm text-surface-contrast">
             {lastUploadedFiles.length === 0
               ? 'Your changes are now live on Lightdash.'

@@ -1,6 +1,6 @@
 # Change Log
 
-## Next
+## v1.9.0
 
 ### Lightdash reverse lineage
 
@@ -12,6 +12,7 @@
 ### Dashboards as Code
 
 - **One project per download folder.** Downloading a different Lightdash project into a folder that already holds one prompts you to **Replace** the existing files or **Cancel** and pick another **Save to Path**, so a folder's YAML always reflects a single project.
+
 ## 1.8.0
 
 - **Author CTEs visually in the Model Wizard.** Models that compile to `WITH ... SELECT ...` open with a draggable CTE list above the SELECT step. Click a CTE to edit its source, columns, filters, and framework artifact overrides in a side panel; the wizard validates the model as you type and surfaces any CTE errors before the Next step.
