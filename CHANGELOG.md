@@ -1,5 +1,12 @@
 # Change Log
 
+## 1.9.0
+
+### Agent skills
+
+- **Author brand-new Lightdash charts and dashboards as YAML through your AI assistant.** When `dj.codingAgent` is enabled, a new skill at `.agents/skills/dj-create-lightdash-yaml/SKILL.md` guides an agent through scaffolding net-new chart/dashboard YAML for a deployed explore — deriving exact field IDs (via a bundled read-only lookup script), honoring model-level required filters, and uploading with `--validate`. Lets you say "build me a dashboard for this model" instead of hand-writing YAML.
+- **Editing existing Lightdash YAML now cross-links the create skill.** The `dj-edit-lightdash-yaml` skill adds a shared field-ID reference, a date-window edit recipe, and clearer guidance on when an edit is safe in-place versus when it needs a real field ID.
+
 ## 1.8.0
 
 - **Author CTEs visually in the Model Wizard.** Models that compile to `WITH ... SELECT ...` open with a draggable CTE list above the SELECT step. Click a CTE to edit its source, columns, filters, and framework artifact overrides in a side panel; the wizard validates the model as you type and surfaces any CTE errors before the Next step.
