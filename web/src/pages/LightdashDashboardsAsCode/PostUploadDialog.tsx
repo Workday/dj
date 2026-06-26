@@ -225,8 +225,8 @@ export function PostUploadDialog() {
 
           {status === 'idle' && (
             <p className="text-xs text-neutral-500">
-              <strong>Refresh</strong> re-runs <code>lightdash download</code> to
-              replace your local files with the versions saved on Lightdash.
+              <strong>Refresh</strong> re-runs <code>lightdash download</code>{' '}
+              to replace your local files with the versions saved on Lightdash.
             </p>
           )}
         </DialogPanel>
