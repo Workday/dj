@@ -2,9 +2,9 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   HomeIcon,
-  Squares2X2Icon,
 } from '@heroicons/react/24/outline';
 import HierarchyIcon from '@web/assets/icons/hierarchy.svg?react';
+import LightdashIcon from '@web/assets/icons/lightdash.svg?react';
 import LineageIcon from '@web/assets/icons/lineage.svg?react';
 import SqlIcon from '@web/assets/icons/sql.svg?react';
 import { Tooltip } from '@web/elements';
@@ -47,7 +47,7 @@ const NAV_ITEMS: NavItem[] = [
     id: 'lightdash',
     label: 'Lightdash',
     tooltip: 'Lightdash Lineage',
-    Icon: Squares2X2Icon,
+    Icon: LightdashIcon,
   },
 ];
 
