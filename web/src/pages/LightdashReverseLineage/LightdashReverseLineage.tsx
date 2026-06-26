@@ -139,6 +139,7 @@ export function LightdashReverseLineage() {
     anchorRef,
     assets,
     isLoadingAssets,
+    assetsError,
     lightdashAvailable,
     lightdashResolvedPath,
     setApiHandler,
@@ -151,6 +152,10 @@ export function LightdashReverseLineage() {
 
   const [selected, setSelected] = useState<AssetOption | null>(null);
   const [filter, setFilter] = useState<AssetFilter>('All');
+  // Drives the Refresh button's busy affordance for the whole compound op
+  // (re-scan assets, then reload the anchor) so the click registers instantly
+  // and stays busy through both backend round-trips.
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Wire the API handler before any fetches fire.
   useEffect(() => {
@@ -272,6 +277,33 @@ export function LightdashReverseLineage() {
     }
   };
 
+  const handleRefresh = async () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    try {
+      // Always re-scan the content directory so newly downloaded (or removed)
+      // assets show up in the picker.
+      await fetchAssets(true);
+      const current = anchorRef;
+      if (!current) {
+        return;
+      }
+      // Reload the selected anchor only if it survived the re-scan; otherwise
+      // drop the now-missing selection and its graph.
+      const stillPresent = useReverseLineageStore
+        .getState()
+        .assets.some((a) => a.kind === current.kind && a.slug === current.slug);
+      if (stillPresent) {
+        await fetchReverseLineage(current);
+      } else {
+        clearLineage();
+        setSelected(null);
+      }
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   const hasNoModels =
     !!data &&
     data.manifestAvailable &&
@@ -321,37 +353,36 @@ export function LightdashReverseLineage() {
           <div className="h-6 w-px border-l border-neutral" />
           <Button
             variant="iconButton"
-            icon={<ArrowPathIcon className="w-4 h-4" />}
-            title={
-              anchorRef
-                ? 'Re-scan content & reload lineage'
-                : 'Re-scan for downloaded Lightdash content'
+            disabled={isRefreshing}
+            icon={
+              <ArrowPathIcon
+                className={makeClassName(
+                  'w-4 h-4',
+                  isRefreshing && 'animate-spin',
+                )}
+              />
             }
-            onClick={() => {
-              void (async () => {
-                // Always re-scan the content directory so newly downloaded
-                // (or removed) assets show up in the picker.
-                await fetchAssets(true);
-                const current = anchorRef;
-                if (!current) {
-                  return;
-                }
-                // Reload the selected anchor only if it survived the re-scan;
-                // otherwise drop the now-missing selection and its graph.
-                const stillPresent = useReverseLineageStore
-                  .getState()
-                  .assets.some(
-                    (a) => a.kind === current.kind && a.slug === current.slug,
-                  );
-                if (stillPresent) {
-                  await fetchReverseLineage(current);
-                } else {
-                  clearLineage();
-                  setSelected(null);
-                }
-              })();
-            }}
+            title={
+              isRefreshing
+                ? 'Re-scanning content…'
+                : anchorRef
+                  ? 'Re-scan content & reload lineage'
+                  : 'Re-scan for downloaded Lightdash content'
+            }
+            onClick={() => void handleRefresh()}
           />
+          {assetsError && !isRefreshing && (
+            <>
+              <div className="h-6 w-px border-l border-neutral" />
+              <div
+                className="flex items-center gap-1.5 text-xs text-error max-w-[14rem]"
+                title={assetsError}
+              >
+                <ExclamationTriangleIcon className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">Refresh failed</span>
+              </div>
+            </>
+          )}
           {lightdashResolvedPath && (
             <>
               <div className="h-6 w-px border-l border-neutral" />
@@ -378,6 +409,20 @@ export function LightdashReverseLineage() {
         {isLoading && (
           <div className="absolute inset-0 flex items-center justify-center">
             <Spinner size={24} />
+          </div>
+        )}
+
+        {/* Re-scan overlay: sits above the (still-mounted) graph but below the
+            z-20 toolbar, so the spinning Refresh button stays visible. Covers
+            the gap before the late isLoading spinner of the anchor reload. */}
+        {isRefreshing && !isLoading && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60 backdrop-blur-[1px]">
+            <div className="flex flex-col items-center gap-2">
+              <Spinner size={24} />
+              <span className="text-xs text-background-contrast/70">
+                Re-scanning Lightdash content…
+              </span>
+            </div>
           </div>
         )}
 

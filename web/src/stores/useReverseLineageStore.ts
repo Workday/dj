@@ -47,6 +47,8 @@ interface ReverseLineageStore {
   // Asset picker data (all dashboards + charts).
   assets: LightdashAssetSummary[];
   isLoadingAssets: boolean;
+  /** Set when a (re-)scan fails so the panel can surface it instead of silently no-op'ing. */
+  assetsError: string | null;
 
   // Availability of local Lightdash content, captured when the asset list is
   // fetched so the panel can show the not-downloaded banner before any asset
@@ -97,6 +99,7 @@ export const useReverseLineageStore = create<ReverseLineageStore>(
     // so the spinner shows until the first list resolves instead of briefly
     // flashing the not-downloaded banner.
     isLoadingAssets: true,
+    assetsError: null,
     lightdashAvailable: false,
     lightdashResolvedPath: '',
 
@@ -112,7 +115,7 @@ export const useReverseLineageStore = create<ReverseLineageStore>(
       if (!_apiHandler) {
         return;
       }
-      set({ isLoadingAssets: true });
+      set({ isLoadingAssets: true, assetsError: null });
       try {
         // `force` re-scans the content directory on the backend so newly
         // downloaded (or removed) charts/dashboards show up; the default
@@ -129,7 +132,13 @@ export const useReverseLineageStore = create<ReverseLineageStore>(
         });
       } catch (error) {
         console.error('[ReverseLineageStore] Error listing assets:', error);
-        set({ isLoadingAssets: false });
+        set({
+          isLoadingAssets: false,
+          assetsError:
+            error instanceof Error
+              ? error.message
+              : 'Could not re-scan Lightdash content.',
+        });
       }
     },
 
