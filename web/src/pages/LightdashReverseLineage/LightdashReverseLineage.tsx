@@ -439,7 +439,7 @@ export function LightdashReverseLineage() {
             content exists, otherwise the "pick one" hint. */}
         {!isLoading && !error && !data && (
           <>
-            {isLoadingAssets && (
+            {isLoadingAssets && !isRefreshing && (
               <div className="absolute inset-0 flex items-center justify-center">
                 <Spinner size={24} />
               </div>
