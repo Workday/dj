@@ -14,6 +14,11 @@
 - **One project per download folder.** Downloading a different Lightdash project into a folder that already holds one prompts you to **Replace** the existing files or **Cancel** and pick another **Save to Path**, so a folder's YAML always reflects a single project.
 - **Visible progress in the post-upload prompt.** After an upload, the prompt streams the `lightdash download` output inline as it refreshes, and offers two clear choices: **Refresh from Lightdash** (pulls back exactly the charts and dashboards you just uploaded, or the whole project if you uploaded everything) or **Close** to keep your local files as-is.
 
+### Bug fixes
+
+- **`DJ: Jump to YAML` works again.** The command and its `Cmd+Shift+Y` shortcut now open the generated `.yml`; a command-ID mismatch had left both failing with "command not found".
+- **Removed dead Command Palette entries.** `DJ: Defer Run` and `DJ: Run Model Lineage` no longer appear — they were never wired up and errored when invoked. Deferred runs are configured via the Defer option inside `DJ: Run Model`.
+
 ## 1.8.0
 
 - **Author CTEs visually in the Model Wizard.** Models that compile to `WITH ... SELECT ...` open with a draggable CTE list above the SELECT step. Click a CTE to edit its source, columns, filters, and framework artifact overrides in a side panel; the wizard validates the model as you type and surfaces any CTE errors before the Next step.
