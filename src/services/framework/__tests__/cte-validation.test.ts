@@ -1753,6 +1753,26 @@ describe('validateBucketAndSortedBy', () => {
     expect(details).toHaveLength(0);
   });
 
+  // A model with no `select` derives its columns (including the sort column)
+  // from upstream, so the column-existence check must skip rather than flag a
+  // column that is present in the output.
+  test('skips column-existence checks when the model has no scalar select (rollup)', () => {
+    const details = validateBucketAndSortedBy(
+      {
+        type: 'int_rollup_model',
+        materialization: {
+          type: 'incremental',
+          strategy: { type: 'dj_iceberg_partition_overwrite' },
+          partitions: ['portal_partition_monthly', 'wd_env_type'],
+          sorted_by: ['tenant_name'],
+        },
+        from: { model: 'oms_detail_daily', rollup: { interval: 'month' } },
+      },
+      'iceberg',
+    );
+    expect(details).toHaveLength(0);
+  });
+
   test('returns nothing when bucket/sorted_by are absent or materialization is shorthand', () => {
     expect(
       validateBucketAndSortedBy(
@@ -2271,6 +2291,22 @@ describe('validateMaterializationPartitionsExist', () => {
         { name: 'datetime', type: 'dim', expr: 'month' },
         { name: 'region', type: 'dim' },
       ],
+    });
+    expect(errors).toEqual([]);
+  });
+
+  // A model with no `select` (rollup / `from: { model }` passthrough) derives
+  // its columns from upstream, so partition columns are not listed locally and
+  // must not be flagged.
+  test('skips when the model has no scalar select (rollup / upstream-derived)', () => {
+    const errors = validateMaterializationPartitionsExist({
+      type: 'int_rollup_model',
+      materialization: {
+        type: 'incremental',
+        strategy: { type: 'dj_iceberg_partition_overwrite' },
+        partitions: ['portal_partition_monthly', 'wd_env_type'],
+      },
+      from: { model: 'oms_detail_daily', rollup: { interval: 'month' } },
     });
     expect(errors).toEqual([]);
   });

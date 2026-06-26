@@ -1441,12 +1441,12 @@ const BULK_SELECT_TYPES = new Set([
  * dropped from the dbt config, leaving the table unpartitioned. The
  * incremental strategy then no-ops or runs destructively at run time.
  *
- * Conservative: a present bulk select (`all_from_*`, `dims_from_*`,
- * `fcts_from_*`) could plausibly expand to the named column, so this
- * validator skips when one is present rather than risk a false positive.
- * That gap is acceptable -- the SQL generator's filter still prunes
- * mismatches at sync time; this validator only catches the common
- * scalar-only authoring mistake.
+ * Runs only when the model declares scalar `select` columns to check against.
+ * A bulk select (`all_from_*`, `dims_from_*`, `fcts_from_*`) may expand to the
+ * named column, and an empty/absent `select` derives the column set from
+ * upstream (rollup, `from: { model }` passthrough) where the column lives --
+ * both skip rather than risk a false positive. The SQL generator's filter
+ * still prunes real mismatches at sync time.
  */
 export function validateMaterializationPartitionsExist(
   modelJson: any,
@@ -1482,7 +1482,8 @@ export function validateMaterializationPartitionsExist(
     }
   }
 
-  if (hasBulkSelect) {
+  // Bulk or empty selects derive columns from upstream; nothing local to check.
+  if (hasBulkSelect || scalarSelectNames.size === 0) {
     return warnings;
   }
 
@@ -1552,10 +1553,9 @@ export function validateBucketAndSortedBy(
   const resolvedFormat = modelFormat || storageType || null;
   const isIceberg = resolvedFormat === 'iceberg';
 
-  // With no resolvable format the generator falls back to Hive-style
-  // `bucketed_by` / `bucket_count`, which is wrong for an Iceberg table.
-  // Bucketing semantics differ enough across connectors that this should be
-  // an explicit choice rather than an inferred default, so nudge the author.
+  // With no resolvable format the generator defaults to Hive-style bucketing,
+  // which is wrong for an Iceberg table -- prompt for an explicit format
+  // rather than silently inferring one.
   if (!resolvedFormat) {
     details.push({
       message:
@@ -1629,7 +1629,10 @@ export function validateBucketAndSortedBy(
     }
   }
 
-  if (!hasBulkSelect) {
+  // Like validateMaterializationPartitionsExist, only check columns against an
+  // explicit scalar select; bulk/empty selects derive columns from upstream.
+  // The format-compatibility errors above run regardless of column shape.
+  if (!hasBulkSelect && scalarSelectNames.size > 0) {
     for (let i = 0; i < buckets.length; i++) {
       const entry = buckets[i];
       const col = entry && typeof entry === 'object' ? entry.column : undefined;

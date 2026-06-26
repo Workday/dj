@@ -241,11 +241,8 @@ export class ModelProcessor {
         }
       }
 
-      // Bucket / sorted_by validity against the resolved storage format:
-      // hard Errors for format-incompatible configs (Delta unsupported, Hive
-      // shared bucket_count, Hive sorted_by requires bucket) and Warnings for
-      // bucket / sort columns missing from the select. Mixed severities ride
-      // the same warning channel, so honor each detail's severity when logging.
+      // validateBucketAndSortedBy returns mixed severities on one channel, so
+      // log each detail by its own severity rather than as a blanket warning.
       const bucketSortDetails = validateBucketAndSortedBy(
         modelJson,
         project.variables?.storage_type,

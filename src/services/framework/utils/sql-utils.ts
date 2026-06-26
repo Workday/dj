@@ -2288,11 +2288,10 @@ export function frameworkGenerateModelOutput({
         modelConfig.pre_hook =
           "set session iterative_optimizer_timeout='60m'; set session query_max_planning_time='60m'";
 
-        // Resolve storage format for partitioning/bucketing emission. Model-level
-        // `format` wins; otherwise fall back to the project `storage_type` var.
-        // Iceberg expresses bucketing as a `bucket(col, n)` transform inside
-        // `partitioning` and supports a standalone `sorted_by`; Hive/Glue use
-        // separate `bucketed_by` + `bucket_count` with a bucket-scoped `sorted_by`.
+        // Resolve storage format (model `format` > project `storage_type`).
+        // Iceberg expresses bucketing as a `bucket(col,n)` transform inside
+        // `partitioning` with a standalone `sorted_by`; Hive/Glue use separate
+        // `bucketed_by` + `bucket_count`.
         const resolvedFormat =
           (getMaterializationProp(modelJson, 'format') as string | null) ||
           storageType ||
