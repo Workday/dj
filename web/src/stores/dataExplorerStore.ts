@@ -7,7 +7,7 @@ export const SIDEBAR_DEFAULT_WIDTH = 70;
 // Below this width, render icon-only (no label under the icon).
 export const SIDEBAR_LABEL_THRESHOLD = 60;
 
-export type ActiveView = 'home' | 'model' | 'column' | 'sql';
+export type ActiveView = 'home' | 'model' | 'column' | 'sql' | 'lightdash';
 
 export type MaterializationType =
   | 'ephemeral'

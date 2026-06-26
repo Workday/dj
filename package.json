@@ -914,14 +914,6 @@
           "name": "Lineage Graph",
           "icon": "$(graph)"
         }
-      ],
-      "dj-lightdash-lineage": [
-        {
-          "id": "dj.view.lightdashReverseLineage",
-          "type": "webview",
-          "name": "Lightdash Lineage",
-          "icon": "$(dashboard)"
-        }
       ]
     },
     "viewsWelcome": [
@@ -943,11 +935,6 @@
           "id": "dj-lineage",
           "title": "Data Explorer",
           "icon": "$(graph)"
-        },
-        {
-          "id": "dj-lightdash-lineage",
-          "title": "Lightdash Lineage",
-          "icon": "$(dashboard)"
         }
       ]
     }

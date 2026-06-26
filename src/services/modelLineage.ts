@@ -185,10 +185,9 @@ export class ModelLineage {
         case 'data-explorer-open-reverse-lineage': {
           try {
             const { kind, slug } = payload.request;
-            await vscode.commands.executeCommand(
-              COMMAND_ID.LIGHTDASH_REVERSE_LINEAGE,
-              { kind, slug },
-            );
+            // Reverse lineage renders inside the Data Explorer panel; focus it
+            // and switch to the embedded Lightdash view with this anchor.
+            this.coder.dataExplorer.openReverseLineage({ kind, slug });
             return apiResponse<typeof payload.type>({ success: true });
           } catch (error: unknown) {
             this.coder.log.error('Error opening reverse lineage:', error);

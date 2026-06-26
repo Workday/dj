@@ -11,8 +11,9 @@ import { makeClassName } from '@web';
 import { useApp, useEnvironment } from '@web/context';
 import { Banner, Button, SelectSingle, Spinner } from '@web/elements';
 import { ReactFlowProvider } from '@xyflow/react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { useDataExplorerStore } from '../../stores/dataExplorerStore';
 import {
   type ReverseLineageData,
   useReverseLineageStore,
@@ -132,6 +133,9 @@ const decodeAsset = (
 export function LightdashReverseLineage() {
   const { api } = useApp();
   const { vscode } = useEnvironment();
+  // Rendered as a hidden sibling inside the Data Explorer panel; gate the
+  // (potentially slow) asset scan on this view actually becoming visible.
+  const activeView = useDataExplorerStore((s) => s.activeView);
   const {
     data,
     isLoading,
@@ -162,10 +166,16 @@ export function LightdashReverseLineage() {
     setApiHandler(api.post);
   }, [api.post, setApiHandler]);
 
-  // Load the asset list for the picker once the handler is ready.
+  // Scan for assets the first time this view is opened, not on mount: the
+  // component is always mounted (hidden) within the panel, and the scan can
+  // re-parse thousands of YAML files. Manual Refresh re-runs it via fetchAssets(true).
+  const hasFetchedAssets = useRef(false);
   useEffect(() => {
-    void fetchAssets();
-  }, [fetchAssets]);
+    if (activeView === 'lightdash' && !hasFetchedAssets.current) {
+      hasFetchedAssets.current = true;
+      void fetchAssets();
+    }
+  }, [activeView, fetchAssets]);
 
   // Consume the anchor pushed from the command / click-through, and signal
   // readiness so the extension flushes any buffered anchor.
@@ -311,7 +321,7 @@ export function LightdashReverseLineage() {
     data.staleModels.length === 0;
 
   return (
-    <div className="flex flex-col h-screen w-full bg-background text-background-contrast">
+    <div className="flex flex-col h-full w-full bg-background text-background-contrast">
       {/* Body fills the panel; the toolbar floats over it (no header bar). */}
       <div className="flex-1 min-h-0 relative">
         {/* Floating toolbar: filter segments -> asset picker -> reload */}

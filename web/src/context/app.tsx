@@ -11,7 +11,6 @@ import DataExplorer from '@web/pages/DataExplorer';
 import { Home } from '@web/pages/Home';
 import { LightdashDashboardsAsCode } from '@web/pages/LightdashDashboardsAsCode';
 import { LightdashPreviewManager } from '@web/pages/LightdashPreviewManager';
-import { LightdashReverseLineage } from '@web/pages/LightdashReverseLineage';
 import { ModelCreate } from '@web/pages/ModelCreate';
 import { ModelRun } from '@web/pages/ModelRun';
 import { ModelTest } from '@web/pages/ModelTest';
@@ -99,12 +98,6 @@ const routeConfigs: WebRoute[] = [
     label: 'Lightdash Dashboards as Code',
     path: '/lightdash/dashboards-as-code',
     regex: /^\/lightdash\/dashboards-as-code$/,
-  },
-  {
-    element: <LightdashReverseLineage />,
-    label: 'Lightdash Reverse Lineage',
-    path: '/lightdash/reverse-lineage',
-    regex: /^\/lightdash\/reverse-lineage$/,
   },
 ];
 
@@ -889,6 +882,21 @@ export function AppProvider() {
                   console.log(
                     '[Mock] Opening reverse lineage for:',
                     payload.request,
+                  );
+                  // Mirror the extension: push a `reverse-lineage-init` so the
+                  // Data Explorer shell switches to the embedded Lightdash view
+                  // and the reverse-lineage page loads the anchor.
+                  const anchor = payload.request as {
+                    kind: 'dashboard' | 'chart';
+                    slug: string;
+                  };
+                  window.postMessage(
+                    {
+                      type: 'reverse-lineage-init',
+                      kind: anchor.kind,
+                      slug: anchor.slug,
+                    },
+                    '*',
                   );
                   return resolve(
                     apiResponse<typeof payloadType>({ success: true }),

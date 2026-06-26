@@ -2,12 +2,13 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   HomeIcon,
+  Squares2X2Icon,
 } from '@heroicons/react/24/outline';
 import HierarchyIcon from '@web/assets/icons/hierarchy.svg?react';
 import LineageIcon from '@web/assets/icons/lineage.svg?react';
 import SqlIcon from '@web/assets/icons/sql.svg?react';
 import { Tooltip } from '@web/elements';
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 
 import {
   type ActiveView,
@@ -24,8 +25,12 @@ type NavItem = {
   Icon: React.FC<{ className?: string }>;
 };
 
+// Ordered to follow the JSON-first authoring lifecycle: land on Home,
+// prototype in the adhoc SQL editor, then inspect the resulting model's
+// lineage (Model -> Column) and its downstream BI consumers (Lightdash).
 const NAV_ITEMS: NavItem[] = [
   { id: 'home', label: 'Home', tooltip: 'Home', Icon: HomeIcon },
+  { id: 'sql', label: 'SQL', tooltip: 'Adhoc Query Editor', Icon: SqlIcon },
   {
     id: 'model',
     label: 'Model',
@@ -38,7 +43,12 @@ const NAV_ITEMS: NavItem[] = [
     tooltip: 'Column Lineage',
     Icon: HierarchyIcon,
   },
-  { id: 'sql', label: 'SQL', tooltip: 'Adhoc Query Editor', Icon: SqlIcon },
+  {
+    id: 'lightdash',
+    label: 'Lightdash',
+    tooltip: 'Lightdash Lineage',
+    Icon: Squares2X2Icon,
+  },
 ];
 
 interface NavButtonProps {
@@ -117,13 +127,19 @@ export default function SidebarNav() {
       {/* Nav items */}
       <div className="flex flex-col items-center gap-1 p-1">
         {NAV_ITEMS.map((item) => (
-          <NavButton
-            key={item.id}
-            item={item}
-            isActive={activeView === item.id}
-            showLabel={showLabels}
-            onClick={() => setActiveView(item.id)}
-          />
+          <Fragment key={item.id}>
+            {/* Separate the authoring tools (Home, SQL) from the lineage
+                graphs (Model, Column, Lightdash). */}
+            {item.id === 'model' && (
+              <div className="my-1 h-px w-8 self-center bg-neutral" />
+            )}
+            <NavButton
+              item={item}
+              isActive={activeView === item.id}
+              showLabel={showLabels}
+              onClick={() => setActiveView(item.id)}
+            />
+          </Fragment>
         ))}
       </div>
 

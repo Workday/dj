@@ -62,6 +62,13 @@ class DataExplorerViewProvider implements vscode.WebviewViewProvider {
           return;
         }
 
+        // Reverse-lineage sub-view (re)mounted: replay the buffered anchor so
+        // a full webview reload re-resolves the last opened dashboard/chart.
+        if ((message as any).type === 'reverse-lineage-ready') {
+          this._coder.dataExplorer.replayReverseLineageInit();
+          return;
+        }
+
         // Handle execute-command message to run VSCode commands
         if ((message as any).type === 'execute-command') {
           const command = (message as any).command;
@@ -232,6 +239,13 @@ export class DataExplorer
   private lastContext?: {
     modelName: string;
     projectName: string;
+  };
+
+  // Last reverse-lineage anchor (dashboard / chart) opened, replayed when the
+  // webview remounts so a reload restores the graph.
+  private lastReverseContext?: {
+    kind: 'dashboard' | 'chart';
+    slug: string;
   };
 
   // Debounced auto-refresh to prevent rapid-fire calls during file switching
@@ -687,6 +701,31 @@ export class DataExplorer
       projectName: context.projectName,
       explicit: false,
     });
+  }
+
+  /**
+   * Focus the Data Explorer panel and load the given Lightdash dashboard /
+   * chart in the embedded reverse-lineage view. The init message is queued
+   * if the webview isn't ready yet; a later remount replays it via the
+   * `reverse-lineage-ready` signal.
+   */
+  public openReverseLineage(anchor: {
+    kind: 'dashboard' | 'chart';
+    slug: string;
+  }): void {
+    this.lastReverseContext = anchor;
+    this.focusView();
+    this.sendMessage({ type: 'reverse-lineage-init', ...anchor });
+  }
+
+  /** Re-push the buffered reverse-lineage anchor after a webview remount. */
+  public replayReverseLineageInit(): void {
+    if (this.lastReverseContext) {
+      this.sendMessage({
+        type: 'reverse-lineage-init',
+        ...this.lastReverseContext,
+      });
+    }
   }
 
   /**
