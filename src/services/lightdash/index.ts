@@ -358,7 +358,6 @@ export class Lightdash implements ApiEnabledService<'lightdash'> {
           );
           return apiResponse<typeof payload.type>({
             success: result.success,
-            uploadedFiles: result.uploadedFiles,
             error: result.error,
             restriction: result.restriction,
           });

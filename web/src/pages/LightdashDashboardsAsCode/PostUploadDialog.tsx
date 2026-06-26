@@ -1,91 +1,71 @@
 import { Dialog, DialogPanel, DialogTitle } from '@headlessui/react';
 import {
   ArrowDownTrayIcon,
+  ArrowPathIcon,
   CheckCircleIcon,
-  TrashIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline';
 import { useApp } from '@web/context';
-import { Button, RadioGroup } from '@web/elements';
+import { Button, LogPanel } from '@web/elements';
 import { useLightdashYamlStore } from '@web/stores/useLightdashYamlStore';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
-import { partitionLocalPaths } from './utils';
-
-type RefreshScope = 'just-uploaded' | 'all';
+type Status = 'idle' | 'running' | 'success' | 'error';
 
 /**
  * Post-upload action dialog.
  *
- * After a successful upload the workflow has three sensible outcomes:
- *  1. Refresh from Lightdash — re-run an entire-project download to pull
- *     pristine canonical YAML.
- *  2. Clear local — delete the just-uploaded YAML files locally.
- *  3. Keep as-is — leave files on disk for further iteration.
+ * After a successful upload the user can either pull the canonical YAML back
+ * down (Refresh) -- streaming the CLI output inline so the download is
+ * visible -- or close and keep the local files as-is.
  */
 export function PostUploadDialog() {
   const { api } = useApp();
   const {
     showPostUploadDialog,
     setShowPostUploadDialog,
-    lastUploadedFiles,
-    setLastUploadedFiles,
+    lastUpload,
+    setLastUpload,
     currentPath,
     uploadOptions,
     setTree,
     clearUploadFiles,
+    downloadLogs,
     addDownloadLog,
     clearDownloadLogs,
-    addUploadLog,
     setActiveLogChannel,
   } = useLightdashYamlStore();
-  const [busy, setBusy] = useState<null | 'refresh' | 'clear' | 'keep'>(null);
+  const [status, setStatus] = useState<Status>('idle');
 
-  const canRefreshUploaded = lastUploadedFiles.length > 0;
-  // Default mirrors the upload that just happened: a selection-driven upload
-  // refreshes only those files, an entire-project upload refreshes everything.
-  const [refreshScope, setRefreshScope] = useState<RefreshScope>(() =>
-    canRefreshUploaded ? 'just-uploaded' : 'all',
-  );
-
-  // Reset the scope each time the dialog (re-)opens so the default is
-  // re-evaluated against the current `lastUploadedFiles` snapshot.
-  useEffect(() => {
-    if (showPostUploadDialog) {
-      setRefreshScope(lastUploadedFiles.length > 0 ? 'just-uploaded' : 'all');
-    }
-  }, [showPostUploadDialog, lastUploadedFiles.length]);
+  const running = status === 'running';
+  // A selection-driven upload refreshes just those slugs; an entire-project
+  // upload (empty slug arrays) refreshes everything.
+  const chartSlugs = lastUpload?.chartSlugs ?? [];
+  const dashboardSlugs = lastUpload?.dashboardSlugs ?? [];
+  const hasSpecificSelection =
+    chartSlugs.length > 0 || dashboardSlugs.length > 0;
+  const uploadedCount = chartSlugs.length + dashboardSlugs.length;
 
   const close = () => {
     setShowPostUploadDialog(false);
-    setLastUploadedFiles([]);
-    setBusy(null);
+    setLastUpload(null);
+    setStatus('idle');
   };
 
   const onRefresh = async () => {
-    setBusy('refresh');
+    setStatus('running');
     clearDownloadLogs();
     setActiveLogChannel('download');
-    const useJustUploaded =
-      refreshScope === 'just-uploaded' && canRefreshUploaded;
-    const { chartSlugs, dashboardSlugs } = useJustUploaded
-      ? partitionLocalPaths(lastUploadedFiles)
-      : { chartSlugs: [], dashboardSlugs: [] };
     try {
       const resp = await api.post({
         type: 'lightdash-yaml-download',
         request: {
           path: currentPath.trim() || undefined,
-          scope: useJustUploaded ? 'specific' : 'all',
-          dashboardIds:
-            useJustUploaded && dashboardSlugs.length
-              ? dashboardSlugs
-              : undefined,
-          chartIds:
-            useJustUploaded && chartSlugs.length ? chartSlugs : undefined,
-          // Reuse the project UUID the upload just succeeded with - the
-          // refresh action only ever pulls from the same project we
-          // just uploaded to.
+          scope: hasSpecificSelection ? 'specific' : 'all',
+          dashboardIds: dashboardSlugs.length ? dashboardSlugs : undefined,
+          chartIds: chartSlugs.length ? chartSlugs : undefined,
+          // Reuse the project the upload just succeeded with - a refresh only
+          // ever pulls from the same project we just uploaded to.
           project: uploadOptions.project.trim(),
         },
       });
@@ -94,12 +74,16 @@ export function PostUploadDialog() {
           setTree(resp.tree);
         }
         clearUploadFiles();
-      } else if (resp.error) {
-        addDownloadLog({
-          level: 'error',
-          message: resp.error,
-          timestamp: new Date().toISOString(),
-        });
+        setStatus('success');
+      } else {
+        if (resp.error) {
+          addDownloadLog({
+            level: 'error',
+            message: resp.error,
+            timestamp: new Date().toISOString(),
+          });
+        }
+        setStatus('error');
       }
     } catch (err) {
       addDownloadLog({
@@ -107,42 +91,33 @@ export function PostUploadDialog() {
         message: err instanceof Error ? err.message : String(err),
         timestamp: new Date().toISOString(),
       });
+      setStatus('error');
     } finally {
       setActiveLogChannel(null);
-      close();
     }
   };
 
-  const onClear = async () => {
-    setBusy('clear');
-    try {
-      await api.post({
-        type: 'lightdash-yaml-delete-files',
-        request: { paths: lastUploadedFiles },
-      });
-      const listResp = await api.post({
-        type: 'lightdash-yaml-list-files',
-        request: { path: currentPath },
-      });
-      if (listResp.success) {
-        setTree(listResp.tree ?? []);
-      }
-      clearUploadFiles();
-    } catch (err) {
-      addUploadLog({
-        level: 'error',
-        message: err instanceof Error ? err.message : String(err),
-        timestamp: new Date().toISOString(),
-      });
-    } finally {
-      close();
-    }
-  };
+  const title =
+    status === 'success'
+      ? 'Refresh complete'
+      : status === 'error'
+        ? 'Refresh failed'
+        : running
+          ? 'Refreshing from Lightdash'
+          : 'Upload complete';
+
+  const titleIcon = running ? (
+    <ArrowPathIcon className="w-5 h-5 text-neutral-400 animate-spin" />
+  ) : status === 'error' ? (
+    <XMarkIcon className="w-5 h-5 text-red-500" />
+  ) : (
+    <CheckCircleIcon className="w-5 h-5 text-green-500" />
+  );
 
   return (
     <Dialog
       open={showPostUploadDialog}
-      onClose={() => (busy ? null : close())}
+      onClose={() => (running ? null : close())}
       className="relative z-50"
     >
       <div className="fixed inset-0 bg-black/40" aria-hidden="true" />
@@ -150,81 +125,110 @@ export function PostUploadDialog() {
         <DialogPanel className="bg-background border border-surface rounded-lg max-w-md w-full p-5 space-y-4">
           <div className="flex items-start justify-between gap-2">
             <DialogTitle className="text-lg font-semibold flex items-center gap-2 text-surface-contrast">
-              <CheckCircleIcon className="w-5 h-5 text-green-500" />
-              Upload complete
+              {titleIcon}
+              {title}
             </DialogTitle>
             <Button
               variant="iconButton"
               aria-label="Close"
               title="Close (keeps local files as-is)"
               icon={<XMarkIcon className="w-5 h-5" />}
-              disabled={!!busy}
+              disabled={running}
               onClick={close}
               className="-mr-2 -mt-1 text-neutral-500"
             />
           </div>
-          <p className="text-sm text-surface-contrast">
-            {lastUploadedFiles.length === 0
-              ? 'Your changes are now live on Lightdash.'
-              : `Uploaded ${lastUploadedFiles.length} file${
-                  lastUploadedFiles.length === 1 ? '' : 's'
-                } to Lightdash.`}{' '}
-            What would you like to do with the local files?
-          </p>
+
+          {status === 'idle' && (
+            <p className="text-sm text-surface-contrast">
+              {uploadedCount === 0
+                ? 'Your changes are now live on Lightdash.'
+                : `Uploaded ${uploadedCount} file${
+                    uploadedCount === 1 ? '' : 's'
+                  } to Lightdash.`}{' '}
+              Pull the canonical YAML back down, or keep your local files as-is.
+            </p>
+          )}
+          {status === 'success' && (
+            <p className="text-sm text-surface-contrast">
+              Pulled the latest YAML from Lightdash.
+            </p>
+          )}
+          {status === 'error' && (
+            <p className="text-sm text-surface-contrast">
+              The download did not finish. Check the output below and try again.
+            </p>
+          )}
+
+          {status !== 'idle' && (
+            <LogPanel
+              logs={downloadLogs}
+              title="Download output"
+              emptyMessage="Starting download"
+              className="h-48 min-h-0"
+            />
+          )}
+
           <div className="flex flex-col gap-2">
-            <div className="flex flex-col gap-1.5">
-              <span className="text-xs font-semibold text-surface-contrast">
-                Refresh scope
-              </span>
-              <RadioGroup
-                name="dac-refresh-scope"
-                value={refreshScope}
-                onChange={(v) => setRefreshScope(v as RefreshScope)}
-                variant="button-group"
-                options={[
-                  {
-                    value: 'just-uploaded',
-                    label: canRefreshUploaded
-                      ? `Just-uploaded (${lastUploadedFiles.length})`
-                      : 'Just-uploaded',
-                    disabled: !canRefreshUploaded,
-                  },
-                  { value: 'all', label: 'Entire project' },
-                ]}
+            {status === 'idle' && (
+              <>
+                <Button
+                  variant="primary"
+                  label="Refresh from Lightdash"
+                  icon={<ArrowDownTrayIcon className="w-4 h-4" />}
+                  onClick={() => void onRefresh()}
+                  fullWidth
+                />
+                <Button
+                  variant="secondary"
+                  label="Close"
+                  onClick={close}
+                  fullWidth
+                />
+              </>
+            )}
+            {running && (
+              <Button
+                variant="primary"
+                label="Downloading"
+                loading
+                disabled
+                fullWidth
               />
-            </div>
-            <Button
-              variant="primary"
-              label="Refresh from Lightdash"
-              icon={<ArrowDownTrayIcon className="w-4 h-4" />}
-              loading={busy === 'refresh'}
-              disabled={!!busy}
-              onClick={() => void onRefresh()}
-              fullWidth
-            />
-            <Button
-              variant="error"
-              label="Clear local files"
-              icon={<TrashIcon className="w-4 h-4" />}
-              loading={busy === 'clear'}
-              disabled={!!busy}
-              onClick={() => void onClear()}
-              fullWidth
-            />
-            <Button
-              variant="secondary"
-              label="Keep as-is"
-              disabled={!!busy}
-              onClick={close}
-              fullWidth
-            />
+            )}
+            {status === 'success' && (
+              <Button
+                variant="primary"
+                label="Close"
+                onClick={close}
+                fullWidth
+              />
+            )}
+            {status === 'error' && (
+              <>
+                <Button
+                  variant="primary"
+                  label="Try again"
+                  icon={<ArrowDownTrayIcon className="w-4 h-4" />}
+                  onClick={() => void onRefresh()}
+                  fullWidth
+                />
+                <Button
+                  variant="secondary"
+                  label="Close"
+                  onClick={close}
+                  fullWidth
+                />
+              </>
+            )}
           </div>
-          <p className="text-xs text-neutral-500">
-            <strong>Refresh</strong> re-runs <code>lightdash download</code>{' '}
-            using the scope above. <strong>Clear</strong> deletes only the files
-            you just uploaded. <strong>Keep</strong> leaves everything in place
-            for further iteration.
-          </p>
+
+          {status === 'idle' && (
+            <p className="text-xs text-neutral-500">
+              <strong>Refresh</strong> re-runs <code>lightdash download</code> to
+              replace your local files with the versions saved on Lightdash.
+            </p>
+          )}
         </DialogPanel>
       </div>
     </Dialog>

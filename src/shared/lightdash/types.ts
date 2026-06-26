@@ -169,7 +169,6 @@ export type LightdashApi =
       };
       response: {
         success: boolean;
-        uploadedFiles?: string[];
         error?: string;
         /**
          * Populated when the upload was refused (or would have been

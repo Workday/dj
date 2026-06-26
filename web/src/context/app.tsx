@@ -514,7 +514,6 @@ export function AppProvider() {
                     resolve(
                       apiResponse<typeof payloadType>({
                         success: true,
-                        uploadedFiles: uploaded,
                       }),
                     ),
                   );

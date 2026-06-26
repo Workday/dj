@@ -12,6 +12,7 @@
 ### Dashboards as Code
 
 - **One project per download folder.** Downloading a different Lightdash project into a folder that already holds one prompts you to **Replace** the existing files or **Cancel** and pick another **Save to Path**, so a folder's YAML always reflects a single project.
+- **Visible progress in the post-upload prompt.** After an upload, the prompt streams the `lightdash download` output inline as it refreshes, and offers two clear choices: **Refresh from Lightdash** (pulls back exactly the charts and dashboards you just uploaded, or the whole project if you uploaded everything) or **Close** to keep your local files as-is.
 
 ## 1.8.0
 
