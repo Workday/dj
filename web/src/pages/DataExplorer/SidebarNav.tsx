@@ -8,7 +8,7 @@ import HierarchyIcon from '@web/assets/icons/hierarchy.svg?react';
 import LineageIcon from '@web/assets/icons/lineage.svg?react';
 import SqlIcon from '@web/assets/icons/sql.svg?react';
 import { Tooltip } from '@web/elements';
-import { Fragment, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import {
   type ActiveView,
@@ -127,19 +127,13 @@ export default function SidebarNav() {
       {/* Nav items */}
       <div className="flex flex-col items-center gap-1 p-1">
         {NAV_ITEMS.map((item) => (
-          <Fragment key={item.id}>
-            {/* Separate the authoring tools (Home, SQL) from the lineage
-                graphs (Model, Column, Lightdash). */}
-            {item.id === 'model' && (
-              <div className="my-1 h-px w-8 self-center bg-neutral" />
-            )}
-            <NavButton
-              item={item}
-              isActive={activeView === item.id}
-              showLabel={showLabels}
-              onClick={() => setActiveView(item.id)}
-            />
-          </Fragment>
+          <NavButton
+            key={item.id}
+            item={item}
+            isActive={activeView === item.id}
+            showLabel={showLabels}
+            onClick={() => setActiveView(item.id)}
+          />
         ))}
       </div>
 
