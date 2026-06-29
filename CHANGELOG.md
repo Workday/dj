@@ -4,7 +4,8 @@
 
 ### Agent skills
 
-- **Have your AI assistant build Lightdash charts and dashboards from scratch.** With `dj.codingAgent` enabled, the new `dj-create-lightdash-yaml` skill scaffolds and uploads chart/dashboard YAML for a deployed explore — resolving the exact field IDs and honoring the model's required filters — so "build me a dashboard for this model" no longer means hand-writing YAML. The companion `dj-edit-lightdash-yaml` skill now cross-links it and clarifies which filter edits are safe in place versus which need a real field ID.
+- **Build and edit Lightdash charts and dashboards through your AI assistant.** With `dj.codingAgent` enabled, the new `dj-create-lightdash-yaml` skill scaffolds and uploads chart/dashboard YAML for a deployed explore — resolving exact field IDs, honoring required filters, and confirming which project to target so prod isn't changed by mistake. The companion `dj-edit-lightdash-yaml` skill clarifies which filter edits are safe in place versus which need a real field ID.
+- **Scaffold marts that back a Lightdash dashboard.** The `dj-create-new-model` skill now bundles mart-to-Lightdash recipes — default dashboard time windows (`lightdash.table.required_filters`), summable metrics on passthrough marts, and which framework-column exclude flag keeps your date dimension intact. All three skills treat the model's `.model.json` as the single source of truth for required filters.
 
 ## 1.8.0
 

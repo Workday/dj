@@ -40,8 +40,10 @@ Lightdash **explore**. Before authoring:
      rejects `--defer`). Pass `-y` to skip the credential prompt so the preview
      stores warehouse creds that can read your dev relation.
    - The prod project is typically `block`ed in `dj.lightdash.restrictedProjects`
-     (`.vscode/settings.json`); uploads must target the
-     preview UUID.
+     (`.vscode/settings.json`). That only stops the DJ **Upload tab** from pushing
+     to prod by mistake -- it does **not** stop a direct `lightdash upload`
+     (Lightdash allows it if you have permission), so deliberately target a
+     non-prod project, usually your preview.
 3. Capture the **preview project UUID** (printed as `.../projects/<uuid>/tables`).
 
 ## Workflow
@@ -53,7 +55,14 @@ Lightdash **explore**. Before authoring:
    them as `--url` / `--api-key` / `--project` flags, or rely on the standard
    `LIGHTDASH_URL` / `LIGHTDASH_API_KEY` / `LIGHTDASH_PROJECT` env vars (the same
    names the Lightdash CLI and DJ extension use). If those are not set, ask the
-   user for the values rather than guessing. It prints the
+   user for the values rather than guessing. **Confirm which project to target
+   instead of assuming one** -- the same `--project <uuid>` is used here and at
+   upload, so settle it up front. Lay out the choices and let the user pick: a
+   **preview** project you found or just created (usually the safe choice), the
+   configured `LIGHTDASH_PROJECT` / settings project (say whether it's prod or
+   listed in `dj.lightdash.restrictedProjects`), or another project UUID they name.
+   Pass the chosen `--project <uuid>`
+   explicitly rather than the env default. It prints the
    `baseTable` (= `exploreName`/`tableName`), every dimension/metric field ID
    (including per-interval date variants like `<explore>_<date_dim>_week`), and
    -- with `--spaces` -- valid `spaceSlug` values. If the API is unavailable, open the
@@ -63,13 +72,15 @@ Lightdash **explore**. Before authoring:
    cartesian `chartConfig` skeleton, and dashboard tile types.
 3. **Author the chart** at `lightdash/charts/<slug>.yml` with the
    `# yaml-language-server: $schema=...` header (the `yaml.schemas` binding in the
-   workspace `.vscode/settings.json`). Include the model's **required date filter**.
-4. **Author the dashboard** at `lightdash/dashboards/<slug>.yml`; reference the
-   chart via a `saved_chart` tile's `properties.chartSlug`. Add a `markdown`
-   tile for context if helpful.
+   workspace `.vscode/settings.json`). Include the model's **required date filter**,
+   and keep mapping keys **sorted alphabetically** (the CLI warns on unsorted keys
+   -- reference §9; the header comment stays first, lists keep their order).
+4. **Author the dashboard** at `lightdash/dashboards/<slug>.yml` (mapping keys
+   sorted too); reference the chart via a `saved_chart` tile's
+   `properties.chartSlug`. Add a `markdown` tile for context if helpful.
 5. **Upload.** Do not instruct the user to run the upload CLI directly. Offer one
    of two paths: (a) they upload from the `DJ: Lightdash - Dashboards as Code`
-   webview Upload tab (paste the preview UUID, enable `--force`, and
+   webview Upload tab (paste the chosen project UUID, enable `--force`, and
    `--include-charts` for the dashboard), or (b) you **offer to run the command
    yourself** after confirming the target project UUID. The equivalent command is
    `lightdash upload --force --include-charts --validate --project <uuid> -c <chart-slug> -d <dashboard-slug>`.
@@ -81,13 +92,19 @@ Lightdash **explore**. Before authoring:
 - **Honor model-level required filters.** The DJ framework can auto-add a date
   `required_filters` (e.g. `<date_dim>: inThePast N days`) to the generated model
   YAML. Every chart on that explore MUST filter on that base field
-  (`<explore>_<date_dim>`, not an interval variant) or the query errors.
+  (`<explore>_<date_dim>`, not an interval variant) or the query errors. The
+  source is the mart's `.model.json` under `lightdash.table.required_filters`, not
+  the generated YAML -- to add/relax the default window, edit the model
+  (`dj-create-new-model`).
 - **`exploreName` and `tableName` are the dbt model name** (the explore
   `baseTable`), never the slugified `lightdash.table.label`.
 - **Net-new files require `--force`.** Without it, upload silently skips files
   Lightdash has never seen.
 - **The bound YAML schema validates structure, not meaning.** A clean editor
   does not prove field IDs exist -- only `lightdash upload --validate` does.
+- **Sort YAML keys alphabetically.** Emit mapping keys sorted at every level so
+  `lightdash upload` doesn't warn about unsorted keys; keep list items in order
+  and the `# yaml-language-server` header on top (reference §9).
 - **Never hand-edit `.sql`/`.yml` under `models/`** -- those are DJ's JSON-sync
   output. To add a metric/dimension a chart needs, edit the upstream
   `.model.json` first (use `dj-create-new-model`), let DJ regenerate, redeploy

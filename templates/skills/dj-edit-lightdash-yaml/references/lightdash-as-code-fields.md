@@ -49,8 +49,11 @@ metricQuery:
 - To change the window, edit only `values` (e.g. `30` -> `90`). No dbt rebuild is
   needed when the model is a view over full-history upstream data -- the filter is
   applied at query time.
-- Honor the model's `meta.required_filters` (the DJ framework can auto-add a date
-  one): a chart must keep a filter on that base field or its query errors.
+- Honor the model's required date filter: a chart must keep a filter on that base
+  field or its query errors. The source is the mart's `.model.json` under
+  `lightdash.table.required_filters` (authored via `dj-create-new-model`);
+  `meta.required_filters` is only the generated dbt-YAML view -- change it in the
+  model, not here.
 
 ## Upload flags
 
@@ -69,6 +72,8 @@ lightdash upload --force --include-charts --validate \
   check for bad field IDs / missing chart slugs.
 - Spaces are auto-created unless `--skip-space-create`; use an existing
   `spaceSlug` to avoid creating one.
-- Projects listed with `mode: block` in `dj.lightdash.restrictedProjects`
-  (workspace `.vscode/settings.json`) reject as-code uploads; target a preview
-  project UUID.
+- A `mode: block` entry in `dj.lightdash.restrictedProjects` (workspace
+  `.vscode/settings.json`) only makes the DJ **Upload tab** refuse the push -- a
+  guardrail against editing prod by mistake. A direct `lightdash upload` still
+  works if you have Lightdash access, so target the intended (usually preview)
+  project UUID deliberately.

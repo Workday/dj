@@ -112,9 +112,20 @@ target project.
   whether a `fieldId` exists in the explore, whether a `chartSlug` resolves, or
   whether filter UUIDs are consistent. Those only fail at upload - always upload
   with `--validate` and treat a clean editor as necessary, not sufficient.
-- **"unsorted YAML keys" on upload is cosmetic.** Hand-authored files trigger a
-  `Warning: <file> has unsorted YAML keys` message; the upload still succeeds.
-  Sort keys alphabetically (or re-download) only if you want it silenced.
+- **Sort YAML keys alphabetically.** `lightdash upload` warns
+  `<file> has unsorted YAML keys`. Keep mapping keys sorted at every level when you
+  edit (this matches what `lightdash download` emits). Sort **mapping keys only --
+  never reorder list items** (`tiles`, `dimensions`, `sorts`, `series`,
+  `columnOrder` are order-sensitive). Keep the `# yaml-language-server` header on
+  top. Use a key sorter if available (e.g. `yq 'sort_keys(..)'` / your editor's
+  formatter), else keep keys in alphabetical order.
+- **A round-tripped file is normalized.** After `lightdash upload`/`download` the
+  local file is rewritten: mapping keys alphabetized, server fields added
+  (`contentType`, `chartName`, `tileSlug`, `verification`, `hideFrame`, ...), the
+  `# yaml-language-server` header stripped, and block scalars reflowed (`|` ->
+  `>`). Re-read the file before each edit (it won't match what you last authored)
+  and match on minimal unique substrings. The missing header is harmless -- the
+  workspace `yaml.schemas` path binding still validates.
 
 ## References
 

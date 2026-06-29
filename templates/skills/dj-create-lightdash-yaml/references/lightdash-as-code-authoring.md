@@ -61,6 +61,11 @@ Any chart on that explore MUST include a filter on that base field
 (`<explore>_<date_dim>`), or the query errors. Target the base timestamp, not an
 interval variant.
 
+Source of truth: the required filter lives in the mart's `.model.json` under
+`lightdash.table.required_filters` (author it with `dj-create-new-model`). The
+`meta.required_filters` shown above is only the generated dbt-YAML view -- to
+add/relax a default window, edit the model, not the generated YAML.
+
 ## 4. Canonical date filter ("in the last N days")
 
 ```yaml
@@ -112,9 +117,11 @@ chartConfig:
 
 ## 6. Time series stacked/split by a category (pivot)
 
-To put time on the x-axis and split a metric by a category -- a great
-"filter change is obvious" visual because widening the date window visibly
-extends the axis:
+To put time on the x-axis and split a metric by a category. The simplest and most
+robust form does **not** enumerate category values: set `pivotDimensions` +
+`pivotConfig.columns` and a single stacking series, and Lightdash expands one
+series per category automatically. This needs no knowledge of the distinct
+values, so you never have to run a (credentialed) query to list them:
 
 ```yaml
 metricQuery:
@@ -125,7 +132,7 @@ metricQuery:
     - <explore>_<metric>
   pivotDimensions:
     - <explore>_<category_dim>
-  # ... sorts (by the time field, ascending), limit (high enough for periods x categories), filters ...
+  # ... sorts (by the time field, ascending), limit (>= periods x categories), filters ...
 pivotConfig:
   columns:
     - <explore>_<category_dim>
@@ -136,6 +143,7 @@ chartConfig:
       xField: <explore>_<date_dim>_week
       yField:
         - <explore>_<metric>
+      stack: true
     eChartsConfig:
       series:
         - type: bar
@@ -145,17 +153,34 @@ chartConfig:
               field: <explore>_<date_dim>_week
             yRef:
               field: <explore>_<metric>
+```
+
+Notes:
+- `pivotDimensions` (in `metricQuery`) and `pivotConfig.columns` (top-level) must
+  both name the category field.
+- Set `limit` high enough for `periods x categories` so no series is truncated.
+
+### Optional: enumerate series to highlight specific values
+
+Only if you want to style/stack specific categories (e.g. the top N), add
+`pivotValues` to the series. This requires knowing the values -- take them from a
+known set; do not run a credentialed query just to enumerate them. Values you do
+not list still render with default styling.
+
+```yaml
+    eChartsConfig:
+      series:
+        - type: bar
+          stack: <stack-group>
+          encode:
+            xRef:
+              field: <explore>_<date_dim>_week
+            yRef:
+              field: <explore>_<metric>
               pivotValues:
                 - field: <explore>_<category_dim>
                   value: <category value>     # one series per enumerated value
 ```
-
-Notes:
-- Enumerate one series per pivot value you want to style/stack; values not listed
-  still render with default styling. Enumerating only the top N is a clean way to
-  highlight the biggest contributors.
-- `pivotDimensions` (in `metricQuery`) and `pivotConfig.columns` (top-level) must
-  both name the category field.
 
 ## 7. Dashboard tiles
 
@@ -214,15 +239,25 @@ lightdash upload --force --include-charts --validate \
 
 - **Schema validates structure, not meaning.** Clean lint != valid chart. Always
   `--validate`.
-- **"unsorted YAML keys" warning is cosmetic.** Hand-authored files trigger it;
-  upload still succeeds. Sort keys alphabetically only to silence it.
+- **Sort YAML keys alphabetically.** `lightdash upload` warns
+  `<file> has unsorted YAML keys`. Author/emit mapping keys sorted at every level
+  so the warning never fires (this also matches what `lightdash download`
+  produces). Sort **mapping keys only -- never reorder list items** (`tiles`,
+  `dimensions`, `sorts`, `series`, `columnOrder` are order-sensitive). Keep the
+  `# yaml-language-server` header comment as the first line. Sort with a key
+  sorter if one is available (e.g. `yq 'sort_keys(..)'` or your editor's YAML
+  formatter); otherwise author keys in alphabetical order.
 - **`lightdash download -c <slug>` can return 0 files** for some slugs; do not
   rely on it to fetch a template. Author from this reference + the explore API
   instead.
-- **Prod is often blocked.** If a project is listed in
+- **Prod is guarded, not locked.** A project listed in
   `dj.lightdash.restrictedProjects` (workspace `.vscode/settings.json`) with
-  `mode: block`, as-code uploads to it are rejected; target a preview project
-  UUID instead.
+  `mode: block` makes the DJ **Upload tab** refuse to push to it -- a guardrail
+  against changing prod by mistake. It does **not** block a direct
+  `lightdash upload` (Lightdash permits it if you have access), so target a
+  preview project UUID deliberately rather than relying on the guardrail.
 - **Verify data before relying on a chart.** Confirm the chart returns rows with
   `POST /api/v1/projects/{uuid}/explores/{exploreName}/runQuery` (same
   dimensions/metrics/filters as the chart) so the rendered view is not empty.
+  Some agent environments block credentialed data-extraction calls; if yours
+  does, don't retry-loop -- verify from the DJ webview or ask the user instead.
