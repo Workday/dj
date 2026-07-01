@@ -1,0 +1,9 @@
+{
+  "$id": "model.sorted_by.schema.json",
+  "title": "Schema Model Sorted By",
+  "description": "Columns to sort table data by within each written file (the `sorted_by` Trino table property). On Iceberg this is a standalone sort order. On Hive / Glue it determines the sort order within each bucket and requires `bucket` to also be set. Not supported on Delta Lake in dbt-trino. Column ordering is ascending; `col DESC` style ordering is not supported.",
+  "markdownDescription": "**`sorted_by`** — sort table data within each written file.\n\n- **Iceberg:** emitted as a standalone `sorted_by = ARRAY[...]` table property. Improves selective reads on high-cardinality columns.\n- **Hive / Glue:** sorts rows within each bucket; **requires `bucket`** (`bucketed_by` + `bucket_count`) to be set.\n- **Delta Lake:** not supported by the dbt-trino Delta connector — DJ surfaces a Problems-tab error.\n\nColumns sort ascending; `col DESC` ordering is not supported.",
+  "type": "array",
+  "minItems": 1,
+  "items": { "$ref": "column.name.schema.json" }
+}

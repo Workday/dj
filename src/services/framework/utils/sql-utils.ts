@@ -1988,6 +1988,34 @@ function getMaterializationProp(
 }
 
 /**
+ * Normalize the `materialization.bucket` field into a flat list of
+ * `{ column, count }` specs. The schema accepts either a single bucket spec
+ * or an array of them; this collapses both shapes and drops malformed entries
+ * so callers can treat bucketing uniformly.
+ */
+function normalizeBuckets(raw: unknown): { column: string; count: number }[] {
+  if (!raw) {
+    return [];
+  }
+  const entries = Array.isArray(raw) ? raw : [raw];
+  const buckets: { column: string; count: number }[] = [];
+  for (const entry of entries) {
+    if (
+      entry &&
+      typeof entry === 'object' &&
+      typeof (entry as { column?: unknown }).column === 'string' &&
+      typeof (entry as { count?: unknown }).count === 'number'
+    ) {
+      buckets.push({
+        column: (entry as { column: string }).column,
+        count: (entry as { count: number }).count,
+      });
+    }
+  }
+  return buckets;
+}
+
+/**
  * Pick the appropriate partition column(s) to use as the incremental `unique_key`.
  * The unique_key tells dbt which column(s) define "row identity" for the delete
  * step in delete+insert strategy -- rows matching these values are deleted before
@@ -2260,23 +2288,65 @@ export function frameworkGenerateModelOutput({
         modelConfig.pre_hook =
           "set session iterative_optimizer_timeout='60m'; set session query_max_planning_time='60m'";
 
-        if (partitions.length) {
-          // Resolve storage format: model-level format override > project-level storage_type > delta_lake default.
-          // Iceberg uses "partitioning" keyword; Delta Lake/Hive use "partitioned_by" in SQL properties.
-          const format =
-            getMaterializationProp(modelJson, 'format') ||
-            (storageType === 'iceberg' ? 'iceberg' : null);
-          switch (format) {
-            case 'iceberg':
-              modelConfig.properties = {
-                partitioning: `ARRAY['${partitions.join("', '")}']`,
-              };
-              break;
-            default:
-              modelConfig.properties = {
-                partitioned_by: `ARRAY['${partitions.join("', '")}']`,
-              };
+        // Resolve storage format (model `format` > project `storage_type`).
+        // Iceberg expresses bucketing as a `bucket(col,n)` transform inside
+        // `partitioning` with a standalone `sorted_by`; Hive/Glue use separate
+        // `bucketed_by` + `bucket_count`.
+        const resolvedFormat =
+          (getMaterializationProp(modelJson, 'format') as string | null) ||
+          storageType ||
+          null;
+
+        // Bucket and sort columns are physical-layout tuning. Filter both to
+        // columns the model actually produces, mirroring the partition filter
+        // above; missing columns are surfaced separately as diagnostics.
+        const buckets = normalizeBuckets(
+          getMaterializationProp(modelJson, 'bucket'),
+        ).filter((b) => columns.some((c) => c.name === b.column));
+        const sortedByRaw = getMaterializationProp(modelJson, 'sorted_by');
+        const sortedBy = (
+          Array.isArray(sortedByRaw) ? (sortedByRaw as unknown[]) : []
+        ).filter(
+          (s): s is string =>
+            typeof s === 'string' && columns.some((c) => c.name === s),
+        );
+
+        const properties: NonNullable<DbtModelConfig['properties']> = {};
+        if (resolvedFormat === 'iceberg') {
+          // Iceberg: bucket transforms live alongside plain partition columns in
+          // `partitioning`. Emit `bucket(col,n)` with no internal space so the
+          // DJ-shipped partition-overwrite macro's comma-space split stays intact.
+          const partitioningEntries = [
+            ...partitions,
+            ...buckets.map((b) => `bucket(${b.column},${b.count})`),
+          ];
+          if (partitioningEntries.length) {
+            properties.partitioning = `ARRAY['${partitioningEntries.join(
+              "', '",
+            )}']`;
           }
+          if (sortedBy.length) {
+            properties.sorted_by = `ARRAY['${sortedBy.join("', '")}']`;
+          }
+        } else {
+          // Hive/Glue (and unset/Delta default): partition columns and bucketing
+          // are independent table properties. Hive shares a single bucket_count
+          // across all bucket columns (validation enforces a uniform count).
+          if (partitions.length) {
+            properties.partitioned_by = `ARRAY['${partitions.join("', '")}']`;
+          }
+          if (buckets.length) {
+            properties.bucketed_by = `ARRAY['${buckets
+              .map((b) => b.column)
+              .join("', '")}']`;
+            properties.bucket_count = buckets[0].count;
+          }
+          if (sortedBy.length) {
+            properties.sorted_by = `ARRAY['${sortedBy.join("', '")}']`;
+          }
+        }
+        if (Object.keys(properties).length) {
+          modelConfig.properties = properties;
         }
         break;
       }

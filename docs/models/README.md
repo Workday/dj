@@ -436,6 +436,32 @@ Set `materialization.strategy.type` to one of the following (or rely on the exte
 | `overwrite_existing_partitions` | Drops and rewrites only the partitions present in the new slice. `unique_key` is not applicable, the consumer macro derives the partition list from the new slice itself, so the schema rejects `unique_key` on this strategy. | **Requires a custom dbt macro in your project** (e.g. `get_incremental_overwrite_existing_partitions_sql`). The DJ (Data JSON) Framework does NOT ship this macro and dbt-trino does NOT provide it natively. If your project does not define it, use `delete+insert` with a partition column as `unique_key`, it produces equivalent behavior for daily/monthly partitioned models. |
 | `dj_iceberg_partition_overwrite` | Drops and rewrites only the partitions present in the new slice on **Iceberg** tables. `unique_key` is not applicable, the macro derives the partition list from the new slice itself by reading `properties.partitioning`, so the schema rejects `unique_key`. | **Shipped by DJ.** The dispatch macro `get_incremental_dj_iceberg_partition_overwrite_sql` lives in `macros/strategies.sql` and is auto-copied to `<project>/macros/_ext_/strategies.sql` on **DJ: Refresh Projects**. **Requires Iceberg format** on the target table, set `materialization.format: "iceberg"` or the project var `storage_type: iceberg`. DJ flags non-Iceberg use in the Problems tab. On Delta Lake / Hive use `delete+insert` instead. |
 
+### Bucketing and Sorting
+
+For large incremental tables, `materialization.bucket` and `materialization.sorted_by` tune the physical layout. The bucket and sort columns must appear in the model's `select`. DJ emits the storage-format-correct Trino properties, the same authored config does **not** translate verbatim across connectors:
+
+```jsonc
+{
+  "materialization": {
+    "type": "incremental",
+    "format": "iceberg",
+    "partitions": ["portal_partition_daily"],
+    "bucket": { "column": "tenant_name", "count": 32 }, // single { column, count }, or an array
+    "sorted_by": ["tenant_name", "product_area"]
+  }
+}
+```
+
+| Format | `bucket` becomes | `sorted_by` becomes | Notes |
+| ------ | ---------------- | ------------------- | ----- |
+| `iceberg` | `bucket(col, n)` transform(s) appended to `partitioning` | standalone `sorted_by = ARRAY[...]` | Per-column bucket counts allowed. |
+| `hive` (Glue) | `bucketed_by = ARRAY[...]` + a single `bucket_count` | `sorted_by = ARRAY[...]`, sorted **within buckets** | All bucket entries must share one `count`; `sorted_by` **requires `bucket`**. |
+| `delta_lake` | not supported | not supported | DJ flags `bucket` / `sorted_by` in the Problems tab. |
+
+DJ emits Iceberg `bucket(col, n)` transforms with no internal space so the shipped `dj_iceberg_partition_overwrite` macro parses them reliably; that macro now also tolerates hand-authored `bucket(col, n)` with spaces.
+
+Format is resolved from `materialization.format`, falling back to the project's `storage_type` var. When neither is set, DJ defaults to Hive-style `bucketed_by` / `bucket_count` and warns in the Problems tab — set `format` (or `storage_type`) explicitly so an Iceberg table doesn't silently get Hive bucketing.
+
 ### Data Quality
 
 - **Validation**: Implement data quality checks at each stage

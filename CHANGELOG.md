@@ -1,6 +1,10 @@
 # Change Log
 
-## v1.9.0
+## 1.9.0
+
+### Materialization
+
+- **Bucket and sort incremental tables.** Add `bucket` and `sorted_by` to a model's `materialization` to control how large incremental tables are bucketed and sorted on disk for faster reads. DJ generates the correct table properties for your storage format (Iceberg, Hive/Glue, or Delta Lake) and flags combinations a format can't support — such as bucketing on Delta Lake or uneven bucket counts on Hive — in the Problems tab.
 
 ### Lightdash reverse lineage
 

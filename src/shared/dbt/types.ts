@@ -219,6 +219,9 @@ export type DbtModelConfig = {
     partitioned_by?: string;
     partitioning?: string;
     partitions?: string;
+    sorted_by?: string;
+    bucketed_by?: string;
+    bucket_count?: number;
   };
   schema?: string;
   sql_header?: string;
