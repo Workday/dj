@@ -1,10 +1,27 @@
 # Change Log
 
-## Next
+## 1.9.0
 
 ### Materialization
 
 - **Bucket and sort incremental tables.** Add `bucket` and `sorted_by` to a model's `materialization` to control how large incremental tables are bucketed and sorted on disk for faster reads. DJ generates the correct table properties for your storage format (Iceberg, Hive/Glue, or Delta Lake) and flags combinations a format can't support — such as bucketing on Delta Lake or uneven bucket counts on Hive — in the Problems tab.
+
+### Lightdash reverse lineage
+
+- **Trace a Lightdash dashboard or chart back to its dbt models.** The Data Explorer panel gains a **Lightdash** view — open it from the panel sidebar, the `DJ: Lightdash — Reverse Lineage` command, or a dashboard/chart node in the lineage graph — where you pick an asset, see the `mart_*` model(s) it depends on, and keep expanding upstream. Each model node can view columns, compile, or run a preview.
+- **An asset picker built for large projects.** Searchable and filterable (**All / Dashboards / Charts / Standalone**), and responsive across thousands of charts and dashboards. Each entry shows a kind badge and, for charts, the dashboard(s) it belongs to (or **Standalone**); selecting a chart also shows its parent dashboard(s) in the graph.
+- **Helpful states.** Flags referenced models missing from the project and shows a download banner when no Lightdash content is present. When the dbt manifest isn't parsed, it points you to run `dbt parse`, then **Refresh Projects** to re-read it. A toolbar label names the folder it reads from (`dj.lightdash.dashboardsAsCodePath`); **Refresh** re-reads that folder to pick up assets you've downloaded or removed.
+- **More reliable model resolution** for Lightdash charts that don't name an explore, fixing both the forward and reverse Lightdash lineage.
+
+### Dashboards as Code
+
+- **One project per download folder.** Downloading a different Lightdash project into a folder that already holds one prompts you to **Replace** the existing files or **Cancel** and pick another **Save to Path**, so a folder's YAML always reflects a single project.
+- **Visible progress in the post-upload prompt.** After an upload, the prompt streams the `lightdash download` output inline as it refreshes, and offers two clear choices: **Refresh from Lightdash** (pulls back exactly the charts and dashboards you just uploaded, or the whole project if you uploaded everything) or **Close** to keep your local files as-is.
+
+### Bug fixes
+
+- **`DJ: Jump to YAML` works again.** The command and its `Cmd+Shift+Y` shortcut now open the generated `.yml`; a command-ID mismatch had left both failing with "command not found".
+- **Removed dead Command Palette entries.** `DJ: Defer Run` and `DJ: Run Model Lineage` no longer appear — they were never wired up and errored when invoked. Deferred runs are configured via the Defer option inside `DJ: Run Model`.
 
 ## 1.8.0
 

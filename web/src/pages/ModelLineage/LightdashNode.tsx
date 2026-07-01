@@ -1,5 +1,7 @@
 import {
   ArrowTopRightOnSquareIcon,
+  ArrowTrendingUpIcon,
+  ChartBarIcon,
   ChevronRightIcon,
   DocumentTextIcon,
   ExclamationTriangleIcon,
@@ -73,6 +75,7 @@ const getRowState = (chart: {
 const KIND_LABEL: Record<LightdashNodeData['kind'], string> = {
   dashboard: 'Dashboard',
   'standalone-charts': 'Standalone Charts',
+  chart: 'Chart',
 };
 
 // Per-kind accent colors. The icon container is tinted so the kind reads
@@ -96,15 +99,37 @@ const KIND_STYLES: Record<
       'bg-cyan-100 border-cyan-300 dark:bg-cyan-600/15 dark:border-cyan-600/40',
     icon: 'text-cyan-700 dark:text-cyan-400',
   },
+  // Blue accent for a single-chart anchor (reverse-lineage view).
+  chart: {
+    iconContainer:
+      'bg-blue-100 border-blue-300 dark:bg-blue-600/15 dark:border-blue-600/40',
+    icon: 'text-blue-700 dark:text-blue-400',
+  },
 };
 
 const KIND_ICON: Record<LightdashNodeData['kind'], typeof Squares2X2Icon> = {
   dashboard: Squares2X2Icon,
   'standalone-charts': RectangleGroupIcon,
+  chart: ChartBarIcon,
 };
 
 export default function LightdashNode({ data }: { data: LightdashNodeData }) {
-  const { name, kind, url, charts, filePath, onOpen, onOpenYaml } = data;
+  const {
+    name,
+    slug,
+    kind,
+    url,
+    charts,
+    filePath,
+    onOpen,
+    onOpenYaml,
+    onOpenReverseLineage,
+    showSourceHandle,
+  } = data;
+  // Dashboard names link to their own reverse lineage; the standalone
+  // container has no single asset slug (charts link per-row instead).
+  const canOpenReverseFromName =
+    Boolean(onOpenReverseLineage) && kind === 'dashboard';
   // Per-row state encoding (visible / hidden / missing) only makes sense
   // inside a dashboard's popover, where each chart has a defined
   // relationship to the dashboard. Standalone-charts containers list
@@ -185,6 +210,13 @@ export default function LightdashNode({ data }: { data: LightdashNodeData }) {
     setExpanded((prev) => !prev);
   };
 
+  const handleOpenReverseFromName = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (canOpenReverseFromName) {
+      onOpenReverseLineage!({ kind: 'dashboard', slug });
+    }
+  };
+
   const chipExpandTitle = (() => {
     if (expanded) return 'Hide chart list';
     const noun = chartCount === 1 ? 'chart' : 'charts';
@@ -201,6 +233,16 @@ export default function LightdashNode({ data }: { data: LightdashNodeData }) {
         id="input"
         className="w-2.5 h-2.5 !bg-neutral !border-2 !border-card"
       />
+      {/* Reverse-lineage chart anchor points right at its parent dashboard
+          node(s); other Lightdash nodes are sinks and omit this handle. */}
+      {showSourceHandle && (
+        <Handle
+          type="source"
+          position={Position.Right}
+          id="output"
+          className="w-2.5 h-2.5 !bg-neutral !border-2 !border-card"
+        />
+      )}
 
       {/* Header: icon + name */}
       <div className="px-3 py-2.5 flex items-center gap-2.5">
@@ -210,12 +252,22 @@ export default function LightdashNode({ data }: { data: LightdashNodeData }) {
           <KindIcon className={`w-4 h-4 ${kindStyle.icon}`} />
         </div>
         <div className="flex-1 min-w-0">
-          <div
-            className="font-mono font-semibold text-xs text-foreground break-words leading-tight"
-            title={name}
-          >
-            {name}
-          </div>
+          {canOpenReverseFromName ? (
+            <button
+              onClick={handleOpenReverseFromName}
+              className="nodrag text-left w-full font-mono font-semibold text-xs text-foreground break-words leading-tight hover:text-primary hover:underline transition-colors"
+              title={`View upstream models for ${name}`}
+            >
+              {name}
+            </button>
+          ) : (
+            <div
+              className="font-mono font-semibold text-xs text-foreground break-words leading-tight"
+              title={name}
+            >
+              {name}
+            </div>
+          )}
         </div>
       </div>
 
@@ -335,8 +387,38 @@ export default function LightdashNode({ data }: { data: LightdashNodeData }) {
                       }`}
                     >
                       {chart.name}
+                      {/* In the reverse view each row carries the dbt model
+                          it references; shown so the dashboard->model
+                          mapping is legible without leaving the popover. */}
+                      {chart.modelName && (
+                        <span
+                          className="block font-mono text-[9px] text-surface-contrast opacity-70 truncate"
+                          title={chart.modelName}
+                        >
+                          {chart.modelName}
+                        </span>
+                      )}
                     </span>
                     <div className="flex items-center gap-0.5 flex-shrink-0 opacity-50 group-hover:opacity-100 transition-opacity">
+                      {/* Reverse-lineage shortcut: jump to this chart's
+                          upstream models. Only wired in the forward view.
+                          Hidden for `missing` rows (no local YAML => the
+                          chart's model can't be resolved). */}
+                      {onOpenReverseLineage && !isMissing && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onOpenReverseLineage({
+                              kind: 'chart',
+                              slug: chart.slug,
+                            });
+                          }}
+                          className="p-1 rounded hover:bg-card transition-colors"
+                          title="View upstream models for this chart"
+                        >
+                          <ArrowTrendingUpIcon className="w-3.5 h-3.5 text-surface-contrast" />
+                        </button>
+                      )}
                       {/* Open YAML is hidden for `missing` rows: there is
                           no local YAML file to open. */}
                       {!isMissing && (

@@ -108,6 +108,11 @@
         "title": "DJ: Lightdash - Dashboards as Code"
       },
       {
+        "command": "dj.command.lightdashReverseLineage",
+        "icon": "$(dashboard)",
+        "title": "DJ: Lightdash - Reverse Lineage"
+      },
+      {
         "command": "dj.command.modelNavigate",
         "title": "DJ: Navigate to Model"
       },
@@ -145,10 +150,6 @@
         "title": "DJ: Run Model"
       },
       {
-        "command": "dj.command.modelRunLineage",
-        "title": "DJ: Run Model Lineage"
-      },
-      {
         "command": "dj.command.modelTest",
         "title": "DJ: Run DBT Test"
       },
@@ -160,11 +161,6 @@
         "command": "dj.command.refreshProjects",
         "title": "DJ: Refresh Projects",
         "icon": "$(refresh)"
-      },
-      {
-        "command": "dj.command.deferRun",
-        "icon": "$(run-all-coverage)",
-        "title": "DJ: Defer Run"
       },
       {
         "command": "dj.command.sourceOrigin",

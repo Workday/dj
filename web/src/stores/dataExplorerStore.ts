@@ -7,7 +7,7 @@ export const SIDEBAR_DEFAULT_WIDTH = 70;
 // Below this width, render icon-only (no label under the icon).
 export const SIDEBAR_LABEL_THRESHOLD = 60;
 
-export type ActiveView = 'home' | 'model' | 'column' | 'sql';
+export type ActiveView = 'home' | 'model' | 'column' | 'sql' | 'lightdash';
 
 export type MaterializationType =
   | 'ephemeral'
@@ -236,6 +236,10 @@ interface DataExplorerStore {
   setLightdashEnabled: (enabled: boolean) => Promise<void>;
   openDashboardsAsCode: () => Promise<void>;
   openLightdashYaml: (filePath: string) => Promise<void>;
+  openReverseLineage: (anchor: {
+    kind: 'dashboard' | 'chart';
+    slug: string;
+  }) => Promise<void>;
 
   // Sidebar / nav actions
   setActiveView: (view: ActiveView) => void;
@@ -1133,6 +1137,27 @@ export const useDataExplorerStore = create<DataExplorerStore>((set, get) => ({
     } catch (error) {
       console.error(
         '[DataExplorerStore] Error opening Lightdash YAML file:',
+        error,
+      );
+    }
+  },
+
+  openReverseLineage: async (anchor: {
+    kind: 'dashboard' | 'chart';
+    slug: string;
+  }) => {
+    const { _apiHandler } = get();
+    if (!_apiHandler || !anchor?.slug) {
+      return;
+    }
+    try {
+      await _apiHandler({
+        type: 'data-explorer-open-reverse-lineage',
+        request: anchor,
+      });
+    } catch (error) {
+      console.error(
+        '[DataExplorerStore] Error opening reverse lineage:',
         error,
       );
     }

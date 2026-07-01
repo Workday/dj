@@ -13,9 +13,14 @@ import {
 } from '@heroicons/react/20/solid';
 import { makeClassName } from '@web';
 import { Tooltip } from '@web/elements';
-import React, { useEffect, useRef, useState } from 'react';
+import { useDebounce } from '@web/hooks';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 type Option = { label: string; value: string };
+
+/** Stable equality-by-value comparator for the virtualized `by` prop. */
+const compareByValue = (a: Option | null, b: Option | null) =>
+  (a?.value ?? null) === (b?.value ?? null);
 
 export type SelectSingleProps = {
   disabled?: boolean;
@@ -43,6 +48,18 @@ export type SelectSingleProps = {
   ) => React.ReactNode;
   /** Function to extract group key from option for showing separators between groups */
   getOptionGroup?: (option: Option) => string;
+  /**
+   * Virtualize the options list (Headless UI windowing). Use for very large
+   * option sets (hundreds+) to avoid rendering every row into the DOM.
+   * Mutually exclusive with `getOptionGroup` (group separators need
+   * neighbor awareness, which the virtual render-prop can't provide).
+   */
+  virtualized?: boolean;
+  /**
+   * Debounce (ms) applied to the typed query before filtering. Defaults to
+   * `0` (immediate, unchanged behavior). Useful with large option sets.
+   */
+  filterDebounceMs?: number;
 };
 
 export function SelectSingle({
@@ -63,6 +80,8 @@ export function SelectSingle({
   title,
   renderOptionLabel,
   getOptionGroup,
+  virtualized,
+  filterDebounceMs,
 }: SelectSingleProps) {
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -100,12 +119,66 @@ export function SelectSingle({
     };
   }, []);
 
-  const filteredOptions =
-    query === ''
-      ? options
-      : options.filter((o) => {
-          return o.label.toLowerCase().includes(query.toLowerCase());
-        });
+  // Debounce only when a delay is opted into, so existing call sites keep
+  // their immediate-filter behavior. Filtering is memoized either way.
+  const debouncedQuery = useDebounce(query, filterDebounceMs ?? 0);
+  const effectiveQuery = (filterDebounceMs ?? 0) > 0 ? debouncedQuery : query;
+  const filteredOptions = useMemo(
+    () =>
+      effectiveQuery === ''
+        ? options
+        : options.filter((o) =>
+            o.label.toLowerCase().includes(effectiveQuery.toLowerCase()),
+          ),
+    [options, effectiveQuery],
+  );
+
+  // Single option row, shared by the static (.map) and virtualized
+  // (render-prop) paths so their markup stays identical.
+  const renderOptionRow = (o: Option) => (
+    <ComboboxOption
+      key={o.value}
+      value={o}
+      className={({ focus }) =>
+        makeClassName(
+          // `block w-full` so the focus highlight spans the full row even in
+          // virtualized mode, where each option is absolutely positioned and
+          // would otherwise shrink to its content width.
+          'relative block w-full cursor-default select-none py-2 pl-3 pr-9 text-background-contrast text-sm',
+          focus
+            ? 'bg-primary text-primary-contrast'
+            : 'text-background-contrast',
+        )
+      }
+    >
+      {({ focus, selected }) => (
+        <>
+          {renderOptionLabel ? (
+            renderOptionLabel(o, { focus, selected })
+          ) : (
+            <span
+              className={makeClassName(
+                'block truncate',
+                selected && 'font-semibold',
+              )}
+            >
+              {o.label}
+            </span>
+          )}
+          {selected && (
+            <span
+              className={makeClassName(
+                'absolute inset-y-0 right-0 flex items-center pr-4',
+                focus ? 'text-background-contrast' : 'text-primary',
+              )}
+            >
+              <CheckIcon className="h-5 w-5" aria-hidden="true" />
+            </span>
+          )}
+        </>
+      )}
+    </ComboboxOption>
+  );
 
   return (
     <div
@@ -117,10 +190,13 @@ export function SelectSingle({
       <Combobox<Option | null>
         disabled={disabled}
         immediate
+        virtual={virtualized ? { options: filteredOptions } : undefined}
+        by={virtualized ? compareByValue : undefined}
         onChange={(o) => {
           setQuery('');
           onChange(o);
         }}
+        onClose={virtualized ? () => setQuery('') : undefined}
         value={value}
       >
         {label && (
@@ -200,62 +276,25 @@ export function SelectSingle({
               '[--anchor-max-height:18rem] max-h-[--anchor-max-height] overflow-auto',
             )}
           >
-            {filteredOptions.map((o, index) => {
-              // Check if we need to show a separator before this option
-              const showSeparator =
-                getOptionGroup &&
-                index > 0 &&
-                getOptionGroup(o) !==
-                  getOptionGroup(filteredOptions[index - 1]);
+            {virtualized
+              ? ({ option }: { option: Option }) => renderOptionRow(option)
+              : filteredOptions.map((o, index) => {
+                  // Check if we need to show a separator before this option
+                  const showSeparator =
+                    getOptionGroup &&
+                    index > 0 &&
+                    getOptionGroup(o) !==
+                      getOptionGroup(filteredOptions[index - 1]);
 
-              return (
-                <div key={o.value}>
-                  {showSeparator && (
-                    <hr className="my-1 border-t border-gray-300 dark:border-gray-600" />
-                  )}
-                  <ComboboxOption
-                    value={o}
-                    className={({ focus }) =>
-                      makeClassName(
-                        'relative cursor-default select-none py-2 pl-3 pr-9 text-background-contrast text-sm',
-                        focus
-                          ? 'bg-primary text-primary-contrast'
-                          : 'text-background-contrast',
-                      )
-                    }
-                  >
-                    {({ focus, selected }) => (
-                      <>
-                        {renderOptionLabel ? (
-                          renderOptionLabel(o, { focus, selected })
-                        ) : (
-                          <span
-                            className={makeClassName(
-                              'block truncate',
-                              selected && 'font-semibold',
-                            )}
-                          >
-                            {o.label}
-                          </span>
-                        )}
-                        {selected && (
-                          <span
-                            className={makeClassName(
-                              'absolute inset-y-0 right-0 flex items-center pr-4',
-                              focus
-                                ? 'text-background-contrast'
-                                : 'text-primary',
-                            )}
-                          >
-                            <CheckIcon className="h-5 w-5" aria-hidden="true" />
-                          </span>
-                        )}
-                      </>
-                    )}
-                  </ComboboxOption>
-                </div>
-              );
-            })}
+                  return (
+                    <div key={o.value}>
+                      {showSeparator && (
+                        <hr className="my-1 border-t border-gray-300 dark:border-gray-600" />
+                      )}
+                      {renderOptionRow(o)}
+                    </div>
+                  );
+                })}
           </ComboboxOptions>
         </div>
       </Combobox>

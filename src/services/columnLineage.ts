@@ -175,27 +175,32 @@ export class ColumnLineageService implements DJService {
 
     // Register column lineage command
     context.subscriptions.push(
-      vscode.commands.registerCommand(COMMAND_ID.COLUMN_LINEAGE, async () => {
-        try {
-          this.coder.log.info('Column Lineage command triggered');
+      vscode.commands.registerCommand(
+        COMMAND_ID.COLUMN_LINEAGE,
+        async (uri?: vscode.Uri) => {
+          try {
+            this.coder.log.info('Column Lineage command triggered');
 
-          const currentPath = this.coder.getCurrentPath();
-          if (!currentPath) {
-            vscode.window.showWarningMessage('No file is currently open');
-            return;
+            const currentPath = uri?.fsPath ?? this.coder.getCurrentPath();
+            if (!currentPath) {
+              vscode.window.showWarningMessage('No file is currently open');
+              return;
+            }
+
+            await this.loadForFile(currentPath, {
+              focusPanel: true,
+              showErrors: true,
+            });
+
+            this.coder.log.info('Column lineage panel updated');
+          } catch (err: unknown) {
+            this.coder.log.error('ERROR OPENING COLUMN LINEAGE PANEL', err);
+            vscode.window.showErrorMessage(
+              'Failed to open column lineage panel',
+            );
           }
-
-          await this.loadForFile(currentPath, {
-            focusPanel: true,
-            showErrors: true,
-          });
-
-          this.coder.log.info('Column lineage panel updated');
-        } catch (err: unknown) {
-          this.coder.log.error('ERROR OPENING COLUMN LINEAGE PANEL', err);
-          vscode.window.showErrorMessage('Failed to open column lineage panel');
-        }
-      }),
+        },
+      ),
     );
   }
 

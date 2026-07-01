@@ -2,6 +2,7 @@ import {
   CircleStackIcon,
   CogIcon,
   CubeIcon,
+  ExclamationTriangleIcon,
   PlayCircleIcon,
   ShieldCheckIcon,
   TableCellsIcon,
@@ -46,6 +47,7 @@ export default function ModelNode({ data }: { data: ModelNodeData }) {
     pathSystem,
     isCurrent,
     isSelected,
+    isStale,
     projectName,
     isOutdated,
     hasCompiledFile,
@@ -74,8 +76,11 @@ export default function ModelNode({ data }: { data: ModelNodeData }) {
   // Build title with name and description
   const nodeTitle = description ? `${name}\n\n${description}` : name;
 
-  // Determine border style based on current/selected state
+  // Determine border style based on current/selected/stale state
   const getBorderStyle = () => {
+    if (isStale) {
+      return 'border-amber-500/60 border-dashed shadow-sm';
+    }
     if (isCurrent) {
       return 'border-primary shadow-lg ring-1 ring-primary/20';
     }
@@ -143,14 +148,17 @@ export default function ModelNode({ data }: { data: ModelNodeData }) {
   };
 
   const showUpstreamExpand =
-    hasUpstream && !isUpstreamExpanded && onExpandUpstream;
+    !isStale && hasUpstream && !isUpstreamExpanded && onExpandUpstream;
   const showDownstreamExpand =
-    hasDownstream && !isDownstreamExpanded && onExpandDownstream;
+    !isStale && hasDownstream && !isDownstreamExpanded && onExpandDownstream;
 
   return (
     <div
-      className={`bg-card border rounded-lg min-w-[240px] max-w-[380px] cursor-pointer transition-all ${getBorderStyle()}`}
-      onClick={handleNodeClickInternal}
+      className={`bg-card border rounded-lg min-w-[240px] max-w-[380px] transition-all ${
+        isStale ? 'cursor-default' : 'cursor-pointer'
+      } ${getBorderStyle()}`}
+      onClick={isStale ? undefined : handleNodeClickInternal}
+      title={isStale ? `${name} - not found in this dbt project` : undefined}
     >
       {/* Input handle - LEFT for horizontal flow */}
       <Handle
@@ -198,16 +206,25 @@ export default function ModelNode({ data }: { data: ModelNodeData }) {
           )}
         </div>
 
-        {/* Center: Materialization and test count */}
+        {/* Center: Materialization and test count (or stale flag) */}
         <div className="flex items-center gap-1.5 flex-1 justify-start">
-          {materialized && (
+          {isStale && (
+            <span
+              className="font-mono flex items-center gap-1 text-[8px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/40"
+              title="Referenced by Lightdash but not found in this dbt project"
+            >
+              <ExclamationTriangleIcon className="w-2.5 h-2.5" />
+              not in project
+            </span>
+          )}
+          {!isStale && materialized && (
             <span
               className={`font-mono text-[9px] px-1.5 py-0.5 rounded border font-medium ${MATERIALIZATION_STYLES[materialized]}`}
             >
               {MATERIALIZATION_LABELS[materialized]}
             </span>
           )}
-          {testCount !== undefined && testCount > 0 && (
+          {!isStale && testCount !== undefined && testCount > 0 && (
             <span
               title={`${testCount} ${testCount === 1 ? 'test' : 'tests'}`}
               className="font-mono flex items-center gap-0.5 text-[8px] px-1.5 py-0.5 rounded bg-surface text-surface-contrast border border-neutral"
@@ -218,16 +235,18 @@ export default function ModelNode({ data }: { data: ModelNodeData }) {
           )}
         </div>
 
-        {/* Right: Action buttons */}
+        {/* Right: Action buttons (suppressed for stale references) */}
         <div className="flex items-center">
-          <button
-            onClick={handleViewColumns}
-            className="p-1 rounded hover:bg-surface transition-colors"
-            title="View columns"
-          >
-            <ViewColumnsIcon className="w-4 h-4 text-surface-contrast" />
-          </button>
-          {type === 'model' && (
+          {!isStale && (
+            <button
+              onClick={handleViewColumns}
+              className="p-1 rounded hover:bg-surface transition-colors"
+              title="View columns"
+            >
+              <ViewColumnsIcon className="w-4 h-4 text-surface-contrast" />
+            </button>
+          )}
+          {!isStale && type === 'model' && (
             <>
               <button
                 onClick={handleCompileClick}
