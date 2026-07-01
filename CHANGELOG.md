@@ -7,6 +7,10 @@
 - **Build and edit Lightdash charts and dashboards through your AI assistant.** With `dj.codingAgent` enabled, the new `dj-create-lightdash-yaml` skill scaffolds and uploads chart/dashboard YAML for a deployed explore — resolving exact field IDs, honoring required filters, and confirming which project to target so prod isn't changed by mistake. The companion `dj-edit-lightdash-yaml` skill clarifies which filter edits are safe in place versus which need a real field ID.
 - **Scaffold marts that back a Lightdash dashboard.** The `dj-create-new-model` skill now bundles mart-to-Lightdash recipes — default dashboard time windows (`lightdash.table.required_filters`), summable metrics on passthrough marts, and which framework-column exclude flag keeps your date dimension intact. All three skills treat the model's `.model.json` as the single source of truth for required filters.
 
+### Materialization
+
+- **Bucket and sort incremental tables.** Add `bucket` and `sorted_by` to a model's `materialization` to control how large incremental tables are bucketed and sorted on disk for faster reads. DJ generates the correct table properties for your storage format (Iceberg, Hive/Glue, or Delta Lake) and flags combinations a format can't support — such as bucketing on Delta Lake or uneven bucket counts on Hive — in the Problems tab.
+
 ### Lightdash reverse lineage
 
 - **Trace a Lightdash dashboard or chart back to its dbt models.** The Data Explorer panel gains a **Lightdash** view — open it from the panel sidebar, the `DJ: Lightdash — Reverse Lineage` command, or a dashboard/chart node in the lineage graph — where you pick an asset, see the `mart_*` model(s) it depends on, and keep expanding upstream. Each model node can view columns, compile, or run a preview.

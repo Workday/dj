@@ -11,7 +11,8 @@
 
     {%- if "partitioning" in config_properties -%}
         {%- set raw_partitioning = config_properties["partitioning"] | string -%}
-        {%- set partitioned_by = (raw_partitioning | replace("ARRAY['", "") | replace("']", "") | replace("'", "")).split(", ") -%}
+        {%- set cleaned_partitioning = raw_partitioning | replace("ARRAY[", "") | replace("]", "") | replace("'", "") -%}
+        {%- set partitioned_by = modules.re.split(',[ ]*(?![^(]*[)])', cleaned_partitioning) | map('trim') | list -%}
     {%- else -%}
         {%- set partitioned_by = [] -%}
     {%- endif -%}

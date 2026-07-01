@@ -795,6 +795,8 @@ Use the `materialization` field instead of the legacy `materialized` + `incremen
     "type": "incremental",
     "format": "iceberg", // optional: "delta_lake", "hive", or "iceberg"
     "partitions": ["portal_partition_daily"], // optional: columns to partition by
+    "bucket": { "column": "tenant_name", "count": 32 }, // optional: { column, count } or an array of them
+    "sorted_by": ["tenant_name", "product_area"], // optional: columns to sort by within each file/bucket
     "strategy": { "type": "delete+insert" }, // optional: see "Incremental strategies" below
     "database": "custom_database", // optional: override target database
   },
@@ -802,6 +804,8 @@ Use the `materialization` field instead of the legacy `materialized` + `incremen
 ```
 
 - **`format`**: Controls storage format. Defaults to the project's `storage_type` variable in `dbt_project.yml`. Iceberg uses `partitioning` keyword; Delta Lake/Hive uses `partitioned_by`.
+- **`bucket`**: Hash-bucket the table by one or more columns. On **Iceberg** each entry becomes a `bucket(column, count)` transform inside `partitioning` (per-column counts allowed). On **Hive/Glue** it emits `bucketed_by` + a single shared `bucket_count` (all entries must use the same `count`). **Not supported on Delta Lake.** The bucket column must be one of the model's `select` columns.
+- **`sorted_by`**: Columns to sort data by within each written file. On **Iceberg** it is a standalone sort order; on **Hive/Glue** it sorts within buckets and **requires `bucket`**. **Not supported on Delta Lake.** Columns sort ascending.
 - **`strategy`**: See "Incremental strategies" below. If omitted, the extension default applies (configurable via `dj.materialization.defaultIncrementalStrategy`, defaults to `overwrite_existing_partitions`).
 
 #### Incremental strategies (dbt-trino)

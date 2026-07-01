@@ -1,6 +1,7 @@
 import { describe, expect, test } from '@jest/globals';
 import { frameworkBuildCteColumnRegistry } from '@services/framework/utils';
 import {
+  validateBucketAndSortedBy,
   validateCteColumnReferences,
   validateCteGroupBy,
   validateCteLightdashMetrics,
@@ -1499,6 +1500,295 @@ describe('validateDjIcebergPartitionOverwrite', () => {
   });
 });
 
+// validateBucketAndSortedBy: enforces the storage-format constraints the SQL
+// generator relies on when translating `materialization.bucket` /
+// `materialization.sorted_by` into Trino table properties (Iceberg bucket
+// transforms + standalone sorted_by vs Hive bucketed_by + shared bucket_count).
+describe('validateBucketAndSortedBy', () => {
+  test('Iceberg: bucket + sorted_by with present columns produce no diagnostics', () => {
+    const details = validateBucketAndSortedBy(
+      {
+        type: 'int_select_model',
+        materialization: {
+          type: 'incremental',
+          format: 'iceberg',
+          bucket: { column: 'tenant_name', count: 32 },
+          sorted_by: ['tenant_name', 'product_area'],
+        },
+        select: [
+          { name: 'tenant_name', type: 'dim' },
+          { name: 'product_area', type: 'dim' },
+        ],
+      },
+      undefined,
+    );
+    expect(details).toHaveLength(0);
+  });
+
+  test('Iceberg: per-column bucket counts are allowed', () => {
+    const details = validateBucketAndSortedBy(
+      {
+        type: 'int_select_model',
+        materialization: {
+          type: 'incremental',
+          format: 'iceberg',
+          bucket: [
+            { column: 'a', count: 8 },
+            { column: 'b', count: 16 },
+          ],
+        },
+        select: [
+          { name: 'a', type: 'dim' },
+          { name: 'b', type: 'dim' },
+        ],
+      },
+      undefined,
+    );
+    expect(details).toHaveLength(0);
+  });
+
+  test('Iceberg: standalone sorted_by without bucket is allowed', () => {
+    const details = validateBucketAndSortedBy(
+      {
+        type: 'int_select_model',
+        materialization: {
+          type: 'incremental',
+          format: 'iceberg',
+          sorted_by: ['tenant_name'],
+        },
+        select: [{ name: 'tenant_name', type: 'dim' }],
+      },
+      undefined,
+    );
+    expect(details).toHaveLength(0);
+  });
+
+  test('warns when no storage format resolves (neither model format nor storage_type)', () => {
+    const details = validateBucketAndSortedBy(
+      {
+        type: 'int_select_model',
+        materialization: {
+          type: 'incremental',
+          bucket: { column: 'tenant_name', count: 32 },
+        },
+        select: [{ name: 'tenant_name', type: 'dim' }],
+      },
+      undefined,
+    );
+    expect(details.filter((d) => d.severity === 'error')).toHaveLength(0);
+    const warnings = details.filter((d) => d.severity !== 'error');
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].instancePath).toBe('/materialization/bucket');
+    expect(warnings[0].message).toContain('storage format');
+  });
+
+  test('no unresolved-format warning once storage_type is set', () => {
+    const details = validateBucketAndSortedBy(
+      {
+        type: 'int_select_model',
+        materialization: {
+          type: 'incremental',
+          bucket: { column: 'tenant_name', count: 32 },
+        },
+        select: [{ name: 'tenant_name', type: 'dim' }],
+      },
+      'iceberg',
+    );
+    expect(details).toHaveLength(0);
+  });
+
+  test('Delta Lake: bucket and sorted_by each emit an error', () => {
+    const details = validateBucketAndSortedBy(
+      {
+        type: 'int_select_model',
+        materialization: {
+          type: 'incremental',
+          format: 'delta_lake',
+          bucket: { column: 'tenant_name', count: 32 },
+          sorted_by: ['tenant_name'],
+        },
+        select: [{ name: 'tenant_name', type: 'dim' }],
+      },
+      undefined,
+    );
+    const errors = details.filter((d) => d.severity === 'error');
+    expect(errors).toHaveLength(2);
+    expect(errors.map((e) => e.instancePath).sort()).toEqual([
+      '/materialization/bucket',
+      '/materialization/sorted_by',
+    ]);
+  });
+
+  test('Delta Lake via project storage_type also errors', () => {
+    const details = validateBucketAndSortedBy(
+      {
+        type: 'int_select_model',
+        materialization: {
+          type: 'incremental',
+          bucket: { column: 'tenant_name', count: 32 },
+        },
+        select: [{ name: 'tenant_name', type: 'dim' }],
+      },
+      'delta_lake',
+    );
+    expect(details.some((d) => d.severity === 'error')).toBe(true);
+  });
+
+  test('Hive: differing bucket counts error (single shared bucket_count)', () => {
+    const details = validateBucketAndSortedBy(
+      {
+        type: 'int_select_model',
+        materialization: {
+          type: 'incremental',
+          format: 'hive',
+          bucket: [
+            { column: 'a', count: 8 },
+            { column: 'b', count: 16 },
+          ],
+        },
+        select: [
+          { name: 'a', type: 'dim' },
+          { name: 'b', type: 'dim' },
+        ],
+      },
+      undefined,
+    );
+    const errors = details.filter((d) => d.severity === 'error');
+    expect(errors).toHaveLength(1);
+    expect(errors[0].instancePath).toBe('/materialization/bucket');
+  });
+
+  test('Hive: uniform bucket counts are accepted', () => {
+    const details = validateBucketAndSortedBy(
+      {
+        type: 'int_select_model',
+        materialization: {
+          type: 'incremental',
+          format: 'hive',
+          bucket: [
+            { column: 'a', count: 16 },
+            { column: 'b', count: 16 },
+          ],
+        },
+        select: [
+          { name: 'a', type: 'dim' },
+          { name: 'b', type: 'dim' },
+        ],
+      },
+      undefined,
+    );
+    expect(details.filter((d) => d.severity === 'error')).toHaveLength(0);
+  });
+
+  test('Hive: sorted_by without bucket errors', () => {
+    const details = validateBucketAndSortedBy(
+      {
+        type: 'int_select_model',
+        materialization: {
+          type: 'incremental',
+          format: 'hive',
+          sorted_by: ['tenant_name'],
+        },
+        select: [{ name: 'tenant_name', type: 'dim' }],
+      },
+      undefined,
+    );
+    const errors = details.filter((d) => d.severity === 'error');
+    expect(errors).toHaveLength(1);
+    expect(errors[0].instancePath).toBe('/materialization/sorted_by');
+  });
+
+  test('warns when bucket / sorted_by columns are not in the scalar select', () => {
+    const details = validateBucketAndSortedBy(
+      {
+        type: 'int_select_model',
+        materialization: {
+          type: 'incremental',
+          format: 'iceberg',
+          bucket: { column: 'missing_bucket', count: 8 },
+          sorted_by: ['missing_sort'],
+        },
+        select: [{ name: 'present', type: 'dim' }],
+      },
+      undefined,
+    );
+    const warnings = details.filter((d) => d.severity !== 'error');
+    expect(warnings).toHaveLength(2);
+    expect(warnings.map((w) => w.instancePath).sort()).toEqual([
+      '/materialization/bucket/column',
+      '/materialization/sorted_by/0',
+    ]);
+  });
+
+  test('uses an indexed bucket path when bucket is an array', () => {
+    const details = validateBucketAndSortedBy(
+      {
+        type: 'int_select_model',
+        materialization: {
+          type: 'incremental',
+          format: 'iceberg',
+          bucket: [{ column: 'missing', count: 8 }],
+        },
+        select: [{ name: 'present', type: 'dim' }],
+      },
+      undefined,
+    );
+    expect(details).toHaveLength(1);
+    expect(details[0].instancePath).toBe('/materialization/bucket/0/column');
+  });
+
+  test('skips column-existence checks when a bulk select is present', () => {
+    const details = validateBucketAndSortedBy(
+      {
+        type: 'int_select_model',
+        materialization: {
+          type: 'incremental',
+          format: 'iceberg',
+          bucket: { column: 'maybe_expanded', count: 8 },
+        },
+        select: [{ type: 'all_from_model' }],
+      },
+      undefined,
+    );
+    expect(details).toHaveLength(0);
+  });
+
+  // A model with no `select` derives its columns (including the sort column)
+  // from upstream, so the column-existence check must skip rather than flag a
+  // column that is present in the output.
+  test('skips column-existence checks when the model has no scalar select (rollup)', () => {
+    const details = validateBucketAndSortedBy(
+      {
+        type: 'int_rollup_model',
+        materialization: {
+          type: 'incremental',
+          strategy: { type: 'dj_iceberg_partition_overwrite' },
+          partitions: ['portal_partition_monthly', 'wd_env_type'],
+          sorted_by: ['tenant_name'],
+        },
+        from: { model: 'oms_detail_daily', rollup: { interval: 'month' } },
+      },
+      'iceberg',
+    );
+    expect(details).toHaveLength(0);
+  });
+
+  test('returns nothing when bucket/sorted_by are absent or materialization is shorthand', () => {
+    expect(
+      validateBucketAndSortedBy(
+        { type: 'int_select_model', materialization: 'incremental' },
+        undefined,
+      ),
+    ).toHaveLength(0);
+    expect(
+      validateBucketAndSortedBy(
+        { type: 'int_select_model', materialization: { type: 'incremental' } },
+        'iceberg',
+      ),
+    ).toHaveLength(0);
+  });
+});
+
 // `validatePartitionStrategyWithoutPartitions` warns when an incremental
 // model uses a partition-based strategy (`overwrite_existing_partitions` or
 // `dj_iceberg_partition_overwrite`) but the resolved column shape carries
@@ -2001,6 +2291,22 @@ describe('validateMaterializationPartitionsExist', () => {
         { name: 'datetime', type: 'dim', expr: 'month' },
         { name: 'region', type: 'dim' },
       ],
+    });
+    expect(errors).toEqual([]);
+  });
+
+  // A model with no `select` (rollup / `from: { model }` passthrough) derives
+  // its columns from upstream, so partition columns are not listed locally and
+  // must not be flagged.
+  test('skips when the model has no scalar select (rollup / upstream-derived)', () => {
+    const errors = validateMaterializationPartitionsExist({
+      type: 'int_rollup_model',
+      materialization: {
+        type: 'incremental',
+        strategy: { type: 'dj_iceberg_partition_overwrite' },
+        partitions: ['portal_partition_monthly', 'wd_env_type'],
+      },
+      from: { model: 'oms_detail_daily', rollup: { interval: 'month' } },
     });
     expect(errors).toEqual([]);
   });
