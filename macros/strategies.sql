@@ -9,10 +9,13 @@
     {%- set dest_columns = arg_dict["dest_columns"] -%}
     {%- set dest_cols_csv = get_quoted_csv(dest_columns | map(attribute="name")) -%}
 
-    {#- 1. Parse the table's configuration to see how it is partitioned -#}
+    {#- 1. Parse the table's configuration to see how it is partitioned. Split on
+       commas that are not inside parentheses so Iceberg bucket transforms such as
+       bucket(tenant_name, 32) stay intact as a single entry regardless of spacing. -#}
     {%- if "partitioning" in config_properties -%}
         {%- set raw_partitioning = config_properties["partitioning"] | string -%}
-        {%- set partitioned_by = (raw_partitioning | replace("ARRAY['", "") | replace("']", "") | replace("'", "")).split(", ") -%}
+        {%- set cleaned_partitioning = raw_partitioning | replace("ARRAY[", "") | replace("]", "") | replace("'", "") -%}
+        {%- set partitioned_by = modules.re.split(',[ ]*(?![^(]*[)])', cleaned_partitioning) | map('trim') | list -%}
     {%- else -%}
         {%- set partitioned_by = [] -%}
     {%- endif -%}

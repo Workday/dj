@@ -4,6 +4,7 @@ import {
   HomeIcon,
 } from '@heroicons/react/24/outline';
 import HierarchyIcon from '@web/assets/icons/hierarchy.svg?react';
+import LightdashIcon from '@web/assets/icons/lightdash.svg?react';
 import LineageIcon from '@web/assets/icons/lineage.svg?react';
 import SqlIcon from '@web/assets/icons/sql.svg?react';
 import { Tooltip } from '@web/elements';
@@ -24,8 +25,12 @@ type NavItem = {
   Icon: React.FC<{ className?: string }>;
 };
 
+// Ordered to follow the JSON-first authoring lifecycle: land on Home,
+// prototype in the adhoc SQL editor, then inspect the resulting model's
+// lineage (Model -> Column) and its downstream BI consumers (Lightdash).
 const NAV_ITEMS: NavItem[] = [
   { id: 'home', label: 'Home', tooltip: 'Home', Icon: HomeIcon },
+  { id: 'sql', label: 'SQL', tooltip: 'Adhoc Query Editor', Icon: SqlIcon },
   {
     id: 'model',
     label: 'Model',
@@ -38,7 +43,12 @@ const NAV_ITEMS: NavItem[] = [
     tooltip: 'Column Lineage',
     Icon: HierarchyIcon,
   },
-  { id: 'sql', label: 'SQL', tooltip: 'Adhoc Query Editor', Icon: SqlIcon },
+  {
+    id: 'lightdash',
+    label: 'Lightdash',
+    tooltip: 'Lightdash Lineage',
+    Icon: LightdashIcon,
+  },
 ];
 
 interface NavButtonProps {

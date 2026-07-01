@@ -4,12 +4,16 @@ import {
   type LightdashDashboardContent,
   parseChartDoc,
   parseDashboardDoc,
+  resolveModelFromFieldId,
 } from '@services/lightdash/contentParser';
 import {
   getDashboardsAsCodeAbsolutePath,
   getDashboardsAsCodeRelativePath,
 } from '@services/lightdash/dashboardsAsCode';
-import type { LightdashLineageNode } from '@shared/modellineage/types';
+import type {
+  LightdashAssetSummary,
+  LightdashLineageNode,
+} from '@shared/modellineage/types';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -58,14 +62,39 @@ export class LightdashContent {
    * dashboard itself.
    */
   private tileEmbeddedChartSlugs: Map<string, Set<string>> = new Map();
+  /**
+   * Reverse index: chart slug -> dashboard slugs that reference it (via a
+   * tile or the saved-within splice). Built in `doRebuild`; powers the
+   * picker's "in <dashboard>" membership hint and the reverse-lineage
+   * graph's parent-dashboard nodes.
+   */
+  private chartToDashboards: Map<string, Set<string>> = new Map();
   private watcher?: vscode.FileSystemWatcher;
   private rebuildTimer?: NodeJS.Timeout;
   private configSubscription?: vscode.Disposable;
   private resolvedAbsolutePath?: string;
   private populated = false;
+  /**
+   * In-flight rescan, so concurrent triggers (the file watcher and an
+   * on-demand `ensurePopulated`) coalesce into a single run rather than
+   * clobbering each other's freshly-reset maps.
+   */
+  private rebuildInFlight?: Promise<void>;
+  /**
+   * Supplies the set of known dbt model names, used to resolve charts
+   * that lack an explicit `metricQuery.exploreName` (longest-prefix match
+   * against the field id). Injected lazily by the Coder so it reflects the
+   * currently-loaded manifest; optional so unit tests can construct the
+   * service without a dbt service (resolution simply falls back to null).
+   */
+  private readonly getKnownModelNames?: () => ReadonlySet<string>;
 
-  constructor(log: ContentLogger) {
+  constructor(
+    log: ContentLogger,
+    getKnownModelNames?: () => ReadonlySet<string>,
+  ) {
     this.log = log;
+    this.getKnownModelNames = getKnownModelNames;
   }
 
   activate(context: vscode.ExtensionContext): void {
@@ -115,43 +144,9 @@ export class LightdashContent {
       return { dashboards: [], charts: [] };
     }
 
-    // Both env vars are required to build a deep link to the Lightdash
-    // UI; when either is absent we leave `url` undefined so the open
-    // button renders disabled with an explanatory tooltip rather than
-    // pointing at a non-functional URL.
-    const lightdashUrl = process.env.LIGHTDASH_URL?.replace(/\/+$/, '');
-    const projectUuid = process.env.LIGHTDASH_PROJECT;
-    const linkable = lightdashUrl && projectUuid;
-
-    // `parentDashboardSlug` is set for chart rows inside a dashboard's
-    // popover so we can flag rows whose chart is associated via
-    // `dashboardSlug` only (not actually rendered as a tile). It stays
-    // undefined for rows in the standalone-charts container popover,
-    // where the embedded-as-tile concept does not apply.
-    const buildChartRow = (chartSlug: string, parentDashboardSlug?: string) => {
-      const chart = this.chartsBySlug.get(chartSlug);
-      // `hasYaml` is false when a dashboard's `tiles[]` references a
-      // chartSlug we have no local YAML for (chart removed / never
-      // exported). The lineage UI uses this to flag the row as a stale
-      // reference and disable the Open YAML action.
-      const hasYaml = chart !== undefined;
-      const tileSet = parentDashboardSlug
-        ? this.tileEmbeddedChartSlugs.get(parentDashboardSlug)
-        : undefined;
-      const embeddedAsTile = parentDashboardSlug
-        ? tileSet?.has(chartSlug) ?? true
-        : undefined;
-      return {
-        slug: chartSlug,
-        name: chart?.name ?? chartSlug,
-        url: linkable
-          ? `${lightdashUrl}/projects/${projectUuid}/saved/${chartSlug}`
-          : undefined,
-        filePath: chart?.filePath ?? '',
-        embeddedAsTile,
-        hasYaml,
-      };
-    };
+    const { lightdashUrl, projectUuid, linkable } = this.getLinkContext();
+    const buildChartRow = (chartSlug: string, parentDashboardSlug?: string) =>
+      this.buildChartRow(chartSlug, parentDashboardSlug);
 
     const dashboards: LightdashLineageNode[] = [];
     for (const slug of entry.dashboards) {
@@ -197,6 +192,197 @@ export class LightdashContent {
     return { dashboards, charts };
   }
 
+  /* ------------------------------------------------------------------ */
+  /* Reverse lookups (Dashboard / Chart -> upstream models)             */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * Rebuild only when not already populated. The reverse-lineage view is
+   * an explicit user action, so it works even when the forward toggle
+   * `dj.dataExplorer.showLightdashLineage` is off (which is why the
+   * forward-path watcher hasn't populated the index).
+   */
+  async ensurePopulated(): Promise<void> {
+    if (this.populated) {
+      return;
+    }
+    await this.rebuild();
+  }
+
+  /**
+   * All parsed dashboards + charts, summarized for the reverse-lineage
+   * picker / search. `modelNames` is the distinct set of dbt models each
+   * asset references, shown in the picker so users can disambiguate
+   * same-named assets. Sorted by name (then kind) for a stable picker.
+   */
+  listAssets(): LightdashAssetSummary[] {
+    const assets: LightdashAssetSummary[] = [];
+    for (const dashboard of this.dashboardsBySlug.values()) {
+      const modelNames = new Set<string>();
+      for (const chartSlug of dashboard.chartSlugs) {
+        const modelName = this.chartsBySlug.get(chartSlug)?.modelName;
+        if (modelName) {
+          modelNames.add(modelName);
+        }
+      }
+      assets.push({
+        kind: 'dashboard',
+        slug: dashboard.slug,
+        name: dashboard.name || dashboard.slug,
+        modelNames: Array.from(modelNames).sort(),
+        chartCount: dashboard.chartSlugs.length,
+      });
+    }
+    for (const chart of this.chartsBySlug.values()) {
+      assets.push({
+        kind: 'chart',
+        slug: chart.slug,
+        name: chart.name || chart.slug,
+        modelNames: chart.modelName ? [chart.modelName] : [],
+        dashboardNames: this.parentDashboardSlugs(chart.slug)
+          .map((ds) => this.dashboardsBySlug.get(ds)?.name || ds)
+          .sort((a, b) => a.localeCompare(b)),
+      });
+    }
+    // Dashboards first, then charts, each alphabetical by name. Badges in
+    // the picker reinforce the kind; this ordering surfaces dashboards (the
+    // smaller, higher-level set) above the long tail of charts.
+    const rank = (k: 'dashboard' | 'chart') => (k === 'dashboard' ? 0 : 1);
+    assets.sort(
+      (a, b) => rank(a.kind) - rank(b.kind) || a.name.localeCompare(b.name),
+    );
+    return assets;
+  }
+
+  /**
+   * Dashboard slugs that contain `chartSlug`: those that reference it via a
+   * tile or the saved-within splice (`chartToDashboards`), unioned with the
+   * chart's own `dashboardSlug` (covers the case where the parent dashboard
+   * YAML was not downloaded locally, so the splice never ran). Empty when
+   * the chart belongs to no dashboard (standalone).
+   */
+  private parentDashboardSlugs(chartSlug: string): string[] {
+    const slugs = new Set(this.chartToDashboards.get(chartSlug) ?? []);
+    const own = this.chartsBySlug.get(chartSlug)?.dashboardSlug;
+    if (own) {
+      slugs.add(own);
+    }
+    return Array.from(slugs);
+  }
+
+  /**
+   * Resolve the anchor node + the distinct dbt model names a single
+   * dashboard / chart references. Returns null when the slug is unknown.
+   * For a dashboard the anchor carries per-chart popover rows (each with
+   * its own `modelName`); a chart anchor stands alone. The caller
+   * (`ModelLineage.getReverseLineage`) maps `modelNames` to manifest
+   * nodes and flags any that are missing as stale.
+   */
+  getAssetModels(
+    kind: 'dashboard' | 'chart',
+    slug: string,
+  ): {
+    anchor: LightdashLineageNode;
+    modelNames: string[];
+    parentDashboards: LightdashLineageNode[];
+  } | null {
+    const { lightdashUrl, projectUuid, linkable } = this.getLinkContext();
+
+    if (kind === 'dashboard') {
+      const dashboard = this.dashboardsBySlug.get(slug);
+      if (!dashboard) {
+        return null;
+      }
+      const modelNames = new Set<string>();
+      for (const chartSlug of dashboard.chartSlugs) {
+        const modelName = this.chartsBySlug.get(chartSlug)?.modelName;
+        if (modelName) {
+          modelNames.add(modelName);
+        }
+      }
+      const anchor: LightdashLineageNode = {
+        id: `lightdash::dashboard::${slug}`,
+        slug,
+        name: dashboard.name || slug,
+        kind: 'dashboard',
+        url: linkable
+          ? `${lightdashUrl}/projects/${projectUuid}/dashboards/${slug}/view`
+          : undefined,
+        charts: dashboard.chartSlugs.map((cs) => this.buildChartRow(cs, slug)),
+        filePath: dashboard.filePath,
+      };
+      return {
+        anchor,
+        modelNames: Array.from(modelNames).sort(),
+        parentDashboards: [],
+      };
+    }
+
+    const chart = this.chartsBySlug.get(slug);
+    if (!chart) {
+      return null;
+    }
+    const anchor: LightdashLineageNode = {
+      id: `lightdash::chart::${slug}`,
+      slug,
+      name: chart.name || slug,
+      kind: 'chart',
+      url: linkable
+        ? `${lightdashUrl}/projects/${projectUuid}/saved/${slug}`
+        : undefined,
+      filePath: chart.filePath,
+    };
+    // Dashboard(s) that embed this chart, rendered to the right of the
+    // anchor so the reverse graph reads models -> chart -> dashboard. Each
+    // carries its own chart popover (when the dashboard YAML is local) and
+    // a deep link, mirroring the forward view's dashboard node.
+    const parentDashboards: LightdashLineageNode[] = this.parentDashboardSlugs(
+      slug,
+    )
+      .map((ds) => {
+        const dashboard = this.dashboardsBySlug.get(ds);
+        return {
+          id: `lightdash::dashboard::${ds}`,
+          slug: ds,
+          name: dashboard?.name || ds,
+          kind: 'dashboard' as const,
+          url: linkable
+            ? `${lightdashUrl}/projects/${projectUuid}/dashboards/${ds}/view`
+            : undefined,
+          charts: dashboard
+            ? dashboard.chartSlugs.map((cs) => this.buildChartRow(cs, ds))
+            : undefined,
+          filePath: dashboard?.filePath ?? '',
+        };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return {
+      anchor,
+      modelNames: chart.modelName ? [chart.modelName] : [],
+      parentDashboards,
+    };
+  }
+
+  /**
+   * Find all assets whose name matches `name`, case-insensitively. Names
+   * are not unique (e.g. a chart and a dashboard can share a name), so
+   * this returns every match for the caller to disambiguate. Prefers
+   * exact matches; falls back to substring matches when there is no exact
+   * hit, so a partial command argument still resolves.
+   */
+  findAssetsByName(name: string): LightdashAssetSummary[] {
+    const needle = name.trim().toLowerCase();
+    if (!needle) {
+      return [];
+    }
+    const all = this.listAssets();
+    const exact = all.filter((asset) => asset.name.toLowerCase() === needle);
+    if (exact.length > 0) {
+      return exact;
+    }
+    return all.filter((asset) => asset.name.toLowerCase().includes(needle));
+  }
+
   /** True iff at least one chart or dashboard parsed successfully. */
   isPopulated(): boolean {
     return this.populated;
@@ -215,14 +401,30 @@ export class LightdashContent {
     return getDashboardsAsCodeRelativePath();
   }
 
-  /** Force a synchronous rescan (used by tests + the manual Refresh button). */
-  rebuild(): void {
+  /**
+   * Rescan the Lightdash content directory. Async + non-blocking so the
+   * extension host stays responsive while parsing large projects
+   * (thousands of YAML files). Concurrent callers share a single in-flight
+   * run; used by tests, the watcher, and the manual Refresh button.
+   */
+  rebuild(): Promise<void> {
+    if (this.rebuildInFlight) {
+      return this.rebuildInFlight;
+    }
+    this.rebuildInFlight = this.doRebuild().finally(() => {
+      this.rebuildInFlight = undefined;
+    });
+    return this.rebuildInFlight;
+  }
+
+  private async doRebuild(): Promise<void> {
     const root = getDashboardsAsCodeAbsolutePath();
     this.resolvedAbsolutePath = root;
     this.chartsBySlug = new Map();
     this.dashboardsBySlug = new Map();
     this.modelDownstream = new Map();
     this.tileEmbeddedChartSlugs = new Map();
+    this.chartToDashboards = new Map();
     this.populated = false;
 
     if (!fs.existsSync(root)) {
@@ -237,20 +439,22 @@ export class LightdashContent {
 
     let parsedCount = 0;
 
-    for (const file of this.collectYamlFiles(chartsDir)) {
-      const chart = this.parseChartFile(file);
-      if (chart) {
-        this.chartsBySlug.set(chart.slug, chart);
-        parsedCount++;
-      }
+    const chartFiles = await this.collectYamlFiles(chartsDir);
+    const charts = await this.parseInBatches(chartFiles, (file) =>
+      this.parseChartFile(file),
+    );
+    for (const chart of charts) {
+      this.chartsBySlug.set(chart.slug, chart);
+      parsedCount++;
     }
 
-    for (const file of this.collectYamlFiles(dashboardsDir)) {
-      const dashboard = this.parseDashboardFile(file);
-      if (dashboard) {
-        this.dashboardsBySlug.set(dashboard.slug, dashboard);
-        parsedCount++;
-      }
+    const dashboardFiles = await this.collectYamlFiles(dashboardsDir);
+    const dashboards = await this.parseInBatches(dashboardFiles, (file) =>
+      this.parseDashboardFile(file),
+    );
+    for (const dashboard of dashboards) {
+      this.dashboardsBySlug.set(dashboard.slug, dashboard);
+      parsedCount++;
     }
 
     // Snapshot the tile-only chart slugs per dashboard BEFORE the
@@ -297,6 +501,25 @@ export class LightdashContent {
       }
     }
 
+    // Finalize the model name for the rare charts that lacked an explicit
+    // `metricQuery.exploreName` (~2/1267 in practice). The pure parser
+    // can't resolve these because DJ model names contain `__` separators;
+    // do it here with a longest-prefix match of the first field id against
+    // the known dbt model names. No-op without a provider (unit tests) or
+    // when nothing matches, leaving `modelName` null rather than attaching
+    // a bogus `mart` prefix. Must run before the membership computation
+    // below, which reads `chart.modelName`.
+    const knownModelNames = this.getKnownModelNames?.();
+    if (knownModelNames && knownModelNames.size > 0) {
+      for (const chart of this.chartsBySlug.values()) {
+        if (chart.modelName) {
+          continue;
+        }
+        const firstField = chart.dimensions[0] ?? chart.metrics[0];
+        chart.modelName = resolveModelFromFieldId(firstField, knownModelNames);
+      }
+    }
+
     // Compute orphan-chart membership: a chart is orphan iff no
     // dashboard claims it (either via a tile or via the chart's own
     // `dashboardSlug` cross-reference splice above).
@@ -304,6 +527,12 @@ export class LightdashContent {
     for (const dashboard of this.dashboardsBySlug.values()) {
       for (const chartSlug of dashboard.chartSlugs) {
         referencedChartSlugs.add(chartSlug);
+        let owners = this.chartToDashboards.get(chartSlug);
+        if (!owners) {
+          owners = new Set<string>();
+          this.chartToDashboards.set(chartSlug, owners);
+        }
+        owners.add(dashboard.slug);
       }
     }
 
@@ -370,6 +599,7 @@ export class LightdashContent {
       this.chartsBySlug = new Map();
       this.dashboardsBySlug = new Map();
       this.modelDownstream = new Map();
+      this.chartToDashboards = new Map();
       this.populated = false;
     }
   }
@@ -384,15 +614,15 @@ export class LightdashContent {
     }, REBUILD_DEBOUNCE_MS);
   }
 
-  private collectYamlFiles(dir: string): string[] {
+  private async collectYamlFiles(dir: string): Promise<string[]> {
     if (!fs.existsSync(dir)) {
       return [];
     }
     const out: string[] = [];
-    const walk = (current: string) => {
+    const walk = async (current: string): Promise<void> => {
       let entries: fs.Dirent[];
       try {
-        entries = fs.readdirSync(current, { withFileTypes: true });
+        entries = await fs.promises.readdir(current, { withFileTypes: true });
       } catch (err: unknown) {
         this.log.warn(
           `[LightdashContent] Failed to read directory ${current}:`,
@@ -400,22 +630,49 @@ export class LightdashContent {
         );
         return;
       }
+      const subdirs: string[] = [];
       for (const entry of entries) {
         const full = path.join(current, entry.name);
         if (entry.isDirectory()) {
-          walk(full);
+          subdirs.push(full);
         } else if (entry.isFile() && /\.ya?ml$/i.test(entry.name)) {
           out.push(full);
         }
       }
+      for (const sub of subdirs) {
+        await walk(sub);
+      }
     };
-    walk(dir);
+    await walk(dir);
     return out;
   }
 
-  private readYaml(filePath: string): unknown {
+  /**
+   * Read + parse files in bounded-concurrency batches, awaiting each batch
+   * so a large scan yields to the event loop instead of blocking the
+   * extension host. Null (malformed / slug-less) results are dropped.
+   */
+  private async parseInBatches<T>(
+    files: string[],
+    parse: (file: string) => Promise<T | null>,
+  ): Promise<T[]> {
+    const BATCH_SIZE = 32;
+    const out: T[] = [];
+    for (let i = 0; i < files.length; i += BATCH_SIZE) {
+      const batch = files.slice(i, i + BATCH_SIZE);
+      const results = await Promise.all(batch.map((file) => parse(file)));
+      for (const result of results) {
+        if (result) {
+          out.push(result);
+        }
+      }
+    }
+    return out;
+  }
+
+  private async readYaml(filePath: string): Promise<unknown> {
     try {
-      const text = fs.readFileSync(filePath, 'utf-8');
+      const text = await fs.promises.readFile(filePath, 'utf-8');
       return parseYaml(text) as unknown;
     } catch (err: unknown) {
       this.log.warn(
@@ -426,8 +683,10 @@ export class LightdashContent {
     }
   }
 
-  private parseChartFile(filePath: string): LightdashChartContent | null {
-    const doc = this.readYaml(filePath);
+  private async parseChartFile(
+    filePath: string,
+  ): Promise<LightdashChartContent | null> {
+    const doc = await this.readYaml(filePath);
     const parsed = parseChartDoc(doc, this.toWorkspaceRelative(filePath));
     if (!parsed) {
       this.log.debug?.(
@@ -437,10 +696,10 @@ export class LightdashContent {
     return parsed;
   }
 
-  private parseDashboardFile(
+  private async parseDashboardFile(
     filePath: string,
-  ): LightdashDashboardContent | null {
-    const doc = this.readYaml(filePath);
+  ): Promise<LightdashDashboardContent | null> {
+    const doc = await this.readYaml(filePath);
     const parsed = parseDashboardDoc(doc, this.toWorkspaceRelative(filePath));
     if (!parsed) {
       this.log.debug?.(
@@ -457,6 +716,62 @@ export class LightdashContent {
       this.modelDownstream.set(modelName, entry);
     }
     return entry;
+  }
+
+  /**
+   * Lightdash deep-link context. Both env vars are required to build a
+   * link to the Lightdash UI; when either is absent callers leave `url`
+   * undefined so the open button renders disabled rather than pointing at
+   * a non-functional URL.
+   */
+  private getLinkContext(): {
+    lightdashUrl: string | undefined;
+    projectUuid: string | undefined;
+    linkable: boolean;
+  } {
+    const lightdashUrl = process.env.LIGHTDASH_URL?.replace(/\/+$/, '');
+    const projectUuid = process.env.LIGHTDASH_PROJECT;
+    return {
+      lightdashUrl,
+      projectUuid,
+      linkable: Boolean(lightdashUrl && projectUuid),
+    };
+  }
+
+  /**
+   * Build a single chart-row for a dashboard / container popover.
+   * `parentDashboardSlug` is set for rows inside a dashboard's popover so
+   * we can flag rows whose chart is associated via `dashboardSlug` only
+   * (not rendered as a tile); it stays undefined for the standalone-charts
+   * container, where the embedded-as-tile concept does not apply.
+   * `modelName` is the chart's referenced dbt model, surfaced for the
+   * reverse-lineage popover (ignored by the forward view).
+   */
+  private buildChartRow(chartSlug: string, parentDashboardSlug?: string) {
+    const { lightdashUrl, projectUuid, linkable } = this.getLinkContext();
+    const chart = this.chartsBySlug.get(chartSlug);
+    // `hasYaml` is false when a dashboard's `tiles[]` references a
+    // chartSlug we have no local YAML for (chart removed / never
+    // exported). The lineage UI uses this to flag the row as a stale
+    // reference and disable the Open YAML action.
+    const hasYaml = chart !== undefined;
+    const tileSet = parentDashboardSlug
+      ? this.tileEmbeddedChartSlugs.get(parentDashboardSlug)
+      : undefined;
+    const embeddedAsTile = parentDashboardSlug
+      ? tileSet?.has(chartSlug) ?? true
+      : undefined;
+    return {
+      slug: chartSlug,
+      name: chart?.name ?? chartSlug,
+      url: linkable
+        ? `${lightdashUrl}/projects/${projectUuid}/saved/${chartSlug}`
+        : undefined,
+      filePath: chart?.filePath ?? '',
+      embeddedAsTile,
+      hasYaml,
+      modelName: chart?.modelName ?? null,
+    };
   }
 
   private toWorkspaceRelative(absPath: string): string {

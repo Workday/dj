@@ -50,12 +50,31 @@ export type DbtCompilationApi =
     };
 
 // Data Explorer UI APIs
-export type DataExplorerUiApi = {
-  type: 'data-explorer-open-with-model';
-  service: 'data-explorer';
-  request: { modelName: string; projectName: string };
-  response: { success: boolean };
-};
+export type DataExplorerUiApi =
+  | {
+      type: 'data-explorer-open-with-model';
+      service: 'data-explorer';
+      request: { modelName: string; projectName: string };
+      response: { success: boolean };
+    }
+  | {
+      type: 'data-explorer-compile-model';
+      service: 'data-explorer';
+      request: { pathSystem: string };
+      response: { success: boolean };
+    }
+  | {
+      type: 'data-explorer-preview-model';
+      service: 'data-explorer';
+      request: { pathSystem: string };
+      response: { success: boolean };
+    }
+  | {
+      type: 'data-explorer-open-column-lineage';
+      service: 'data-explorer';
+      request: { pathSystem: string };
+      response: { success: boolean };
+    };
 
 // Re-export model lineage types for convenience
 export type {

@@ -1,7 +1,7 @@
 {
   "$id": "model.materialization.schema.json",
   "title": "Schema Model Materialization",
-  "description": "Materialization Configuration",
+  "description": "Materialization Configuration. The incremental object form accepts `format` (delta_lake | hive | iceberg), `partitions`, `strategy`, `database`, and the physical-layout tuning fields `bucket` and `sorted_by`. DJ translates `bucket` / `sorted_by` into the correct Trino table properties per format: Iceberg emits bucket transforms inside `partitioning` plus a standalone `sorted_by`; Hive / Glue emits `bucketed_by` + `bucket_count` + `sorted_by`; Delta Lake supports neither and DJ flags it.",
   "anyOf": [
     { "const": "incremental" },
     { "const": "ephemeral" },
@@ -27,6 +27,12 @@
         },
         "partitions": {
           "$ref": "model.partitions.schema.json"
+        },
+        "bucket": {
+          "$ref": "model.bucket.schema.json"
+        },
+        "sorted_by": {
+          "$ref": "model.sorted_by.schema.json"
         },
         "strategy": {
           "$ref": "model.incremental_strategy.schema.json"

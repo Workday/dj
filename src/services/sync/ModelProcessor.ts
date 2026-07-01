@@ -20,6 +20,7 @@ import {
   frameworkGetModelPrefix,
 } from '@services/framework/utils';
 import {
+  validateBucketAndSortedBy,
   validateCteColumnReferences,
   validateDeadOuterLayer,
   validateDjIcebergPartitionOverwrite,
@@ -237,6 +238,23 @@ export class ModelProcessor {
         for (const w of matPartitionsWarnings) {
           this.config.logger.warn?.(`${modelName}: ${w.message}`);
           validationWarnings.push(w);
+        }
+      }
+
+      // validateBucketAndSortedBy returns mixed severities on one channel, so
+      // log each detail by its own severity rather than as a blanket warning.
+      const bucketSortDetails = validateBucketAndSortedBy(
+        modelJson,
+        project.variables?.storage_type,
+      );
+      if (bucketSortDetails.length > 0) {
+        for (const d of bucketSortDetails) {
+          if (d.severity === 'error') {
+            this.config.logger.error(`${modelName}: ${d.message}`);
+          } else {
+            this.config.logger.warn?.(`${modelName}: ${d.message}`);
+          }
+          validationWarnings.push(d);
         }
       }
 

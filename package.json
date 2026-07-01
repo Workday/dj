@@ -10,7 +10,7 @@
     "type": "git",
     "url": "https://github.com/Workday/dj.git"
   },
-  "version": "1.8.0",
+  "version": "1.9.0",
   "workspaces": [
     "web"
   ],
@@ -108,6 +108,11 @@
         "title": "DJ: Lightdash - Dashboards as Code"
       },
       {
+        "command": "dj.command.lightdashReverseLineage",
+        "icon": "$(dashboard)",
+        "title": "DJ: Lightdash - Reverse Lineage"
+      },
+      {
         "command": "dj.command.modelNavigate",
         "title": "DJ: Navigate to Model"
       },
@@ -145,10 +150,6 @@
         "title": "DJ: Run Model"
       },
       {
-        "command": "dj.command.modelRunLineage",
-        "title": "DJ: Run Model Lineage"
-      },
-      {
         "command": "dj.command.modelTest",
         "title": "DJ: Run DBT Test"
       },
@@ -160,11 +161,6 @@
         "command": "dj.command.refreshProjects",
         "title": "DJ: Refresh Projects",
         "icon": "$(refresh)"
-      },
-      {
-        "command": "dj.command.deferRun",
-        "icon": "$(run-all-coverage)",
-        "title": "DJ: Defer Run"
       },
       {
         "command": "dj.command.sourceOrigin",
@@ -1009,5 +1005,9 @@
     "tsx": "^4.7.1",
     "typescript": "^5.4.2",
     "typescript-eslint": "^8.50.1"
+  },
+  "overrides": {
+    "brace-expansion": "^5.0.7",
+    "fast-uri": "^3.1.3"
   }
 }

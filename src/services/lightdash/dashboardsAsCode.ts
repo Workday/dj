@@ -5,6 +5,7 @@ import {
 } from '@services/constants';
 import type { DJLogger } from '@services/djLogger';
 import { buildProcessEnv } from '@services/utils/process';
+import type { LightdashRestrictionStatus } from '@shared/lightdash/restrictions';
 import {
   describeLightdashRestriction,
   resolveLightdashUploadRestriction,
@@ -201,7 +202,12 @@ function runLightdash(
   });
 }
 
-function resolveAbsoluteWorkingDir(rawPath?: string): string {
+/**
+ * Resolve a raw (possibly relative / blank) dashboards-as-code path to an
+ * absolute filesystem path, matching how `download` / `upload` resolve their
+ * `-p` target. A blank value falls back to the configured default.
+ */
+export function resolveAbsoluteWorkingDir(rawPath?: string): string {
   const trimmed = rawPath?.trim();
   if (!trimmed) {
     return getDashboardsAsCodeAbsolutePath();
@@ -317,9 +323,8 @@ export async function executeLightdashUpload(
   onLog: StreamLogFn,
 ): Promise<{
   success: boolean;
-  uploadedFiles?: string[];
   error?: string;
-  restriction?: import('@shared/lightdash/restrictions').LightdashRestrictionStatus;
+  restriction?: LightdashRestrictionStatus;
 }> {
   const absolutePath = resolveAbsoluteWorkingDir(request.path);
   const project = request.project.trim();
@@ -399,14 +404,7 @@ export async function executeLightdashUpload(
         `lightdash upload exited with code ${result.code}`;
       return { success: false, error };
     }
-    const uploaded = [
-      ...(request.dashboardSlugs ?? []),
-      ...(request.chartSlugs ?? []),
-    ];
-    return {
-      success: true,
-      uploadedFiles: uploaded,
-    };
+    return { success: true };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     // Transport / unexpected exception path: nothing was streamed, emit once.
