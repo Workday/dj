@@ -35,7 +35,7 @@ export function UploadView() {
     setActiveLogChannel,
     currentPath,
     setShowPostUploadDialog,
-    setLastUploadedFiles,
+    setLastUpload,
     uploadSearchTerm,
     setUploadSearchTerm,
   } = useLightdashYamlStore();
@@ -98,9 +98,10 @@ export function UploadView() {
         },
       });
       if (resp.success) {
-        setLastUploadedFiles(
-          resp.uploadedFiles ?? (allSelected ? allFilePaths : selected),
-        );
+        // Carry the exact slugs we just uploaded so the post-upload dialog can
+        // scope its refresh to them. Empty arrays (entire-project upload) tell
+        // the dialog to refresh the whole project.
+        setLastUpload({ chartSlugs, dashboardSlugs });
         setShowPostUploadDialog(true);
       } else if (resp.restriction && resp.restriction.status !== 'allow') {
         // Race-recovery: the policy changed between the UI pre-flight

@@ -19,6 +19,7 @@ import type {
   ProjectOverviewData,
   ProjectOverviewGroup,
   ProjectOverviewItem,
+  ReverseLineageData,
 } from '@shared/modellineage/types';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -127,6 +128,69 @@ export class ModelLineage {
             return apiResponse<typeof payload.type>({ success: true });
           } catch (error: unknown) {
             this.coder.log.error('Error opening Lightdash URL:', error);
+            return apiResponse<typeof payload.type>({ success: false });
+          }
+        }
+
+        case 'data-explorer-list-lightdash-assets': {
+          try {
+            // `force` re-scans the content directory (manual Refresh);
+            // otherwise serve the already-populated in-memory index.
+            if (payload.request?.force) {
+              await this.coder.lightdashContent.rebuild();
+            } else {
+              await this.coder.lightdashContent.ensurePopulated();
+            }
+            return apiResponse<typeof payload.type>({
+              assets: this.coder.lightdashContent.listAssets(),
+              lightdashAvailable: this.coder.lightdashContent.isPopulated(),
+              lightdashResolvedPath:
+                this.coder.lightdashContent.getResolvedPath(),
+            });
+          } catch (error: unknown) {
+            this.coder.log.error('Error listing Lightdash assets:', error);
+            return apiResponse<typeof payload.type>({
+              assets: [],
+              lightdashAvailable: false,
+              lightdashResolvedPath:
+                this.coder.lightdashContent.getResolvedPath(),
+            });
+          }
+        }
+
+        case 'data-explorer-get-reverse-lineage': {
+          try {
+            const { kind, slug } = payload.request;
+            this.coder.log.info(
+              `Fetching reverse lineage for ${kind}: ${slug}`,
+            );
+            const data = await this.getReverseLineage({ kind, slug });
+            return apiResponse<typeof payload.type>(data);
+          } catch (error: unknown) {
+            this.coder.log.error('Error fetching reverse lineage:', error);
+            throw error;
+          }
+        }
+
+        case 'data-explorer-refresh-projects': {
+          try {
+            await vscode.commands.executeCommand(COMMAND_ID.REFRESH_PROJECTS);
+            return apiResponse<typeof payload.type>({ success: true });
+          } catch (error: unknown) {
+            this.coder.log.error('Error refreshing dbt projects:', error);
+            return apiResponse<typeof payload.type>({ success: false });
+          }
+        }
+
+        case 'data-explorer-open-reverse-lineage': {
+          try {
+            const { kind, slug } = payload.request;
+            // Reverse lineage renders inside the Data Explorer panel; focus it
+            // and switch to the embedded Lightdash view with this anchor.
+            this.coder.dataExplorer.openReverseLineage({ kind, slug });
+            return apiResponse<typeof payload.type>({ success: true });
+          } catch (error: unknown) {
+            this.coder.log.error('Error opening reverse lineage:', error);
             return apiResponse<typeof payload.type>({ success: false });
           }
         }
@@ -328,6 +392,135 @@ export class ModelLineage {
       lightdashResolvedPath,
       lightdashEnabled,
     };
+  }
+
+  /**
+   * Reverse lineage: given a Lightdash dashboard / chart, resolve the
+   * upstream dbt mart models it references. The asset is the graph sink
+   * (`anchor`); each referenced model is mapped to a manifest node via
+   * `findModelNodeByName` and rendered to its left. The view then drills
+   * further upstream client-side using the existing 1-hop
+   * `data-explorer-get-model-lineage`.
+   *
+   * Degrades gracefully:
+   * - Unknown slug (e.g. Lightdash not downloaded) -> empty anchor; the
+   *   webview shows the not-downloaded / not-found banner.
+   * - No dbt manifest yet (`manifestAvailable === false`) -> still echo
+   *   the referenced model names as `staleModels` so the webview can list
+   *   them while prompting a `dbt parse`.
+   * - Model referenced by the asset but absent from the manifest
+   *   (the stale 1-in-69 case) -> added to `staleModels`, never throws.
+   */
+  private async getReverseLineage(request: {
+    kind: 'dashboard' | 'chart';
+    slug: string;
+  }): Promise<ReverseLineageData> {
+    const { kind, slug } = request;
+    const lightdashContent = this.coder.lightdashContent;
+
+    // Reverse lineage is an explicit user action, so populate on demand
+    // even when the forward toggle `dj.dataExplorer.showLightdashLineage`
+    // is off (which is why the forward watcher hasn't built the index).
+    await lightdashContent.ensurePopulated();
+
+    const lightdashAvailable = lightdashContent.isPopulated();
+    const lightdashResolvedPath = lightdashContent.getResolvedPath();
+    const manifestAvailable = this.hasManifestLoaded();
+
+    const asset = lightdashContent.getAssetModels(kind, slug);
+    if (!asset) {
+      // Unknown slug: surface an empty anchor so the webview renders the
+      // appropriate banner (not-downloaded) or "asset not found" message.
+      return {
+        anchor: {
+          id: `lightdash::${kind}::${slug}`,
+          slug,
+          name: slug,
+          kind,
+          filePath: '',
+        },
+        models: [],
+        staleModels: [],
+        projectName: '',
+        manifestAvailable,
+        lightdashAvailable,
+        lightdashResolvedPath,
+        parentDashboards: [],
+      };
+    }
+
+    const { anchor, modelNames, parentDashboards } = asset;
+    const models: LineageNode[] = [];
+    const staleModels: string[] = [];
+    let projectName = '';
+
+    if (!manifestAvailable) {
+      // No parse yet: echo the referenced names so the webview can prompt
+      // a `dbt parse` while still listing what the asset depends on.
+      staleModels.push(...modelNames);
+    } else {
+      for (const modelName of modelNames) {
+        const resolved = this.findModelNodeByName(modelName);
+        if (resolved) {
+          models.push(resolved.node);
+          if (!projectName) {
+            projectName = resolved.projectName;
+          }
+        } else {
+          staleModels.push(modelName);
+        }
+      }
+    }
+
+    return {
+      anchor,
+      models,
+      staleModels,
+      projectName,
+      manifestAvailable,
+      lightdashAvailable,
+      lightdashResolvedPath,
+      parentDashboards,
+    };
+  }
+
+  /**
+   * Resolve a dbt model by name (not unique_id) to a `LineageNode` plus
+   * its owning project, by scanning the loaded model map. Returns null
+   * when no model with that name exists in any project (stale reference).
+   */
+  private findModelNodeByName(
+    modelName: string,
+  ): { node: LineageNode; projectName: string } | null {
+    for (const [modelId, model] of this.coder.framework.dbt.models) {
+      if (model.name !== modelName) {
+        continue;
+      }
+      // `modelId` is `model.<projectName>.<name>` (see getDbtModelId).
+      const projectName = modelId.split('.')[1] ?? '';
+      const project = projectName
+        ? this.coder.framework.dbt.projects.get(projectName)
+        : undefined;
+      if (!project) {
+        continue;
+      }
+      const uniqueId = model.unique_id ?? modelId;
+      const manifestNode = project.manifest?.nodes[uniqueId];
+      return {
+        node: this.manifestNodeToLineageNode(uniqueId, manifestNode, project),
+        projectName,
+      };
+    }
+    return null;
+  }
+
+  /**
+   * True when at least one dbt manifest has been parsed. `dbt.models` is
+   * populated from manifest nodes during `handleManifest` and cleared on
+   * `clearCache`, so an empty map means no parse has happened yet.
+   */
+  private hasManifestLoaded(): boolean {
+    return this.coder.framework.dbt.models.size > 0;
   }
 
   /**

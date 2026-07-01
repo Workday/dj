@@ -108,6 +108,11 @@
         "title": "DJ: Lightdash - Dashboards as Code"
       },
       {
+        "command": "dj.command.lightdashReverseLineage",
+        "icon": "$(dashboard)",
+        "title": "DJ: Lightdash - Reverse Lineage"
+      },
+      {
         "command": "dj.command.modelNavigate",
         "title": "DJ: Navigate to Model"
       },

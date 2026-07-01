@@ -62,6 +62,13 @@ class DataExplorerViewProvider implements vscode.WebviewViewProvider {
           return;
         }
 
+        // Reverse-lineage sub-view (re)mounted: replay the buffered anchor so
+        // a full webview reload re-resolves the last opened dashboard/chart.
+        if ((message as any).type === 'reverse-lineage-ready') {
+          this._coder.dataExplorer.replayReverseLineageInit();
+          return;
+        }
+
         // Handle execute-command message to run VSCode commands
         if ((message as any).type === 'execute-command') {
           const command = (message as any).command;
@@ -234,6 +241,13 @@ export class DataExplorer
     projectName: string;
   };
 
+  // Last reverse-lineage anchor (dashboard / chart) opened, replayed when the
+  // webview remounts so a reload restores the graph.
+  private lastReverseContext?: {
+    kind: 'dashboard' | 'chart';
+    slug: string;
+  };
+
   // Debounced auto-refresh to prevent rapid-fire calls during file switching
   private readonly debouncedAutoRefresh = _.debounce(
     (editor: vscode.TextEditor | undefined) => {
@@ -268,6 +282,35 @@ export class DataExplorer
       }
     }
 
+    // Reverse-lineage model-node actions: run a VS Code command targeting the
+    // model's file so the icon performs the real action (columns/compile/run)
+    // instead of merely opening the Data Explorer.
+    if (
+      payload.type === 'data-explorer-compile-model' ||
+      payload.type === 'data-explorer-preview-model' ||
+      payload.type === 'data-explorer-open-column-lineage'
+    ) {
+      const command =
+        payload.type === 'data-explorer-compile-model'
+          ? COMMAND_ID.MODEL_COMPILE
+          : payload.type === 'data-explorer-preview-model'
+            ? COMMAND_ID.MODEL_PREVIEW
+            : COMMAND_ID.COLUMN_LINEAGE;
+      try {
+        await vscode.commands.executeCommand(
+          command,
+          vscode.Uri.file(payload.request.pathSystem),
+        );
+        return { success: true };
+      } catch (error: unknown) {
+        this.coder.log.error(
+          'Error running reverse-lineage model action:',
+          error,
+        );
+        return { success: false };
+      }
+    }
+
     // Route to ModelLineage service
     switch (payload.type) {
       case 'data-explorer-ready':
@@ -281,6 +324,10 @@ export class DataExplorer
       case 'data-explorer-set-lightdash-toggle':
       case 'data-explorer-open-dashboards-as-code':
       case 'data-explorer-open-lightdash-yaml':
+      case 'data-explorer-list-lightdash-assets':
+      case 'data-explorer-get-reverse-lineage':
+      case 'data-explorer-refresh-projects':
+      case 'data-explorer-open-reverse-lineage':
         return await this.modelLineage.handleApi(payload);
     }
   }
@@ -654,6 +701,31 @@ export class DataExplorer
       projectName: context.projectName,
       explicit: false,
     });
+  }
+
+  /**
+   * Focus the Data Explorer panel and load the given Lightdash dashboard /
+   * chart in the embedded reverse-lineage view. The init message is queued
+   * if the webview isn't ready yet; a later remount replays it via the
+   * `reverse-lineage-ready` signal.
+   */
+  public openReverseLineage(anchor: {
+    kind: 'dashboard' | 'chart';
+    slug: string;
+  }): void {
+    this.lastReverseContext = anchor;
+    this.focusView();
+    this.sendMessage({ type: 'reverse-lineage-init', ...anchor });
+  }
+
+  /** Re-push the buffered reverse-lineage anchor after a webview remount. */
+  public replayReverseLineageInit(): void {
+    if (this.lastReverseContext) {
+      this.sendMessage({
+        type: 'reverse-lineage-init',
+        ...this.lastReverseContext,
+      });
+    }
   }
 
   /**

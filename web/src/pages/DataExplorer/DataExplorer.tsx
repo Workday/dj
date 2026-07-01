@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 
 import { useDataExplorerStore } from '../../stores/dataExplorerStore';
 import { ColumnLineage } from '../ColumnLineage';
+import { LightdashReverseLineage } from '../LightdashReverseLineage';
 import ModelLineage from '../ModelLineage';
 import ProjectOverview from '../ModelLineage/ProjectOverview';
 import QueryPreview from '../QueryPreview';
@@ -30,6 +31,8 @@ export default function DataExplorer() {
         msg.type === 'column-lineage-source-init'
       ) {
         setActiveView('column');
+      } else if (msg.type === 'reverse-lineage-init') {
+        setActiveView('lightdash');
       } else if (
         msg.type === 'trigger-compilation' ||
         msg.type === 'trigger-run-query'
@@ -73,6 +76,11 @@ export default function DataExplorer() {
           className={`absolute inset-0 ${activeView === 'sql' ? '' : 'hidden'}`}
         >
           <QueryPreview />
+        </div>
+        <div
+          className={`absolute inset-0 ${activeView === 'lightdash' ? '' : 'hidden'}`}
+        >
+          <LightdashReverseLineage />
         </div>
       </div>
     </div>

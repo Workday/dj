@@ -56,6 +56,21 @@ function stringOrUndefined(v: unknown): string | undefined {
   return typeof v === 'string' && v.length > 0 ? v : undefined;
 }
 
+/**
+ * Trim-aware string coercion: returns the trimmed value only when it has
+ * non-whitespace content, else undefined. Used for display names, where
+ * Lightdash occasionally exports a blank `name: ' '` (e.g. "copy of"
+ * charts) that should fall through to a better label rather than render as
+ * an empty / kind-only picker row.
+ */
+function nonBlank(v: unknown): string | undefined {
+  if (typeof v !== 'string') {
+    return undefined;
+  }
+  const trimmed = v.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
 function stringArray(v: unknown): string[] {
   if (!Array.isArray(v)) {
     return [];
@@ -85,7 +100,16 @@ export function parseChartDoc(
   if (!slug) {
     return null;
   }
-  const name = stringOrUndefined(obj['name']) ?? slug;
+  // Blank `name: ' '` exports (common on Lightdash "copy of" charts) fall
+  // back to the chart's display label, then the slug, so the picker never
+  // shows an empty / kind-only row.
+  const chartConfig = (obj['chartConfig'] ?? {}) as Record<string, unknown>;
+  const chartConfigConfig = (chartConfig['config'] ?? {}) as Record<
+    string,
+    unknown
+  >;
+  const name =
+    nonBlank(obj['name']) ?? nonBlank(chartConfigConfig['label']) ?? slug;
 
   const metricQuery = (obj['metricQuery'] ?? {}) as Record<string, unknown>;
   const dimensions = stringArray(metricQuery['dimensions']);
@@ -146,26 +170,20 @@ export function parseChartDoc(
   }
 
   // Resolve the dbt model that this chart targets. Lightdash's
-  // `metricQuery.exploreName` is the canonical join key; when it's
-  // missing (older exports / partial files) fall back to the model
-  // prefix encoded in the first dimension/metric ID.
-  let modelName = stringOrUndefined(metricQuery['exploreName']);
-  if (!modelName) {
-    const firstField = dimensions[0] ?? metrics[0];
-    if (firstField) {
-      const underscoreIdx = firstField.indexOf('_');
-      if (underscoreIdx > 0) {
-        modelName = firstField.slice(0, underscoreIdx);
-      }
-    }
-  }
+  // `metricQuery.exploreName` is the canonical join key. When it's
+  // missing (older exports / partial files), `modelName` is left null
+  // here: the field-id fallback needs the set of known dbt model names
+  // (to resolve `__`-delimited DJ names correctly), which this pure
+  // parser intentionally doesn't have. `LightdashContent.rebuild()`
+  // finalizes it via `resolveModelFromFieldId`.
+  const modelName = stringOrUndefined(metricQuery['exploreName']) ?? null;
 
   const dashboardSlug = stringOrUndefined(obj['dashboardSlug']);
 
   return {
     slug,
     name,
-    modelName: modelName ?? null,
+    modelName,
     dimensions,
     metrics,
     filterFieldIds,
@@ -174,6 +192,39 @@ export function parseChartDoc(
     dashboardSlug,
     filePath,
   };
+}
+
+/**
+ * Resolve a dbt model name from a Lightdash field id by longest-prefix
+ * match against the set of known dbt model names.
+ *
+ * Lightdash field ids are `<exploreName>_<fieldName>`. DJ model names
+ * themselves contain `__` separators (`mart__group__topic__name`), so a
+ * naive split on the first `_` mis-resolves `mart__orders_status` to
+ * `mart`. Instead we return the longest known model name `m` such that
+ * `fieldId === m` or `fieldId` starts with `m + '_'`, or `null` when
+ * nothing matches (so no bogus model is attached).
+ *
+ * Pure (no IO) so it can be unit tested; called from
+ * `LightdashContent.rebuild()` for the rare charts that lack an explicit
+ * `exploreName`.
+ */
+export function resolveModelFromFieldId(
+  fieldId: string | undefined,
+  knownModelNames: ReadonlySet<string>,
+): string | null {
+  if (!fieldId) {
+    return null;
+  }
+  let best: string | null = null;
+  for (const name of knownModelNames) {
+    if (fieldId === name || fieldId.startsWith(`${name}_`)) {
+      if (best === null || name.length > best.length) {
+        best = name;
+      }
+    }
+  }
+  return best;
 }
 
 /**
@@ -192,7 +243,7 @@ export function parseDashboardDoc(
   if (!slug) {
     return null;
   }
-  const name = stringOrUndefined(obj['name']) ?? slug;
+  const name = nonBlank(obj['name']) ?? slug;
 
   const chartSlugs: string[] = [];
   const tiles = obj['tiles'];

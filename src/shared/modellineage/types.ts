@@ -44,8 +44,10 @@ export interface LightdashLineageNode {
    *   single node, so a model with many one-off charts does not explode the
    *   canvas. Aggregate `url` / `filePath` are intentionally empty - each
    *   chart is opened individually from per-row buttons in the popover.
+   * - `chart`: a single saved chart used as the anchor (sink) of the
+   *   reverse-lineage view. Carries its own `url` / `filePath`.
    */
-  kind: 'dashboard' | 'standalone-charts';
+  kind: 'dashboard' | 'standalone-charts' | 'chart';
   /**
    * Deep link into the Lightdash UI. Built from `LIGHTDASH_URL` +
    * `LIGHTDASH_PROJECT`; undefined when either env var is missing so the
@@ -84,6 +86,13 @@ export interface LightdashLineageNode {
     filePath: string;
     embeddedAsTile?: boolean;
     hasYaml?: boolean;
+    /**
+     * dbt model this chart references (the Lightdash explore). Populated
+     * for the reverse-lineage view so each popover row can show which
+     * upstream model it maps to; `null` when the model could not be
+     * resolved. Undefined / ignored by the forward model-lineage view.
+     */
+    modelName?: string | null;
   }[];
   /**
    * Workspace-relative path to the source YAML file, used by the
@@ -114,12 +123,126 @@ export interface LineageData {
   lightdashEnabled?: boolean;
 }
 
+/**
+ * A Lightdash dashboard or chart, summarized for the reverse-lineage
+ * picker / search. `modelNames` is the distinct set of dbt models the
+ * asset references (resolved at parse time), shown as the QuickPick
+ * detail line so users can disambiguate same-named assets.
+ */
+export interface LightdashAssetSummary {
+  kind: 'dashboard' | 'chart';
+  slug: string;
+  name: string;
+  modelNames: string[];
+  /**
+   * For charts: display names of the dashboard(s) this chart belongs to
+   * (via a dashboard tile or the chart's own `dashboardSlug`). Empty/absent
+   * means the chart is standalone (in no dashboard). Unused for dashboards.
+   */
+  dashboardNames?: string[];
+  /** For dashboards: number of charts the dashboard contains. */
+  chartCount?: number;
+}
+
+/**
+ * Result of listing Lightdash assets for the reverse-lineage picker. Wraps
+ * the asset list with availability metadata so the panel can render the
+ * not-downloaded banner at first load — before any asset is selected —
+ * rather than waiting for a (never-arriving) selection.
+ */
+export interface LightdashAssetListResult {
+  assets: LightdashAssetSummary[];
+  /**
+   * True iff the local Lightdash content directory exists and contains at
+   * least one parsed chart or dashboard.
+   */
+  lightdashAvailable: boolean;
+  /** Workspace-relative content root used for the lookup (for the banner). */
+  lightdashResolvedPath: string;
+}
+
+/**
+ * Reverse lineage for a single Lightdash dashboard or chart: the asset is
+ * the graph sink (`anchor`), and `models` are the upstream dbt mart models
+ * it references, resolved against the dbt manifest. Drives the dedicated
+ * reverse-lineage view.
+ */
+export interface ReverseLineageData {
+  /** The dashboard / chart being inspected (graph sink). */
+  anchor: LightdashLineageNode;
+  /**
+   * Upstream dbt models referenced by the asset that resolved to a node
+   * in the dbt manifest. Rendered to the left of the anchor; each carries
+   * `hasOwnUpstream` so the existing expand-upstream button can drill
+   * further.
+   */
+  models: LineageNode[];
+  /**
+   * Referenced model names that could NOT be resolved in the manifest.
+   * Rendered as flagged "not found in project" nodes. Also populated with
+   * every referenced name when `manifestAvailable` is false so the webview
+   * can still list them while prompting a `dbt parse`.
+   */
+  staleModels: string[];
+  /** Project the resolved models belong to (used for drill-down calls). */
+  projectName: string;
+  /**
+   * False when no dbt manifest has been loaded yet (no `dbt parse`). The
+   * webview shows a "run a dbt parse" banner instead of erroring.
+   */
+  manifestAvailable: boolean;
+  /**
+   * False when the local Lightdash content directory is missing/empty.
+   * Drives the not-downloaded banner (reuses Dashboards-as-Code).
+   */
+  lightdashAvailable: boolean;
+  /** Workspace-relative Lightdash content root (for the banner). */
+  lightdashResolvedPath: string;
+  /**
+   * For a chart anchor, the dashboard(s) that contain it (via a tile or the
+   * chart's own `dashboardSlug`). Rendered to the right of the chart so the
+   * graph reads models -> chart -> dashboard. Empty for dashboard anchors or
+   * standalone charts.
+   */
+  parentDashboards?: LightdashLineageNode[];
+}
+
 export type ModelLineageApi =
   | {
       type: 'data-explorer-get-model-lineage';
       service: 'model-lineage';
       request: { modelName: string; projectName: string };
       response: LineageData;
+    }
+  | {
+      type: 'data-explorer-list-lightdash-assets';
+      service: 'model-lineage';
+      /**
+       * `force` re-scans the Lightdash content directory from disk before
+       * listing, rather than serving the already-populated in-memory index.
+       * The manual Refresh / re-scan action sets it so newly downloaded (or
+       * removed) charts/dashboards are picked up within a session.
+       */
+      request: { force?: boolean } | null;
+      response: LightdashAssetListResult;
+    }
+  | {
+      type: 'data-explorer-get-reverse-lineage';
+      service: 'model-lineage';
+      request: { kind: 'dashboard' | 'chart'; slug: string };
+      response: ReverseLineageData;
+    }
+  | {
+      type: 'data-explorer-refresh-projects';
+      service: 'model-lineage';
+      request: null;
+      response: { success: boolean };
+    }
+  | {
+      type: 'data-explorer-open-reverse-lineage';
+      service: 'model-lineage';
+      request: { kind: 'dashboard' | 'chart'; slug: string };
+      response: { success: boolean };
     }
   | {
       type: 'data-explorer-open-lightdash-url';

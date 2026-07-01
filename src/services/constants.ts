@@ -57,6 +57,7 @@ export const COMMAND_ID = {
   DISCARD_EDIT_DRAFT: 'dj.command.discardEditDraft',
   LIGHTDASH_DASHBOARDS_AS_CODE: 'dj.command.lightdashDashboardsAsCode',
   LIGHTDASH_PREVIEW: 'dj.command.lightdashPreview',
+  LIGHTDASH_REVERSE_LINEAGE: 'dj.command.lightdashReverseLineage',
   MODEL_CLONE: 'dj.command.modelClone',
   MODEL_COMPILE: 'dj.command.modelCompile',
   MODEL_CREATE: 'dj.command.modelCreate',
