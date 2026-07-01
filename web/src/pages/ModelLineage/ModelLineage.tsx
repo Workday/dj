@@ -17,7 +17,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { useApp } from '@web/context';
 import { useEnvironment } from '@web/context';
-import { CodeBlock, Spinner, Switch } from '@web/elements';
+import { Banner, Button, CodeBlock, Spinner, Switch } from '@web/elements';
 import { ColumnSelectionPanel } from '@web/features/Lineage';
 import { ReactFlowProvider } from '@xyflow/react';
 import { useEffect, useState } from 'react';
@@ -87,6 +87,7 @@ export default function ModelLineage({ onShowAdhocQuery }: ModelLineageProps) {
     setLightdashEnabled,
     openDashboardsAsCode,
     openLightdashYaml,
+    openReverseLineage,
     isLightdashRefreshing,
   } = useDataExplorerStore();
 
@@ -793,37 +794,41 @@ export default function ModelLineage({ onShowAdhocQuery }: ModelLineageProps) {
             was found in the configured directory. */}
         {lineageData.lightdashEnabled === true &&
           lineageData.lightdashAvailable === false && (
-            <div className="mt-2 px-3 py-2 rounded border border-purple-600/40 bg-purple-600/10 flex items-center justify-between gap-3 text-xs">
-              <div className="flex items-center gap-2 min-w-0">
-                <PresentationChartLineIcon className="w-4 h-4 text-purple-500 flex-shrink-0" />
-                <div className="text-foreground min-w-0">
-                  No Lightdash content at{' '}
-                  <code className="font-mono text-foreground bg-card px-1 py-0.5 rounded">
-                    {lineageData.lightdashResolvedPath || 'lightdash'}
-                  </code>
-                  . Download charts and dashboards as code to populate
-                  downstream lineage.
-                </div>
-              </div>
-              <div className="flex items-center gap-1 flex-shrink-0">
-                <button
-                  onClick={() => void openDashboardsAsCode()}
-                  className="px-2 py-1 rounded bg-primary text-primary-contrast hover:opacity-90 transition-opacity inline-flex items-center gap-1"
-                  title="Open the Dashboards as Code panel to download YAML"
-                >
-                  <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5" />
-                  Open Dashboards as Code
-                </button>
-                <button
-                  onClick={handleRefresh}
-                  className="px-2 py-1 rounded hover:bg-surface text-surface-contrast transition-colors inline-flex items-center gap-1"
-                  title="Re-run lineage detection"
-                >
-                  <ArrowPathIcon className="w-3.5 h-3.5" />
-                  Refresh
-                </button>
-              </div>
-            </div>
+            <Banner
+              layout="inline"
+              variant="warning"
+              className="mt-2"
+              icon={
+                <PresentationChartLineIcon className="w-4 h-4 flex-shrink-0" />
+              }
+              actions={
+                <>
+                  <Button
+                    variant="primary"
+                    className="gap-1 px-2 py-1 text-xs"
+                    icon={<ArrowTopRightOnSquareIcon className="w-3.5 h-3.5" />}
+                    label="Open Dashboards as Code"
+                    title="Open the Dashboards as Code panel to download YAML"
+                    onClick={() => void openDashboardsAsCode()}
+                  />
+                  <Button
+                    variant="iconButton"
+                    className="gap-1 px-2 py-1 text-xs"
+                    icon={<ArrowPathIcon className="w-3.5 h-3.5" />}
+                    label="Refresh"
+                    title="Re-run lineage detection"
+                    onClick={handleRefresh}
+                  />
+                </>
+              }
+            >
+              No Lightdash content at{' '}
+              <code className="font-mono text-foreground bg-card px-1 py-0.5 rounded">
+                {lineageData.lightdashResolvedPath || 'lightdash'}
+              </code>
+              . Download charts and dashboards as code to populate downstream
+              lineage.
+            </Banner>
           )}
       </div>
 
@@ -850,6 +855,9 @@ export default function ModelLineage({ onShowAdhocQuery }: ModelLineageProps) {
                 onOpenLightdash={(url) => void openLightdashUrl(url)}
                 onOpenLightdashYaml={(filePath) =>
                   void openLightdashYaml(filePath)
+                }
+                onOpenReverseLineage={(anchor) =>
+                  void openReverseLineage(anchor)
                 }
               />
             </ReactFlowProvider>

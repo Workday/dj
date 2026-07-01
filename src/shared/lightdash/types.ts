@@ -169,7 +169,6 @@ export type LightdashApi =
       };
       response: {
         success: boolean;
-        uploadedFiles?: string[];
         error?: string;
         /**
          * Populated when the upload was refused (or would have been
@@ -198,6 +197,19 @@ export type LightdashApi =
       service: 'lightdash';
       request: null;
       response: { path: string; absolutePath: string };
+    }
+  | {
+      /**
+       * The Lightdash project UUID last downloaded into the given folder, if
+       * any. Used by the Download tab to detect a different-project download
+       * into a folder that already holds one. Resolves `path` (relative or
+       * blank) the same way `download` does; returns `undefined` when nothing
+       * was recorded for that folder.
+       */
+      type: 'lightdash-yaml-get-path-project';
+      service: 'lightdash';
+      request: { path?: string };
+      response: { project?: string };
     }
   | {
       type: 'lightdash-yaml-get-download-defaults';
