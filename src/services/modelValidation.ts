@@ -1441,12 +1441,12 @@ const BULK_SELECT_TYPES = new Set([
  * dropped from the dbt config, leaving the table unpartitioned. The
  * incremental strategy then no-ops or runs destructively at run time.
  *
- * Conservative: a present bulk select (`all_from_*`, `dims_from_*`,
- * `fcts_from_*`) could plausibly expand to the named column, so this
- * validator skips when one is present rather than risk a false positive.
- * That gap is acceptable -- the SQL generator's filter still prunes
- * mismatches at sync time; this validator only catches the common
- * scalar-only authoring mistake.
+ * Runs only when the model declares scalar `select` columns to check against.
+ * A bulk select (`all_from_*`, `dims_from_*`, `fcts_from_*`) may expand to the
+ * named column, and an empty/absent `select` derives the column set from
+ * upstream (rollup, `from: { model }` passthrough) where the column lives --
+ * both skip rather than risk a false positive. The SQL generator's filter
+ * still prunes real mismatches at sync time.
  */
 export function validateMaterializationPartitionsExist(
   modelJson: any,
@@ -1482,7 +1482,8 @@ export function validateMaterializationPartitionsExist(
     }
   }
 
-  if (hasBulkSelect) {
+  // Bulk or empty selects derive columns from upstream; nothing local to check.
+  if (hasBulkSelect || scalarSelectNames.size === 0) {
     return warnings;
   }
 
@@ -1501,6 +1502,161 @@ export function validateMaterializationPartitionsExist(
   }
 
   return warnings;
+}
+
+/**
+ * Validates the `materialization.bucket` and `materialization.sorted_by`
+ * fields against the constraints of the resolved storage format, mirroring
+ * how `frameworkGenerateModelOutput` emits them:
+ *
+ * - **Delta Lake** (resolved format) supports neither bucketing nor sorted
+ *   writes in dbt-trino -> Error.
+ * - **Non-Iceberg** formats share a single `bucket_count` across all bucket
+ *   columns, so multiple bucket entries with differing `count` collapse to one
+ *   value at emit time -> Error (per-column counts are Iceberg-only).
+ * - **Hive** sorts within buckets, so `sorted_by` is only valid alongside
+ *   `bucket` -> Error when `sorted_by` is set without `bucket`.
+ * - Bucket / sort columns missing from the model's scalar `select` get
+ *   silently dropped by the generator's column filter -> Warning (skipped when
+ *   a bulk select is present, matching `validateMaterializationPartitionsExist`).
+ *
+ * Format resolution matches the generator: model-level `materialization.format`
+ * wins, then the project `storage_type` var, then neither.
+ */
+export function validateBucketAndSortedBy(
+  modelJson: any,
+  storageType?: string | null,
+): ValidationErrorDetail[] {
+  const details: ValidationErrorDetail[] = [];
+  if (!modelJson || typeof modelJson !== 'object') {
+    return details;
+  }
+  const mat = modelJson.materialization;
+  if (!mat || typeof mat !== 'object') {
+    return details;
+  }
+
+  const bucketIsArray = Array.isArray(mat.bucket);
+  const buckets: any[] = bucketIsArray
+    ? mat.bucket
+    : mat.bucket && typeof mat.bucket === 'object'
+      ? [mat.bucket]
+      : [];
+  const sortedBy: any[] = Array.isArray(mat.sorted_by) ? mat.sorted_by : [];
+  const hasBucket = buckets.length > 0;
+  const hasSortedBy = sortedBy.length > 0;
+  if (!hasBucket && !hasSortedBy) {
+    return details;
+  }
+
+  const modelFormat = typeof mat.format === 'string' ? mat.format : null;
+  const resolvedFormat = modelFormat || storageType || null;
+  const isIceberg = resolvedFormat === 'iceberg';
+
+  // With no resolvable format the generator defaults to Hive-style bucketing,
+  // which is wrong for an Iceberg table -- prompt for an explicit format
+  // rather than silently inferring one.
+  if (!resolvedFormat) {
+    details.push({
+      message:
+        'Could not resolve a storage format for `materialization.bucket` / `materialization.sorted_by`. Set `materialization.format` ("iceberg", "hive", or "delta_lake") or the project `storage_type` var — without it DJ emits Hive-style `bucketed_by` / `bucket_count`, which is incorrect for an Iceberg table.',
+      instancePath: hasBucket
+        ? '/materialization/bucket'
+        : '/materialization/sorted_by',
+      severity: 'warning',
+    });
+  }
+
+  if (resolvedFormat === 'delta_lake') {
+    if (hasBucket) {
+      details.push({
+        message:
+          '`materialization.bucket` is not supported on Delta Lake in dbt-trino. Use Iceberg or Hive format, or remove `bucket`.',
+        instancePath: '/materialization/bucket',
+        severity: 'error',
+      });
+    }
+    if (hasSortedBy) {
+      details.push({
+        message:
+          '`materialization.sorted_by` is not supported on Delta Lake in dbt-trino. Use Iceberg or Hive format, or remove `sorted_by`.',
+        instancePath: '/materialization/sorted_by',
+        severity: 'error',
+      });
+    }
+  }
+
+  if (!isIceberg && hasBucket) {
+    const counts = buckets
+      .map((b) => (b && typeof b === 'object' ? b.count : undefined))
+      .filter((c): c is number => typeof c === 'number');
+    if (new Set(counts).size > 1) {
+      details.push({
+        message:
+          'All `materialization.bucket` entries must share the same `count` outside of Iceberg: a single `bucket_count` applies to every bucket column on Hive / Glue. Use one count, or switch to Iceberg format for per-column bucket counts.',
+        instancePath: '/materialization/bucket',
+        severity: 'error',
+      });
+    }
+  }
+
+  if (resolvedFormat === 'hive' && hasSortedBy && !hasBucket) {
+    details.push({
+      message:
+        'On Hive / Glue, `materialization.sorted_by` requires `materialization.bucket` (Trino sorts rows within buckets). Add a `bucket`, or switch to Iceberg format for a standalone sort order.',
+      instancePath: '/materialization/sorted_by',
+      severity: 'error',
+    });
+  }
+
+  const select = Array.isArray(modelJson.select) ? modelJson.select : [];
+  const scalarSelectNames = new Set<string>();
+  let hasBulkSelect = false;
+  for (const item of select) {
+    if (typeof item === 'string') {
+      scalarSelectNames.add(item);
+      continue;
+    }
+    if (!item || typeof item !== 'object') {
+      continue;
+    }
+    if (typeof item.type === 'string' && BULK_SELECT_TYPES.has(item.type)) {
+      hasBulkSelect = true;
+      continue;
+    }
+    if (typeof item.name === 'string') {
+      scalarSelectNames.add(item.name);
+    }
+  }
+
+  // Like validateMaterializationPartitionsExist, only check columns against an
+  // explicit scalar select; bulk/empty selects derive columns from upstream.
+  // The format-compatibility errors above run regardless of column shape.
+  if (!hasBulkSelect && scalarSelectNames.size > 0) {
+    for (let i = 0; i < buckets.length; i++) {
+      const entry = buckets[i];
+      const col = entry && typeof entry === 'object' ? entry.column : undefined;
+      if (typeof col === 'string' && !scalarSelectNames.has(col)) {
+        details.push({
+          message: `Column "${col}" in \`materialization.bucket\` is not in the model's \`select\` output. The bucketing declaration will be silently dropped.`,
+          instancePath: bucketIsArray
+            ? `/materialization/bucket/${i}/column`
+            : '/materialization/bucket/column',
+        });
+      }
+    }
+    for (let i = 0; i < sortedBy.length; i++) {
+      const col = sortedBy[i];
+      if (typeof col === 'string' && !scalarSelectNames.has(col)) {
+        details.push({
+          message: `Column "${col}" in \`materialization.sorted_by\` is not in the model's \`select\` output. It will be silently dropped from the sort order.`,
+          instancePath: `/materialization/sorted_by/${i}`,
+        });
+      }
+    }
+  }
+
+  return details;
 }
 
 const EXISTS_OPERATORS = new Set(['exists', 'not_exists']);

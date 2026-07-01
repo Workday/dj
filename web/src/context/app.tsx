@@ -507,7 +507,6 @@ export function AppProvider() {
                     resolve(
                       apiResponse<typeof payloadType>({
                         success: true,
-                        uploadedFiles: uploaded,
                       }),
                     ),
                   );
@@ -534,6 +533,13 @@ export function AppProvider() {
                       path: 'lightdash',
                       absolutePath: '/mock/workspace/lightdash',
                     }),
+                  );
+                }
+                case 'lightdash-yaml-get-path-project': {
+                  // No recorded project in the mock, so the Download tab never
+                  // raises the cross-project replace prompt during dev.
+                  return resolve(
+                    apiResponse<typeof payloadType>({ project: undefined }),
                   );
                 }
                 case 'lightdash-yaml-get-download-defaults': {
@@ -765,6 +771,137 @@ export function AppProvider() {
                     apiResponse<typeof payloadType>({ success: true }),
                   );
                 }
+                case 'data-explorer-list-lightdash-assets': {
+                  // `request.force` (manual re-scan) is a no-op against the
+                  // static mock; it always returns the same fixture list.
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      assets: [
+                        {
+                          kind: 'dashboard',
+                          slug: 'exec-overview',
+                          name: 'Executive Overview',
+                          modelNames: ['mart_orders', 'mart_customers'],
+                          chartCount: 2,
+                        },
+                        {
+                          kind: 'chart',
+                          slug: 'orders-by-region',
+                          name: 'Orders by Region',
+                          modelNames: ['mart_orders'],
+                          dashboardNames: ['Executive Overview'],
+                        },
+                        {
+                          kind: 'chart',
+                          slug: 'standalone-revenue',
+                          name: 'Standalone Revenue',
+                          modelNames: ['mart_orders'],
+                          dashboardNames: [],
+                        },
+                      ],
+                      lightdashAvailable: true,
+                      lightdashResolvedPath: 'lightdash',
+                    }),
+                  );
+                }
+                case 'data-explorer-get-reverse-lineage': {
+                  const { kind, slug } = payload.request as {
+                    kind: 'dashboard' | 'chart';
+                    slug: string;
+                  };
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      anchor: {
+                        id: `lightdash::${kind}::${slug}`,
+                        slug,
+                        name:
+                          kind === 'dashboard'
+                            ? 'Executive Overview'
+                            : 'Orders by Region',
+                        kind,
+                        filePath: `lightdash/${kind}s/${slug}.yml`,
+                        charts:
+                          kind === 'dashboard'
+                            ? [
+                                {
+                                  slug: 'orders-by-region',
+                                  name: 'Orders by Region',
+                                  filePath: 'lightdash/charts/orders.yml',
+                                  modelName: 'mart_orders',
+                                },
+                              ]
+                            : undefined,
+                      },
+                      models: [
+                        {
+                          id: 'model.demo.mart_orders',
+                          name: 'mart_orders',
+                          type: 'model',
+                          path: 'models/mart/mart_orders.sql',
+                          materialized: 'table',
+                          hasOwnUpstream: true,
+                        },
+                      ],
+                      staleModels:
+                        kind === 'dashboard' ? ['mart_customers'] : [],
+                      projectName: 'demo',
+                      manifestAvailable: true,
+                      lightdashAvailable: true,
+                      lightdashResolvedPath: 'lightdash',
+                      parentDashboards:
+                        kind === 'chart'
+                          ? [
+                              {
+                                id: 'lightdash::dashboard::exec-overview',
+                                slug: 'exec-overview',
+                                name: 'Executive Overview',
+                                kind: 'dashboard',
+                                filePath:
+                                  'lightdash/dashboards/exec-overview.yml',
+                                charts: [
+                                  {
+                                    slug,
+                                    name: 'Orders by Region',
+                                    filePath: 'lightdash/charts/orders.yml',
+                                    modelName: 'mart_orders',
+                                  },
+                                ],
+                              },
+                            ]
+                          : [],
+                    }),
+                  );
+                }
+                case 'data-explorer-refresh-projects': {
+                  console.log('[Mock] Refreshing dbt projects');
+                  return resolve(
+                    apiResponse<typeof payloadType>({ success: true }),
+                  );
+                }
+                case 'data-explorer-open-reverse-lineage': {
+                  console.log(
+                    '[Mock] Opening reverse lineage for:',
+                    payload.request,
+                  );
+                  // Mirror the extension: push a `reverse-lineage-init` so the
+                  // Data Explorer shell switches to the embedded Lightdash view
+                  // and the reverse-lineage page loads the anchor.
+                  const anchor = payload.request as {
+                    kind: 'dashboard' | 'chart';
+                    slug: string;
+                  };
+                  window.postMessage(
+                    {
+                      type: 'reverse-lineage-init',
+                      kind: anchor.kind,
+                      slug: anchor.slug,
+                    },
+                    '*',
+                  );
+                  return resolve(
+                    apiResponse<typeof payloadType>({ success: true }),
+                  );
+                }
                 case 'lightdash-yaml-ensure-gitignore': {
                   const path = (payload.request as { path: string }).path;
                   console.log('[Mock] Ensuring .gitignore contains:', path);
@@ -924,6 +1061,18 @@ SELECT * FROM final`,
                 case 'data-explorer-open-with-model': {
                   console.log(
                     '[Mock] Opening Data Explorer with model:',
+                    payload.request,
+                  );
+                  return resolve(
+                    apiResponse<typeof payloadType>({ success: true }),
+                  );
+                }
+                case 'data-explorer-compile-model':
+                case 'data-explorer-preview-model':
+                case 'data-explorer-open-column-lineage': {
+                  console.log(
+                    '[Mock] Reverse-lineage model action:',
+                    payloadType,
                     payload.request,
                   );
                   return resolve(

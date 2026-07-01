@@ -110,6 +110,7 @@ export class Api {
       case 'lightdash-yaml-get-default-path':
       case 'lightdash-yaml-get-download-defaults':
       case 'lightdash-yaml-set-default-path':
+      case 'lightdash-yaml-get-path-project':
       case 'lightdash-yaml-ensure-gitignore':
         // Lazy resolution - gets handler only when needed
         return (await this.getLightdashHandler()(
@@ -120,6 +121,9 @@ export class Api {
       case 'data-explorer-get-compiled-sql':
       case 'data-explorer-open-model-file':
       case 'data-explorer-open-with-model':
+      case 'data-explorer-compile-model':
+      case 'data-explorer-preview-model':
+      case 'data-explorer-open-column-lineage':
       case 'data-explorer-ready':
       case 'data-explorer-detect-active-model':
       case 'data-explorer-get-project-overview':
@@ -127,6 +131,10 @@ export class Api {
       case 'data-explorer-set-lightdash-toggle':
       case 'data-explorer-open-dashboards-as-code':
       case 'data-explorer-open-lightdash-yaml':
+      case 'data-explorer-list-lightdash-assets':
+      case 'data-explorer-get-reverse-lineage':
+      case 'data-explorer-refresh-projects':
+      case 'data-explorer-open-reverse-lineage':
         return (await this.dataExplorer.handleApi(
           payload as any,
         )) as ApiResponse<T>;

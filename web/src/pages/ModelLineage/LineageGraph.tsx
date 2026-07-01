@@ -60,6 +60,10 @@ interface LineageGraphProps {
   ) => void;
   onOpenLightdash: (url: string) => void;
   onOpenLightdashYaml: (filePath: string) => void;
+  onOpenReverseLineage?: (anchor: {
+    kind: 'dashboard' | 'chart';
+    slug: string;
+  }) => void;
 }
 
 const EDGE_COLOR = 'var(--color-border-contrast)';
@@ -93,8 +97,9 @@ const buildGraph = (nodes: Node[], edges: Edge[]) => {
   return graph;
 };
 
-// Calculate level (distance from current node) for each node
-const calculateLevels = (
+// Calculate level (distance from current node) for each node.
+// Exported so the reverse-lineage graph can reuse the same level math.
+export const calculateLevels = (
   nodes: Node[],
   edges: Edge[],
   currentNodeId: string,
@@ -149,8 +154,9 @@ const calculateLevels = (
   return levels;
 };
 
-// Horizontal layout algorithm with multi-level support
-const getLayoutedElements = (
+// Horizontal layout algorithm with multi-level support.
+// Exported for reuse by the reverse-lineage graph (same column/row math).
+export const getLayoutedElements = (
   nodes: Node[],
   edges: Edge[],
   currentNodeId: string,
@@ -217,6 +223,7 @@ export default function LineageGraph({
   onViewColumns,
   onOpenLightdash,
   onOpenLightdashYaml,
+  onOpenReverseLineage,
 }: LineageGraphProps) {
   const {
     checkModelOutdated,
@@ -540,6 +547,7 @@ export default function LineageGraph({
             filePath: ld.filePath,
             onOpen: onOpenLightdash,
             onOpenYaml: onOpenLightdashYaml,
+            onOpenReverseLineage,
           },
         };
         newNodes.push(flowNode);
@@ -582,6 +590,7 @@ export default function LineageGraph({
     onNodeClick,
     onOpenLightdash,
     onOpenLightdashYaml,
+    onOpenReverseLineage,
     setNodes,
     setEdges,
     additionalNodes,

@@ -1,0 +1,31 @@
+{
+  "$id": "model.bucket.schema.json",
+  "title": "Schema Model Bucket",
+  "description": "Bucketing configuration for the materialized table. Accepts a single { column, count } object or an array of them. On Iceberg, each entry is emitted as a bucket(column, count) transform inside `partitioning`. On Hive / Glue, columns are emitted as `bucketed_by` with a single shared `bucket_count` (all entries must share the same count). Not supported on Delta Lake in dbt-trino.",
+  "markdownDescription": "**`bucket`** — hash-bucket table data by one or more columns.\n\n- **Iceberg:** each entry becomes a `bucket(column, count)` transform appended to `partitioning`; counts may differ per column.\n- **Hive / Glue:** emitted as `bucketed_by = ARRAY[...]` with a single `bucket_count`; all entries must share the same `count`.\n- **Delta Lake:** not supported by the dbt-trino Delta connector — DJ surfaces a Problems-tab error.\n\nThe bucket column must be one of the model's columns.",
+  "anyOf": [
+    { "$ref": "#/$defs/bucketSpec" },
+    {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/bucketSpec" }
+    }
+  ],
+  "$defs": {
+    "bucketSpec": {
+      "title": "Bucket Spec",
+      "description": "A single bucketing column and its bucket count.",
+      "type": "object",
+      "required": ["column", "count"],
+      "additionalProperties": false,
+      "properties": {
+        "column": { "$ref": "column.name.schema.json" },
+        "count": {
+          "description": "Number of hash buckets to distribute the column's values across.",
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  }
+}

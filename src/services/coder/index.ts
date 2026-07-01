@@ -188,7 +188,22 @@ export class Coder {
 
       this.locator.register(
         SERVICE_NAMES.LightdashContent,
-        () => new LightdashContent(this.locator.get(SERVICE_NAMES.Logger)),
+        () =>
+          new LightdashContent(
+            this.locator.get(SERVICE_NAMES.Logger),
+            // Known dbt model names, used to resolve charts that lack an
+            // explicit `exploreName` (longest-prefix match). Read lazily
+            // so it reflects the currently-loaded manifest at parse time.
+            () => {
+              const names = new Set<string>();
+              for (const model of this.locator
+                .get<Dbt>(SERVICE_NAMES.Dbt)
+                .models.values()) {
+                names.add(model.name);
+              }
+              return names;
+            },
+          ),
       );
 
       // Resolve all services (triggers lazy instantiation)
