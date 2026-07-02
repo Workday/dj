@@ -120,12 +120,13 @@ export const CteEditorPanel: React.FC<CteEditorPanelProps> = ({
   // excluded -- those let the user reopen the popover for a different CTE
   // without an intermediate close. Mirrors LightdashNode dismissal.
   //
-  // We also ignore clicks landing inside Headless UI portals (Combobox /
-  // Listbox / Menu options render into document.body via
-  // `[data-headlessui-portal]`, outside our popoverRef subtree). Without
-  // this guard, picking an option in the inline "Add manual column" or any
-  // SelectSingle dropdown would be treated as an outside-click and close
-  // the panel before the selection registers.
+  // We also ignore clicks landing inside portaled overlays that render into
+  // document.body outside our popoverRef subtree: Headless UI Combobox /
+  // Listbox / Menu options (`[data-headlessui-portal]` + role attributes) and
+  // the custom SelectMulti dropdown (`[data-portal-dropdown]`). Without this
+  // guard, picking an option in a SelectSingle / SelectMulti or the inline
+  // "Add manual column" would be treated as an outside-click and close the
+  // panel before the selection registers.
   useEffect(() => {
     if (!isOpen) return;
     // A nested DialogBox owns its own dismissal; the panel-level listeners
@@ -137,6 +138,7 @@ export const CteEditorPanel: React.FC<CteEditorPanelProps> = ({
         target.closest(
           [
             '[data-headlessui-portal]',
+            '[data-portal-dropdown]',
             '[data-radix-popper-content-wrapper]',
             '[role="listbox"]',
             '[role="option"]',

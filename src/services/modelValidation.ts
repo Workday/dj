@@ -8,6 +8,7 @@ import {
 import {
   BULK_CTE_TYPES,
   DEFAULT_INCREMENTAL_STRATEGY,
+  FRAMEWORK_PARTITIONS,
 } from '@shared/framework/constants';
 import type { FrameworkColumn } from '@shared/framework/types';
 import type { ValidateFunction } from 'ajv';
@@ -1129,6 +1130,41 @@ const PARTITION_BULK_SELECT_TYPES = new Set([
   'dims_from_cte',
 ]);
 
+/**
+ * Whether a model/CTE scope suppresses *all* auto-injected partition columns.
+ * Mirrors the runtime precedence (individual flag beats the combined enum at
+ * the same scope): `exclude_portal_partition_columns` may be `true` (all),
+ * `false` (none, even under `exclude_framework_artifacts`), or an array. An
+ * array only counts as a full opt-out when it covers every auto-injected
+ * partition column -- a partial array (a strict subset) still leaves
+ * partitions in the output, so the partition-strategy heuristics must treat
+ * it as "partitions present."
+ */
+function scopeExcludesAllPartitions(
+  scope:
+    | {
+        exclude_portal_partition_columns?: unknown;
+        exclude_framework_artifacts?: unknown;
+      }
+    | null
+    | undefined,
+): boolean {
+  const individual = scope?.exclude_portal_partition_columns;
+  if (individual === true) {
+    return true;
+  }
+  if (individual === false) {
+    return false;
+  }
+  if (Array.isArray(individual)) {
+    return FRAMEWORK_PARTITIONS.every((p) => individual.includes(p));
+  }
+  return (
+    scope?.exclude_framework_artifacts === 'all' ||
+    scope?.exclude_framework_artifacts === 'columns'
+  );
+}
+
 function isModelMaterializedIncremental(modelJson: any): boolean {
   if (modelJson?.materialization) {
     if (typeof modelJson.materialization === 'string') {
@@ -1251,10 +1287,7 @@ function modelLikelyOutputsPartitionColumn(modelJson: any): boolean {
     if (from.lookback) {
       return true;
     }
-    const excludesPartitions =
-      modelJson.exclude_portal_partition_columns === true ||
-      modelJson.exclude_framework_artifacts === 'all' ||
-      modelJson.exclude_framework_artifacts === 'columns';
+    const excludesPartitions = scopeExcludesAllPartitions(modelJson);
     if (!excludesPartitions) {
       if ('source' in from) {
         return true;
@@ -1316,11 +1349,7 @@ function cteChainExposesPartitions(
     }
   }
 
-  const cteExcludes =
-    cte.exclude_portal_partition_columns === true ||
-    cte.exclude_framework_artifacts === 'all' ||
-    cte.exclude_framework_artifacts === 'columns';
-  if (cteExcludes) {
+  if (scopeExcludesAllPartitions(cte)) {
     return false;
   }
 

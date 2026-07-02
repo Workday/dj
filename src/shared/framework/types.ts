@@ -55,7 +55,9 @@ export type FrameworkApi =
         exclude_date_filter?: boolean;
         exclude_datetime?: boolean;
         exclude_framework_artifacts?: 'all' | 'columns';
-        exclude_portal_partition_columns?: boolean;
+        exclude_portal_partition_columns?:
+          | boolean
+          | [FrameworkPartitionName, ...FrameworkPartitionName[]];
         exclude_portal_source_count?: boolean;
         from?: {
           model?: string;

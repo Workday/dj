@@ -1832,6 +1832,44 @@ describe('validatePartitionStrategyWithoutPartitions', () => {
     expect(warnings[0].instancePath).toBe('/materialization');
   });
 
+  test('suppresses: partial `exclude_portal_partition_columns` array still leaves partitions present', () => {
+    const modelJson = {
+      type: 'int_select_model',
+      materialization: { type: 'incremental' },
+      from: { model: 'stg_events' },
+      select: [{ name: 'region', type: 'dim' }],
+      // Drops only hourly; monthly + daily still flow through, so a
+      // partition-based strategy has columns to drive its work scope.
+      exclude_portal_partition_columns: ['portal_partition_hourly'],
+    };
+    expect(
+      validatePartitionStrategyWithoutPartitions(
+        modelJson,
+        'overwrite_existing_partitions',
+      ),
+    ).toHaveLength(0);
+  });
+
+  test('warns: `exclude_portal_partition_columns` array covering all three drops every partition', () => {
+    const modelJson = {
+      type: 'int_select_model',
+      materialization: { type: 'incremental' },
+      from: { model: 'stg_events' },
+      select: [{ name: 'region', type: 'dim' }],
+      exclude_portal_partition_columns: [
+        'portal_partition_monthly',
+        'portal_partition_daily',
+        'portal_partition_hourly',
+      ],
+    };
+    expect(
+      validatePartitionStrategyWithoutPartitions(
+        modelJson,
+        'overwrite_existing_partitions',
+      ),
+    ).toHaveLength(1);
+  });
+
   test('warns: explicit `dj_iceberg_partition_overwrite` strategy via `materialization.strategy`', () => {
     const modelJson = {
       type: 'int_select_model',

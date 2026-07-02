@@ -17,7 +17,6 @@ import {
   VIEW_ID,
 } from '@services/constants';
 import type { DJLogger } from '@services/djLogger';
-import { PARTITION_DAILY } from '@services/framework/constants';
 import type { FrameworkState } from '@services/framework/FrameworkState';
 import {
   frameworkExtractModelName,
@@ -52,6 +51,7 @@ import {
   getDbtModelId,
   getDbtProjectProperties,
 } from '@shared/dbt/utils';
+import { PARTITION_DAILY } from '@shared/framework/constants';
 import type { FrameworkSchemaBase } from '@shared/framework/types';
 import type { TreeData, TreeItem } from 'admin';
 import { DJ_SCHEMAS_PATH, TreeDataInstance, WORKSPACE_ROOT } from 'admin';

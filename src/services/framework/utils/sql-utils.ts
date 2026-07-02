@@ -8,12 +8,6 @@
  * - Table function SQL
  */
 
-import {
-  FRAMEWORK_PARTITIONS,
-  PARTITION_DAILY,
-  PARTITION_HOURLY,
-  PARTITION_MONTHLY,
-} from '@services/framework/constants';
 import { COLUMN_META_SQL_INTERNAL_RESERVED_KEYS } from '@services/framework/utils/meta-lint';
 import { lightdashConvertDimensionType } from '@services/lightdash/utils';
 import type { DJ } from '@shared';
@@ -43,8 +37,12 @@ import {
   BULK_CTE_TYPES,
   BULK_MODEL_TYPES,
   DEFAULT_INCREMENTAL_STRATEGY,
+  FRAMEWORK_PARTITIONS,
   JOIN_ON_DIMS,
   normalizeGroupBy,
+  PARTITION_DAILY,
+  PARTITION_HOURLY,
+  PARTITION_MONTHLY,
 } from '@shared/framework/constants';
 import type {
   FrameworkColumn,

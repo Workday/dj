@@ -10,13 +10,7 @@
  * - frameworkGetRollupInputs ↔ frameworkProcessSelected
  */
 
-import {
-  FRAMEWORK_AGGS,
-  FRAMEWORK_PARTITIONS,
-  PARTITION_DAILY,
-  PARTITION_HOURLY,
-  PARTITION_MONTHLY,
-} from '@services/framework/constants';
+import { FRAMEWORK_AGGS } from '@services/framework/constants';
 import { lightdashBuildMetrics } from '@services/lightdash/utils';
 import type { DJ } from '@shared';
 import { mergeDeep } from '@shared';
@@ -27,6 +21,10 @@ import {
   BULK_SELECT_TYPES,
   DIMS_BULK_TYPES,
   FCTS_BULK_TYPES,
+  FRAMEWORK_PARTITIONS,
+  PARTITION_DAILY,
+  PARTITION_HOURLY,
+  PARTITION_MONTHLY,
 } from '@shared/framework/constants';
 import type {
   FrameworkColumn,
@@ -890,14 +888,19 @@ export function frameworkBuildColumns({
   });
   columns = sortColumnsWithPartitionsLast(columns, partitionColumnNames);
 
-  // Strip auto-injected partition columns when the model opts out.
-  // Origin-aware: same rules as `portal_source_count` above.
-  if (
-    frameworkResolveExcludeFlag('portal_partition_columns', null, modelJson)
-  ) {
+  // Strip auto-injected partition columns when the model opts out. The flag
+  // accepts `true` (drop all) or an array (drop only the named partitions);
+  // the resolver returns the effective set. Origin-aware: same rules as
+  // `portal_source_count` above -- columns the user listed explicitly survive.
+  const excludedPartitionColumns = frameworkResolveExcludedPartitionColumns(
+    null,
+    modelJson,
+    partitionColumnNames,
+  );
+  if (excludedPartitionColumns.size > 0) {
     columns = columns.filter(
       (c) =>
-        !partitionColumnNames.includes(c.name) ||
+        !excludedPartitionColumns.has(c.name) ||
         userExplicitColumnNames.has(c.name),
     );
   }
@@ -1659,8 +1662,18 @@ const COMBINED_FLAG_IMPLIES: Record<'all' | 'columns', Set<ExcludeFlagName>> = {
 };
 
 type ExcludeFlagSource =
-  | (Partial<Record<`exclude_${ExcludeFlagName}`, boolean | undefined>> & {
+  | (Partial<
+      Record<
+        `exclude_${Exclude<ExcludeFlagName, 'portal_partition_columns'>}`,
+        boolean | undefined
+      >
+    > & {
       exclude_framework_artifacts?: 'all' | 'columns';
+      // The partition opt-out accepts a boolean (all/none) or an array of
+      // specific partition column names to drop. `frameworkResolveExcludeFlag`
+      // coerces the array to a truthy boolean for legacy callers;
+      // `frameworkResolveExcludedPartitionColumns` reads the precise set.
+      exclude_portal_partition_columns?: boolean | string[];
     })
   | null
   | undefined;
@@ -1670,7 +1683,10 @@ export function frameworkResolveExcludeFlag(
   cte: ExcludeFlagSource,
   modelJson: ExcludeFlagSource,
 ): boolean {
-  const individual = (s: ExcludeFlagSource): boolean | undefined =>
+  // The `portal_partition_columns` individual flag can be an array; here we
+  // only need its truthiness (any exclusion in effect). Callers needing the
+  // exact set use `frameworkResolveExcludedPartitionColumns`.
+  const individual = (s: ExcludeFlagSource): boolean | string[] | undefined =>
     s?.[`exclude_${flag}`];
   const combined = (s: ExcludeFlagSource): boolean | undefined => {
     const v = s?.exclude_framework_artifacts;
@@ -1697,6 +1713,74 @@ export function frameworkResolveExcludeFlag(
     return modelCombined;
   }
   return false;
+}
+
+/**
+ * Resolves the SET of partition column names to exclude for a given scope.
+ * Generalizes `frameworkResolveExcludeFlag` for `exclude_portal_partition_columns`,
+ * which accepts `boolean | string[]`:
+ *   - `true`  -> every name in `allPartitionNames`
+ *   - `false` -> none
+ *   - array   -> exactly the listed names (intersected with `allPartitionNames`
+ *                so stale names after a materialization change are ignored)
+ *
+ * The combined `exclude_framework_artifacts` enum ("all" | "columns") implies
+ * all partitions. Precedence mirrors `frameworkResolveExcludeFlag`:
+ *
+ *   CTE individual > CTE combined > model individual > model combined > none
+ *
+ * An array at any scope overrides the combined flag at that scope, narrowing
+ * the bundle's all-partitions exclusion to just the listed columns (the same
+ * way `exclude_portal_source_count: false` keeps that one column under
+ * `exclude_framework_artifacts: "all"`).
+ */
+export function frameworkResolveExcludedPartitionColumns(
+  cte: ExcludeFlagSource,
+  modelJson: ExcludeFlagSource,
+  allPartitionNames: string[],
+): Set<string> {
+  const all = (): Set<string> => new Set<string>(allPartitionNames);
+  const none = (): Set<string> => new Set<string>();
+  const individual = (s: ExcludeFlagSource): Set<string> | undefined => {
+    const v = s?.exclude_portal_partition_columns;
+    if (v === undefined) {
+      return undefined;
+    }
+    if (v === true) {
+      return all();
+    }
+    if (v === false) {
+      return none();
+    }
+    return new Set<string>(v.filter((n) => allPartitionNames.includes(n)));
+  };
+  const combined = (s: ExcludeFlagSource): Set<string> | undefined => {
+    const fa = s?.exclude_framework_artifacts;
+    if (fa !== 'all' && fa !== 'columns') {
+      return undefined;
+    }
+    return COMBINED_FLAG_IMPLIES[fa].has('portal_partition_columns')
+      ? all()
+      : none();
+  };
+
+  const cteIndividual = individual(cte);
+  if (cteIndividual !== undefined) {
+    return cteIndividual;
+  }
+  const cteCombined = combined(cte);
+  if (cteCombined !== undefined) {
+    return cteCombined;
+  }
+  const modelIndividual = individual(modelJson);
+  if (modelIndividual !== undefined) {
+    return modelIndividual;
+  }
+  const modelCombined = combined(modelJson);
+  if (modelCombined !== undefined) {
+    return modelCombined;
+  }
+  return none();
 }
 
 const BULK_SELECT_TYPE_NAMES = new Set<string>([
@@ -2010,16 +2094,17 @@ export function frameworkShouldAutoInjectCteFrameworkDims({
 
   // Per-CTE opt-outs: `exclude_portal_partition_columns` suppresses the
   // partition columns and `exclude_datetime` suppresses the `datetime`
-  // column. Both mirror main-model flags with the same names and resolve
-  // through `frameworkResolveExcludeFlag`, which honors the combined
-  // `exclude_framework_artifacts` enum and the four-tier precedence chain
-  // (CTE individual > CTE combined > model individual > model combined).
-  // The flags are orthogonal -- set both to drop both, matching the main-
-  // model behavior.
-  const effectiveExcludePartitions = frameworkResolveExcludeFlag(
-    'portal_partition_columns',
+  // column. Both mirror main-model flags with the same names and honor the
+  // combined `exclude_framework_artifacts` enum and the four-tier precedence
+  // chain (CTE individual > CTE combined > model individual > model combined).
+  // The partition flag accepts a boolean (all/none) or an array of specific
+  // partition names; `frameworkResolveExcludedPartitionColumns` returns the
+  // effective set. The two flags are orthogonal -- set both to drop both,
+  // matching the main-model behavior.
+  const excludedPartitionSet = frameworkResolveExcludedPartitionColumns(
     cte,
     modelJson ?? null,
+    FRAMEWORK_PARTITIONS,
   );
   const effectiveExcludeDatetime = frameworkResolveExcludeFlag(
     'datetime',
@@ -2030,8 +2115,10 @@ export function frameworkShouldAutoInjectCteFrameworkDims({
   if (!effectiveExcludeDatetime) {
     candidates.push('datetime');
   }
-  if (!effectiveExcludePartitions) {
-    candidates.push(PARTITION_MONTHLY, PARTITION_DAILY, PARTITION_HOURLY);
+  for (const p of FRAMEWORK_PARTITIONS) {
+    if (!excludedPartitionSet.has(p)) {
+      candidates.push(p);
+    }
   }
   const alreadyPresent = new Set(alreadyPresentNames);
   const missing = candidates.filter(

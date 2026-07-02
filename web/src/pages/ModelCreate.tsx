@@ -538,6 +538,13 @@ export function ModelCreate({ mode = 'create' }: ModelCreateProps) {
               'exclude_portal_source_count',
               dataToLoad.exclude_portal_source_count,
             );
+          if (dataToLoad.exclude_framework_artifacts !== undefined)
+            setValue(
+              'exclude_framework_artifacts',
+              dataToLoad.exclude_framework_artifacts,
+            );
+          if (dataToLoad.exclude_datetime !== undefined)
+            setValue('exclude_datetime', dataToLoad.exclude_datetime);
 
           // Mark as initialized after loading data
           useModelStore.getState().setIsInitialized(true);

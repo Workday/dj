@@ -273,7 +273,11 @@ The full set:
 - `"exclude_portal_partition_columns": true` — drops `portal_partition_*`
   injection. For pure-dimension or lookup models that need neither datetime
   nor partitions, set this together with `exclude_datetime` (or use
-  `exclude_framework_artifacts: "columns"`).
+  `exclude_framework_artifacts: "columns"`). Accepts an array instead of a
+  boolean (e.g. `["portal_partition_hourly"]`) to drop only the listed
+  partition columns while keeping the rest — useful when a model inherits a
+  partition grain it doesn't need (a union model, say). An array at a scope
+  overrides `exclude_framework_artifacts` at that scope.
 - `"exclude_portal_source_count": true` — drops `portal_source_count`
   injection.
 - `"exclude_date_filter": true` — drops the auto `_ext_event_date_filter`

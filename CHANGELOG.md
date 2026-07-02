@@ -1,5 +1,10 @@
 # Change Log
 
+## 1.10.0
+
+- **Exclude specific portal partition columns.** `exclude_portal_partition_columns` now accepts an array of column names, not just the boolean, so a model or CTE can drop any subset of its monthly / daily / hourly partition grains instead of all-or-nothing. Set it in the `.model.json`, the model wizard's Exclude Partition Columns picker, or the CTE side-panel; an array overrides `exclude_framework_artifacts` at the same scope.
+- **Framework-artifact excludes now in the model wizard, with guidance.** The Additional Fields → Column Excludes step surfaces the full set of opt-outs — datetime, portal source count, partition columns, and the date / daily WHERE filters — each with a tooltip on when it's safe to drop and how it affects query cost. The CTE side-panel's exclude controls gain the same tooltips.
+
 ## 1.9.0
 
 ### Agent skills

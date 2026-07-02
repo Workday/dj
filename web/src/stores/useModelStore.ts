@@ -1,12 +1,14 @@
 import type { DbtProject } from '@shared/dbt/types';
 import {
   DEFAULT_INCREMENTAL_STRATEGY,
+  FRAMEWORK_PARTITIONS,
   GROUP_BY_DIMS,
   normalizeGroupBy,
 } from '@shared/framework/constants';
 import type {
   FrameworkInterval,
   FrameworkModel,
+  FrameworkPartitionName,
 } from '@shared/framework/types';
 import type { SchemaLightdashMetric } from '@shared/schema/types/lightdash.metric.schema';
 import type { SchemaModelGroupBy } from '@shared/schema/types/model.group_by.schema';
@@ -15,6 +17,7 @@ import type { SchemaModelMaterialized } from '@shared/schema/types/model.materia
 import type {
   IncrementalStrategy,
   ModelSqlHooksSchemaJson,
+  SchemaModelExcludePortalPartitionColumns,
   SchemaModelPartitionedBy,
 } from '@shared/schema/types/model.schema';
 // Import proper schema types for select
@@ -52,6 +55,20 @@ import {
   isCteCapableType,
   isGroupByAllowedType,
 } from './utils';
+
+// Multi-select options for the granular partition-column exclusion control,
+// shared by the model wizard (AdditionalFields) and the CTE side-panel.
+// Derived from FRAMEWORK_PARTITIONS so the partition column list has a single
+// source of truth; the label is the start-cased column name.
+export const PORTAL_PARTITION_COLUMN_OPTIONS = FRAMEWORK_PARTITIONS.map(
+  (value) => ({
+    value,
+    label: value
+      .split('_')
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' '),
+  }),
+);
 
 // Union type for all possible select configurations
 export type SchemaSelect =
@@ -102,7 +119,7 @@ export type CteState = {
   having?: unknown;
   exclude_date_filter?: boolean;
   exclude_daily_filter?: boolean;
-  exclude_portal_partition_columns?: boolean;
+  exclude_portal_partition_columns?: SchemaModelExcludePortalPartitionColumns;
   exclude_datetime?: boolean;
   exclude_framework_artifacts?: 'all' | 'columns';
   exclude_portal_source_count?: boolean;
@@ -336,7 +353,7 @@ export interface AdditionalFieldsSchema {
   exclude_date_filter?: boolean;
   exclude_datetime?: boolean;
   exclude_framework_artifacts?: 'all' | 'columns';
-  exclude_portal_partition_columns?: boolean;
+  exclude_portal_partition_columns?: SchemaModelExcludePortalPartitionColumns;
   exclude_portal_source_count?: boolean;
 }
 
@@ -1254,11 +1271,30 @@ export const useModelStore = create<ModelStore>()(
 
           // Validate boolean fields
           if (
-            key === 'exclude_portal_partition_columns' ||
             key === 'exclude_portal_source_count' ||
             key === 'exclude_datetime'
           ) {
             if (typeof value !== 'boolean') {
+              value = false; // Default to false if invalid
+            }
+          }
+
+          // `exclude_portal_partition_columns` accepts a boolean (all/none) or
+          // an array of specific partition column names. Keep booleans as-is;
+          // sanitize arrays down to known partition names and drop the field
+          // when the array ends up empty (nothing to exclude).
+          if (key === 'exclude_portal_partition_columns') {
+            if (Array.isArray(value)) {
+              const cleaned = value.filter(
+                (item): item is FrameworkPartitionName =>
+                  typeof item === 'string' &&
+                  (FRAMEWORK_PARTITIONS as readonly string[]).includes(item),
+              );
+              value =
+                cleaned.length > 0
+                  ? (cleaned as AdditionalFieldsSchema[typeof key])
+                  : undefined;
+            } else if (typeof value !== 'boolean') {
               value = false; // Default to false if invalid
             }
           }
