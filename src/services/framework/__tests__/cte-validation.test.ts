@@ -2,6 +2,7 @@ import { describe, expect, test } from '@jest/globals';
 import { frameworkBuildCteColumnRegistry } from '@services/framework/utils';
 import {
   validateBucketAndSortedBy,
+  validateBulkExcludeFrameworkColumns,
   validateCteColumnReferences,
   validateCteGroupBy,
   validateCteLightdashMetrics,
@@ -2347,5 +2348,169 @@ describe('validateMaterializationPartitionsExist', () => {
       from: { model: 'oms_detail_daily', rollup: { interval: 'month' } },
     });
     expect(errors).toEqual([]);
+  });
+});
+
+/**
+ * A bulk-select `exclude` cannot drop a framework-managed column -- the
+ * framework re-injects `datetime`, `portal_partition_*`, and
+ * `portal_source_count` after bulk expansion. The validator surfaces that as a
+ * warning pointing at the dedicated exclude flag.
+ */
+describe('validateBulkExcludeFrameworkColumns', () => {
+  test('warns and names the partition flag for a partition grain in a bulk exclude', () => {
+    const warnings = validateBulkExcludeFrameworkColumns({
+      type: 'int_union_models',
+      from: {
+        model: 'stg_events',
+        union: { type: 'all', models: ['stg_events'] },
+      },
+      select: [
+        {
+          type: 'all_from_model',
+          model: 'stg_events',
+          exclude: ['portal_partition_hourly'],
+        },
+      ],
+    });
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].message).toContain('portal_partition_hourly');
+    expect(warnings[0].message).toContain(
+      'exclude_portal_partition_columns: ["portal_partition_hourly"]',
+    );
+    expect(warnings[0].instancePath).toBe('/select/0/exclude/0');
+  });
+
+  test('names exclude_datetime and exclude_portal_source_count for those columns', () => {
+    const warnings = validateBulkExcludeFrameworkColumns({
+      type: 'int_select_model',
+      from: { model: 'stg_events' },
+      select: [
+        {
+          type: 'all_from_model',
+          model: 'stg_events',
+          exclude: ['datetime', 'portal_source_count'],
+        },
+      ],
+    });
+    expect(warnings).toHaveLength(2);
+    expect(warnings[0].message).toContain('`exclude_datetime: true`');
+    expect(warnings[0].instancePath).toBe('/select/0/exclude/0');
+    expect(warnings[1].message).toContain('`exclude_portal_source_count: true`');
+    expect(warnings[1].instancePath).toBe('/select/0/exclude/1');
+  });
+
+  test('warns for a bulk exclude inside a CTE select, anchored at the CTE path', () => {
+    const warnings = validateBulkExcludeFrameworkColumns({
+      type: 'int_select_model',
+      from: { cte: 'pre_agg' },
+      ctes: [
+        {
+          name: 'pre_agg',
+          from: { model: 'stg_events' },
+          select: [
+            {
+              type: 'dims_from_model',
+              model: 'stg_events',
+              exclude: ['portal_partition_daily'],
+            },
+          ],
+        },
+      ],
+    });
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].instancePath).toBe('/ctes/0/select/0/exclude/0');
+  });
+
+  test('does not warn for a regular column in a bulk exclude', () => {
+    const warnings = validateBulkExcludeFrameworkColumns({
+      type: 'int_select_model',
+      from: { model: 'stg_events' },
+      select: [
+        { type: 'all_from_model', model: 'stg_events', exclude: ['region'] },
+      ],
+    });
+    expect(warnings).toEqual([]);
+  });
+
+  test('does not warn when a framework column is in a bulk include (a meaningful keep)', () => {
+    const warnings = validateBulkExcludeFrameworkColumns({
+      type: 'int_select_model',
+      from: { model: 'stg_events' },
+      select: [
+        {
+          type: 'dims_from_model',
+          model: 'stg_events',
+          include: ['portal_partition_hourly'],
+        },
+      ],
+    });
+    expect(warnings).toEqual([]);
+  });
+
+  test('does not warn for a source-sourced bulk select (generation, not re-injection)', () => {
+    const warnings = validateBulkExcludeFrameworkColumns({
+      type: 'stg_select_source',
+      from: { source: 'raw.events' },
+      select: [
+        {
+          type: 'all_from_source',
+          source: 'raw.events',
+          exclude: ['portal_partition_hourly'],
+        },
+      ],
+    });
+    expect(warnings).toEqual([]);
+  });
+
+  test('does not warn when the excluded datetime is re-added as a scalar (replace pattern)', () => {
+    const warnings = validateBulkExcludeFrameworkColumns({
+      type: 'int_select_model',
+      from: { model: 'stg_events' },
+      select: [
+        {
+          type: 'dims_from_model',
+          model: 'stg_events',
+          exclude: ['datetime'],
+        },
+        { type: 'dim', name: 'datetime', interval: 'day' },
+      ],
+    });
+    expect(warnings).toEqual([]);
+  });
+
+  test('suppression is scope-local: a CTE re-add silences only the CTE exclude, not a main-select one', () => {
+    const warnings = validateBulkExcludeFrameworkColumns({
+      type: 'int_select_model',
+      from: { model: 'stg_events' },
+      select: [
+        {
+          type: 'all_from_model',
+          model: 'stg_events',
+          exclude: ['datetime'],
+        },
+      ],
+      ctes: [
+        {
+          name: 'pre_agg',
+          from: { model: 'stg_events' },
+          select: [
+            {
+              type: 'dims_from_model',
+              model: 'stg_events',
+              exclude: ['datetime'],
+            },
+            { type: 'dim', name: 'datetime', interval: 'day' },
+          ],
+        },
+      ],
+    });
+    // The CTE excludes and re-adds datetime -> suppressed (no CTE warning).
+    // The main select excludes without re-adding -> still warns. A single
+    // warning anchored at the main-select path proves the re-added names are
+    // computed per scope, not pooled across the model.
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].message).toContain('`exclude_datetime: true`');
+    expect(warnings[0].instancePath).toBe('/select/0/exclude/0');
   });
 });

@@ -890,12 +890,18 @@ export function frameworkBuildColumns({
 
   // Strip auto-injected partition columns when the model opts out. The flag
   // accepts `true` (drop all) or an array (drop only the named partitions);
-  // the resolver returns the effective set. Origin-aware: same rules as
-  // `portal_source_count` above -- columns the user listed explicitly survive.
+  // the resolver returns the effective set. The universe of droppable names is
+  // the canonical FRAMEWORK_PARTITIONS set (matching the CTE path), not this
+  // model's declared materialization partition set: a model can carry a
+  // partition column it does not materialize on (e.g. portal_partition_hourly
+  // inherited via `all_from_model` from a parent whose `portal_partition_columns`
+  // meta lists only monthly/daily), and that column must stay droppable.
+  // Origin-aware: same rules as `portal_source_count` above -- columns the user
+  // listed explicitly survive.
   const excludedPartitionColumns = frameworkResolveExcludedPartitionColumns(
     null,
     modelJson,
-    partitionColumnNames,
+    FRAMEWORK_PARTITIONS,
   );
   if (excludedPartitionColumns.size > 0) {
     columns = columns.filter(
@@ -1794,7 +1800,7 @@ const BULK_SELECT_TYPE_NAMES = new Set<string>([
 ]);
 
 /**
- * Names the user listed explicitly in `select`. Two cases qualify:
+ * Names the user listed explicitly in a `select` array. Two cases qualify:
  *   1. Scalar select items addressed by `name`
  *      (e.g. `{ "name": "datetime", "expr": "max(datetime)" }`).
  *   2. Bulk-select `include` arrays (e.g. `{ "type": "all_from_model",
@@ -1803,16 +1809,13 @@ const BULK_SELECT_TYPE_NAMES = new Set<string>([
  * Bulk default-keep (a column the bulk picks up because it isn't in
  * `exclude`) does NOT qualify -- the user did not name that column.
  *
- * Powers origin-aware stripping for `exclude_datetime`,
- * `exclude_portal_partition_columns`, and `exclude_portal_source_count`
- * (and the combined-flag values that imply them): framework-supplied
- * copies are removed, user-typed copies are kept.
+ * Operates on a single `select` array so both the model's top-level select and
+ * a CTE's select can be scanned with identical rules.
  */
-export function frameworkExtractUserExplicitColumnNames(
-  modelJson: unknown,
+export function frameworkExtractExplicitNamesFromSelect(
+  select: unknown,
 ): Set<string> {
   const names = new Set<string>();
-  const select = (modelJson as { select?: unknown })?.select;
   if (!Array.isArray(select)) {
     return names;
   }
@@ -1843,6 +1846,22 @@ export function frameworkExtractUserExplicitColumnNames(
     }
   }
   return names;
+}
+
+/**
+ * Names the user listed explicitly in the model's top-level `select`.
+ *
+ * Powers origin-aware stripping for `exclude_datetime`,
+ * `exclude_portal_partition_columns`, and `exclude_portal_source_count`
+ * (and the combined-flag values that imply them): framework-supplied
+ * copies are removed, user-typed copies are kept.
+ */
+export function frameworkExtractUserExplicitColumnNames(
+  modelJson: unknown,
+): Set<string> {
+  return frameworkExtractExplicitNamesFromSelect(
+    (modelJson as { select?: unknown })?.select,
+  );
 }
 
 /**

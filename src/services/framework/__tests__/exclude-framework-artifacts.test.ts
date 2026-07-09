@@ -881,6 +881,78 @@ describe('granular partition-column exclusion (array form)', () => {
     expect(names).toContain('portal_partition_monthly');
   });
 
+  // Real-world repro: the parent staging model declares only monthly/daily in
+  // its `portal_partition_columns` meta (its materialization partition set) yet
+  // still emits `portal_partition_hourly` as a column, which the union inherits
+  // via `all_from_model`. The array exclusion must drop hourly regardless of the
+  // parent's declared partition set -- the droppable universe is the canonical
+  // framework partition names, not the parent meta.
+  test('int_union_models: array drops hourly even when the parent partition meta omits it', () => {
+    const project = createTestProject({
+      nodes: {
+        ['model.project.stg_events']: {
+          meta: {
+            portal_partition_columns: [
+              'portal_partition_monthly',
+              'portal_partition_daily',
+            ],
+          },
+          columns: {
+            region: {
+              name: 'region',
+              data_type: 'varchar',
+              meta: { type: 'dim' },
+            },
+            datetime: {
+              name: 'datetime',
+              data_type: 'timestamp(6)',
+              meta: { type: 'dim', interval: 'hour' },
+            },
+            portal_partition_monthly: {
+              name: 'portal_partition_monthly',
+              data_type: 'varchar',
+              meta: { type: 'dim' },
+            },
+            portal_partition_daily: {
+              name: 'portal_partition_daily',
+              data_type: 'varchar',
+              meta: { type: 'dim' },
+            },
+            portal_partition_hourly: {
+              name: 'portal_partition_hourly',
+              data_type: 'varchar',
+              meta: { type: 'dim' },
+            },
+          },
+        },
+      },
+    });
+    const modelJson: FrameworkModel = {
+      type: 'int_union_models',
+      group: 'analytics',
+      topic: 'events',
+      name: 'unioned',
+      materialization: 'incremental',
+      from: {
+        model: 'stg_events',
+        union: { type: 'all', models: ['stg_events'] },
+      },
+      select: [{ type: 'all_from_model', model: 'stg_events' }],
+      exclude_portal_partition_columns: ['portal_partition_hourly'],
+    } as any;
+
+    const { columns } = frameworkBuildColumns({
+      dj: createTestDJ(),
+      modelJson,
+      project,
+    });
+    const names = columns.map((c) => c.name);
+
+    expect(names).not.toContain('portal_partition_hourly');
+    expect(names).toContain('portal_partition_daily');
+    expect(names).toContain('portal_partition_monthly');
+  });
+
   test('CTE: array drops only hourly, and a CTE array beats a model-level true', () => {
     const project = projectWithFrameworkColumns();
     const cte: FrameworkCTE = {
@@ -907,5 +979,45 @@ describe('granular partition-column exclusion (array form)', () => {
     expect(names).toContain('portal_partition_monthly');
     // datetime is orthogonal and stays.
     expect(names).toContain('datetime');
+  });
+});
+
+/**
+ * The canonical "re-grain a framework column" pattern: exclude `datetime` from
+ * the bulk so its raw copy is not pulled, then re-add it as a scalar carrying a
+ * coarser interval. The scalar must win -- yielding a single `datetime` column
+ * with the authored interval (which the SQL layer renders as
+ * `date_trunc('day', datetime)`). This is the pattern the bulk-exclude warning
+ * must not flag.
+ */
+describe('replace pattern: bulk exclude datetime + scalar re-add', () => {
+  test('re-added scalar datetime keeps its interval and stays the sole datetime column', () => {
+    const project = projectWithFrameworkColumns();
+    const modelJson: FrameworkModel = {
+      type: 'int_select_model',
+      group: 'analytics',
+      topic: 'events',
+      name: 'daily',
+      materialization: 'incremental',
+      from: { model: 'stg_events' },
+      select: [
+        {
+          type: 'dims_from_model',
+          model: 'stg_events',
+          exclude: ['datetime'],
+        },
+        { type: 'dim', name: 'datetime', interval: 'day' },
+      ],
+    } as any;
+
+    const { columns } = frameworkBuildColumns({
+      dj: createTestDJ(),
+      modelJson,
+      project,
+    });
+    const datetimeColumns = columns.filter((c) => c.name === 'datetime');
+
+    expect(datetimeColumns).toHaveLength(1);
+    expect(datetimeColumns[0].internal?.interval).toBe('day');
   });
 });
