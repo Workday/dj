@@ -512,9 +512,22 @@ export type SchemaModelExcludeDateFilter = boolean;
  */
 export type ModelExcludeDailyFilterSchemaJson = boolean;
 /**
- * Will prevent the automatic portal partition date columns from getting added
+ * Controls auto-injection of the portal partition date columns. `true` drops all of them (`portal_partition_monthly`, `portal_partition_daily`, `portal_partition_hourly`); `false` or omitted keeps all. Provide an array of partition column names (e.g. ["portal_partition_hourly"]) to drop only those while keeping the rest. An array overrides `exclude_framework_artifacts` at the same scope, narrowing its all-partitions exclusion to just the listed columns. Columns you list explicitly in `select` are always kept.
  */
-export type SchemaModelExcludePortalPartitionColumns = boolean;
+export type SchemaModelExcludePortalPartitionColumns =
+  | boolean
+  | [
+      (
+        | 'portal_partition_monthly'
+        | 'portal_partition_daily'
+        | 'portal_partition_hourly'
+      ),
+      ...(
+        | 'portal_partition_monthly'
+        | 'portal_partition_daily'
+        | 'portal_partition_hourly'
+      )[],
+    ];
 /**
  * Skips auto-injection of the `datetime` column from the upstream model. Independent of `exclude_portal_partition_columns` -- partition columns survive unless that flag is also set. Mutually exclusive with `from.rollup`, which exists to produce a `datetime` column. For pure-dimension or lookup models, set both `exclude_datetime` and `exclude_portal_partition_columns` to true.
  */

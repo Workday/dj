@@ -1,5 +1,6 @@
 import {
   filterBulkSelectColumns,
+  frameworkExtractExplicitNamesFromSelect,
   isAggregateExpr,
   isConstantExpr,
   isJinjaExpr,
@@ -7,7 +8,9 @@ import {
 } from '@services/framework/utils/column-utils';
 import {
   BULK_CTE_TYPES,
+  BULK_MODEL_TYPES,
   DEFAULT_INCREMENTAL_STRATEGY,
+  FRAMEWORK_PARTITIONS,
 } from '@shared/framework/constants';
 import type { FrameworkColumn } from '@shared/framework/types';
 import type { ValidateFunction } from 'ajv';
@@ -1129,6 +1132,41 @@ const PARTITION_BULK_SELECT_TYPES = new Set([
   'dims_from_cte',
 ]);
 
+/**
+ * Whether a model/CTE scope suppresses *all* auto-injected partition columns.
+ * Mirrors the runtime precedence (individual flag beats the combined enum at
+ * the same scope): `exclude_portal_partition_columns` may be `true` (all),
+ * `false` (none, even under `exclude_framework_artifacts`), or an array. An
+ * array only counts as a full opt-out when it covers every auto-injected
+ * partition column -- a partial array (a strict subset) still leaves
+ * partitions in the output, so the partition-strategy heuristics must treat
+ * it as "partitions present."
+ */
+function scopeExcludesAllPartitions(
+  scope:
+    | {
+        exclude_portal_partition_columns?: unknown;
+        exclude_framework_artifacts?: unknown;
+      }
+    | null
+    | undefined,
+): boolean {
+  const individual = scope?.exclude_portal_partition_columns;
+  if (individual === true) {
+    return true;
+  }
+  if (individual === false) {
+    return false;
+  }
+  if (Array.isArray(individual)) {
+    return FRAMEWORK_PARTITIONS.every((p) => individual.includes(p));
+  }
+  return (
+    scope?.exclude_framework_artifacts === 'all' ||
+    scope?.exclude_framework_artifacts === 'columns'
+  );
+}
+
 function isModelMaterializedIncremental(modelJson: any): boolean {
   if (modelJson?.materialization) {
     if (typeof modelJson.materialization === 'string') {
@@ -1251,10 +1289,7 @@ function modelLikelyOutputsPartitionColumn(modelJson: any): boolean {
     if (from.lookback) {
       return true;
     }
-    const excludesPartitions =
-      modelJson.exclude_portal_partition_columns === true ||
-      modelJson.exclude_framework_artifacts === 'all' ||
-      modelJson.exclude_framework_artifacts === 'columns';
+    const excludesPartitions = scopeExcludesAllPartitions(modelJson);
     if (!excludesPartitions) {
       if ('source' in from) {
         return true;
@@ -1316,11 +1351,7 @@ function cteChainExposesPartitions(
     }
   }
 
-  const cteExcludes =
-    cte.exclude_portal_partition_columns === true ||
-    cte.exclude_framework_artifacts === 'all' ||
-    cte.exclude_framework_artifacts === 'columns';
-  if (cteExcludes) {
+  if (scopeExcludesAllPartitions(cte)) {
     return false;
   }
 
@@ -1499,6 +1530,97 @@ export function validateMaterializationPartitionsExist(
       message: `Column "${p}" listed in \`materialization.partitions\` is not in the model's \`select\` output. The partition declaration will be silently dropped and the materialized table will not be partitioned on this column.`,
       instancePath: `/materialization/partitions/${i}`,
     });
+  }
+
+  return warnings;
+}
+
+/**
+ * Framework-managed columns and the dedicated flag that drops each. The
+ * framework injects these onto every model or CTE that selects from a model
+ * or CTE, so a bulk-select `exclude` can only strip them momentarily before
+ * they are re-added; the dedicated flag is the one lever that removes them.
+ * The three partition grains share the single partition flag.
+ */
+const FRAMEWORK_COLUMN_EXCLUDE_FLAG = new Map<string, string>([
+  ['datetime', 'exclude_datetime'],
+  ['portal_source_count', 'exclude_portal_source_count'],
+  ...FRAMEWORK_PARTITIONS.map(
+    (name): [string, string] => [name, 'exclude_portal_partition_columns'],
+  ),
+]);
+
+/**
+ * Flags bulk-select `exclude` entries that name a framework-managed column
+ * (`datetime`, `portal_partition_*`, `portal_source_count`). Because the
+ * framework re-injects those columns after bulk expansion, listing one in an
+ * `all_from_model` / `dims_from_model` / `fcts_from_model` (or the `_cte`
+ * variants) `exclude` leaves the column in the output; the dedicated exclude
+ * flag is the intended opt-out.
+ *
+ * Suppressed when the same scope re-adds the column (scalar `name` or bulk
+ * `include`): that is the canonical replace pattern -- e.g. re-graining
+ * `datetime` via a `{ "name": "datetime", "interval": "day" }` scalar -- where
+ * the `exclude` does real work by letting the re-added copy win column dedup
+ * instead of the raw bulk-inherited one.
+ *
+ * Scoped to model- and CTE-sourced bulk selects (the inheritance contexts) --
+ * source-sourced bulk selects generate rather than inherit these columns.
+ * Warning-only: the generated SQL stays valid, the targeted column simply
+ * remains present.
+ */
+export function validateBulkExcludeFrameworkColumns(
+  modelJson: any,
+): ValidationErrorDetail[] {
+  const warnings: ValidationErrorDetail[] = [];
+
+  const scanSelect = (select: unknown, basePath: string): void => {
+    if (!Array.isArray(select)) {
+      return;
+    }
+    // Names re-added in this same scope (scalar `name` or bulk `include`). A
+    // bulk `exclude` of a framework column paired with a re-add is the replace
+    // pattern, not a no-op, so it must not warn.
+    const explicitNames = frameworkExtractExplicitNamesFromSelect(select);
+    for (let i = 0; i < select.length; i++) {
+      const item = select[i];
+      const isModelOrCteBulk =
+        item &&
+        typeof item === 'object' &&
+        typeof item.type === 'string' &&
+        (BULK_MODEL_TYPES.has(item.type) || BULK_CTE_TYPES.has(item.type));
+      if (!isModelOrCteBulk || !Array.isArray(item.exclude)) {
+        continue;
+      }
+      for (let k = 0; k < item.exclude.length; k++) {
+        const name = item.exclude[k];
+        const flag =
+          typeof name === 'string'
+            ? FRAMEWORK_COLUMN_EXCLUDE_FLAG.get(name)
+            : undefined;
+        if (!flag) {
+          continue;
+        }
+        if (explicitNames.has(name)) {
+          continue;
+        }
+        const remedy =
+          flag === 'exclude_portal_partition_columns'
+            ? `\`exclude_portal_partition_columns: ["${name}"]\``
+            : `\`${flag}: true\``;
+        warnings.push({
+          message: `Bulk \`exclude\` of framework-managed column "${name}" has no effect: the framework re-injects it automatically. To drop it, set ${remedy} on the model or CTE.`,
+          instancePath: `${basePath}/${i}/exclude/${k}`,
+        });
+      }
+    }
+  };
+
+  scanSelect(modelJson?.select, '/select');
+  if (Array.isArray(modelJson?.ctes)) {
+    for (let j = 0; j < modelJson.ctes.length; j++) {
+      scanSelect(modelJson.ctes[j]?.select, `/ctes/${j}/select`);
+    }
   }
 
   return warnings;

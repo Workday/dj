@@ -2,8 +2,10 @@ import { describe, expect, test } from '@jest/globals';
 import {
   frameworkBuildColumns,
   frameworkBuildCteColumnRegistry,
+  frameworkResolveExcludedPartitionColumns,
   frameworkResolveExcludeFlag,
 } from '@services/framework/utils/column-utils';
+import { FRAMEWORK_PARTITIONS } from '@shared/framework/constants';
 import type { FrameworkCTE, FrameworkModel } from '@shared/framework/types';
 
 import { createTestDJ, createTestProject } from './helpers';
@@ -196,6 +198,115 @@ describe('frameworkResolveExcludeFlag', () => {
     expect(frameworkResolveExcludeFlag(flag, cte as any, model as any)).toBe(
       expected,
     );
+  });
+});
+
+/**
+ * `frameworkResolveExcludedPartitionColumns` generalizes the boolean resolver
+ * for the partition flag, which accepts `boolean | string[]`. It returns the
+ * SET of partition columns to drop, following the same four-tier precedence
+ * (CTE individual > CTE combined > model individual > model combined > none).
+ * An array narrows the combined-flag's all-partitions exclusion to just the
+ * listed columns.
+ */
+describe('frameworkResolveExcludedPartitionColumns', () => {
+  type Row = [
+    label: string,
+    cte: Record<string, unknown> | null,
+    model: Record<string, unknown> | null,
+    expected: string[],
+  ];
+  const rows: Row[] = [
+    ['nothing set => none', null, null, []],
+    [
+      'model true => all',
+      null,
+      { exclude_portal_partition_columns: true },
+      [...FRAMEWORK_PARTITIONS],
+    ],
+    [
+      'model false => none',
+      null,
+      { exclude_portal_partition_columns: false },
+      [],
+    ],
+    [
+      'model array => listed subset',
+      null,
+      { exclude_portal_partition_columns: ['portal_partition_hourly'] },
+      ['portal_partition_hourly'],
+    ],
+    [
+      'model combined all => all partitions',
+      null,
+      { exclude_framework_artifacts: 'all' },
+      [...FRAMEWORK_PARTITIONS],
+    ],
+    [
+      'model combined columns => all partitions',
+      null,
+      { exclude_framework_artifacts: 'columns' },
+      [...FRAMEWORK_PARTITIONS],
+    ],
+    [
+      'model array overrides combined all (narrows to subset)',
+      null,
+      {
+        exclude_framework_artifacts: 'all',
+        exclude_portal_partition_columns: ['portal_partition_hourly'],
+      },
+      ['portal_partition_hourly'],
+    ],
+    [
+      'model false overrides combined all (keeps all partitions)',
+      null,
+      {
+        exclude_framework_artifacts: 'all',
+        exclude_portal_partition_columns: false,
+      },
+      [],
+    ],
+    [
+      'CTE array beats model true',
+      { exclude_portal_partition_columns: ['portal_partition_hourly'] },
+      { exclude_portal_partition_columns: true },
+      ['portal_partition_hourly'],
+    ],
+    [
+      'CTE false beats model true',
+      { exclude_portal_partition_columns: false },
+      { exclude_portal_partition_columns: true },
+      [],
+    ],
+    [
+      'CTE empty inherits model array',
+      {},
+      { exclude_portal_partition_columns: ['portal_partition_daily'] },
+      ['portal_partition_daily'],
+    ],
+    [
+      'CTE array beats model combined all',
+      { exclude_portal_partition_columns: ['portal_partition_monthly'] },
+      { exclude_framework_artifacts: 'all' },
+      ['portal_partition_monthly'],
+    ],
+    [
+      'stale names in array are ignored',
+      null,
+      {
+        exclude_portal_partition_columns: ['portal_partition_hourly', 'bogus'],
+      },
+      ['portal_partition_hourly'],
+    ],
+  ];
+
+  test.each(rows)('resolver set: %s', (_label, cte, model, expected) => {
+    const result = frameworkResolveExcludedPartitionColumns(
+      cte as any,
+      model as any,
+      FRAMEWORK_PARTITIONS,
+    );
+    expect([...result].sort()).toEqual([...expected].sort());
   });
 });
 
@@ -651,5 +762,262 @@ describe('exclude_framework_artifacts inheritance to CTEs', () => {
     expect(names).not.toContain('datetime');
     expect(names).not.toContain('portal_partition_monthly');
     expect(names).not.toContain('portal_source_count');
+  });
+});
+
+/**
+ * Granular partition exclusion (PERFTOOL-19431): `exclude_portal_partition_columns`
+ * accepts an array to drop only the named partition columns. The legacy boolean
+ * (`true` = drop all) is covered by the origin-aware strip tests above.
+ */
+describe('granular partition-column exclusion (array form)', () => {
+  test('main model: array drops only the listed partition, keeps the rest', () => {
+    const project = projectWithFrameworkColumns();
+    const modelJson: FrameworkModel = {
+      type: 'int_select_model',
+      group: 'analytics',
+      topic: 'events',
+      name: 'm',
+      from: { model: 'stg_events' },
+      select: [{ name: 'region', type: 'dim' }],
+      exclude_portal_partition_columns: ['portal_partition_hourly'],
+    } as any;
+
+    const { columns } = frameworkBuildColumns({
+      dj: createTestDJ(),
+      modelJson,
+      project,
+    });
+    const names = columns.map((c) => c.name);
+
+    expect(names).not.toContain('portal_partition_hourly');
+    expect(names).toContain('portal_partition_daily');
+    expect(names).toContain('portal_partition_monthly');
+    // Orthogonal artifacts are untouched by a partition-only array.
+    expect(names).toContain('datetime');
+  });
+
+  test('main model: any grain can be dropped (drops daily, keeps hourly + monthly)', () => {
+    const project = projectWithFrameworkColumns();
+    const modelJson: FrameworkModel = {
+      type: 'int_select_model',
+      group: 'analytics',
+      topic: 'events',
+      name: 'm',
+      from: { model: 'stg_events' },
+      select: [{ name: 'region', type: 'dim' }],
+      exclude_portal_partition_columns: ['portal_partition_daily'],
+    } as any;
+
+    const { columns } = frameworkBuildColumns({
+      dj: createTestDJ(),
+      modelJson,
+      project,
+    });
+    const names = columns.map((c) => c.name);
+
+    // The array form is not hourly-specific: the finer hourly grain survives
+    // even though the coarser daily grain is dropped.
+    expect(names).not.toContain('portal_partition_daily');
+    expect(names).toContain('portal_partition_hourly');
+    expect(names).toContain('portal_partition_monthly');
+  });
+
+  test('master-flag override: "all" + array narrows partitions to just hourly (datetime + source count still dropped)', () => {
+    const project = projectWithFrameworkColumns();
+    const modelJson: FrameworkModel = {
+      type: 'int_select_model',
+      group: 'analytics',
+      topic: 'events',
+      name: 'm',
+      from: { model: 'stg_events' },
+      select: [{ name: 'region', type: 'dim' }],
+      exclude_framework_artifacts: 'all',
+      exclude_portal_partition_columns: ['portal_partition_hourly'],
+    } as any;
+
+    const { columns } = frameworkBuildColumns({
+      dj: createTestDJ(),
+      modelJson,
+      project,
+    });
+    const names = columns.map((c) => c.name);
+
+    // Partition array overrides the combined flag for partitions only.
+    expect(names).not.toContain('portal_partition_hourly');
+    expect(names).toContain('portal_partition_daily');
+    expect(names).toContain('portal_partition_monthly');
+    // The combined "all" still drops datetime and portal_source_count.
+    expect(names).not.toContain('datetime');
+    expect(names).not.toContain('portal_source_count');
+  });
+
+  // The reporter's scenario: a union model inherits its partition set from the
+  // base model's datetime interval and has no model-level rollup to drop just
+  // hourly. The array exclusion lets them drop hourly while keeping the rest.
+  test('int_union_models repro: array drops only hourly from the unioned output', () => {
+    const project = projectWithFrameworkColumns();
+    const modelJson: FrameworkModel = {
+      type: 'int_union_models',
+      group: 'analytics',
+      topic: 'events',
+      name: 'unioned',
+      from: {
+        model: 'stg_events',
+        union: { type: 'all', models: ['stg_events'] },
+      },
+      exclude_portal_partition_columns: ['portal_partition_hourly'],
+    } as any;
+
+    const { columns } = frameworkBuildColumns({
+      dj: createTestDJ(),
+      modelJson,
+      project,
+    });
+    const names = columns.map((c) => c.name);
+
+    expect(names).not.toContain('portal_partition_hourly');
+    expect(names).toContain('portal_partition_daily');
+    expect(names).toContain('portal_partition_monthly');
+  });
+
+  // Real-world repro: the parent staging model declares only monthly/daily in
+  // its `portal_partition_columns` meta (its materialization partition set) yet
+  // still emits `portal_partition_hourly` as a column, which the union inherits
+  // via `all_from_model`. The array exclusion must drop hourly regardless of the
+  // parent's declared partition set -- the droppable universe is the canonical
+  // framework partition names, not the parent meta.
+  test('int_union_models: array drops hourly even when the parent partition meta omits it', () => {
+    const project = createTestProject({
+      nodes: {
+        ['model.project.stg_events']: {
+          meta: {
+            portal_partition_columns: [
+              'portal_partition_monthly',
+              'portal_partition_daily',
+            ],
+          },
+          columns: {
+            region: {
+              name: 'region',
+              data_type: 'varchar',
+              meta: { type: 'dim' },
+            },
+            datetime: {
+              name: 'datetime',
+              data_type: 'timestamp(6)',
+              meta: { type: 'dim', interval: 'hour' },
+            },
+            portal_partition_monthly: {
+              name: 'portal_partition_monthly',
+              data_type: 'varchar',
+              meta: { type: 'dim' },
+            },
+            portal_partition_daily: {
+              name: 'portal_partition_daily',
+              data_type: 'varchar',
+              meta: { type: 'dim' },
+            },
+            portal_partition_hourly: {
+              name: 'portal_partition_hourly',
+              data_type: 'varchar',
+              meta: { type: 'dim' },
+            },
+          },
+        },
+      },
+    });
+    const modelJson: FrameworkModel = {
+      type: 'int_union_models',
+      group: 'analytics',
+      topic: 'events',
+      name: 'unioned',
+      materialization: 'incremental',
+      from: {
+        model: 'stg_events',
+        union: { type: 'all', models: ['stg_events'] },
+      },
+      select: [{ type: 'all_from_model', model: 'stg_events' }],
+      exclude_portal_partition_columns: ['portal_partition_hourly'],
+    } as any;
+
+    const { columns } = frameworkBuildColumns({
+      dj: createTestDJ(),
+      modelJson,
+      project,
+    });
+    const names = columns.map((c) => c.name);
+
+    expect(names).not.toContain('portal_partition_hourly');
+    expect(names).toContain('portal_partition_daily');
+    expect(names).toContain('portal_partition_monthly');
+  });
+
+  test('CTE: array drops only hourly, and a CTE array beats a model-level true', () => {
+    const project = projectWithFrameworkColumns();
+    const cte: FrameworkCTE = {
+      name: 'pre_agg',
+      from: { model: 'stg_events' },
+      select: [{ name: 'region', type: 'dim' }],
+      exclude_portal_partition_columns: ['portal_partition_hourly'],
+    } as any;
+    // Model excludes all partitions; the CTE's array narrows that to hourly.
+    const modelJson = {
+      type: 'int_select_model',
+      exclude_portal_partition_columns: true,
+    } as any;
+
+    const registry = frameworkBuildCteColumnRegistry({
+      ctes: [cte],
+      modelJson,
+      project,
+    });
+    const names = registry.get('pre_agg')!.map((c) => c.name);
+
+    expect(names).not.toContain('portal_partition_hourly');
+    expect(names).toContain('portal_partition_daily');
+    expect(names).toContain('portal_partition_monthly');
+    // datetime is orthogonal and stays.
+    expect(names).toContain('datetime');
+  });
+});
+
+/**
+ * The canonical "re-grain a framework column" pattern: exclude `datetime` from
+ * the bulk so its raw copy is not pulled, then re-add it as a scalar carrying a
+ * coarser interval. The scalar must win -- yielding a single `datetime` column
+ * with the authored interval (which the SQL layer renders as
+ * `date_trunc('day', datetime)`). This is the pattern the bulk-exclude warning
+ * must not flag.
+ */
+describe('replace pattern: bulk exclude datetime + scalar re-add', () => {
+  test('re-added scalar datetime keeps its interval and stays the sole datetime column', () => {
+    const project = projectWithFrameworkColumns();
+    const modelJson: FrameworkModel = {
+      type: 'int_select_model',
+      group: 'analytics',
+      topic: 'events',
+      name: 'daily',
+      materialization: 'incremental',
+      from: { model: 'stg_events' },
+      select: [
+        {
+          type: 'dims_from_model',
+          model: 'stg_events',
+          exclude: ['datetime'],
+        },
+        { type: 'dim', name: 'datetime', interval: 'day' },
+      ],
+    } as any;
+
+    const { columns } = frameworkBuildColumns({
+      dj: createTestDJ(),
+      modelJson,
+      project,
+    });
+    const datetimeColumns = columns.filter((c) => c.name === 'datetime');
+
+    expect(datetimeColumns).toHaveLength(1);
+    expect(datetimeColumns[0].internal?.interval).toBe('day');
   });
 });
