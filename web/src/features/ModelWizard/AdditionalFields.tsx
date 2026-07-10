@@ -1,8 +1,18 @@
+import { FRAMEWORK_PARTITIONS } from '@shared/framework/constants';
 import type { IncrementalStrategy } from '@shared/schema/types/model.schema';
-import { Checkbox, EditableList, TagInput, Tooltip } from '@web/elements';
+import {
+  Checkbox,
+  EditableList,
+  SelectMulti,
+  TagInput,
+  Tooltip,
+} from '@web/elements';
 import { FieldInputText, FieldSelectSingle } from '@web/forms';
 import type { AdditionalFieldsSchema } from '@web/stores/useModelStore';
-import { useModelStore } from '@web/stores/useModelStore';
+import {
+  PORTAL_PARTITION_COLUMN_OPTIONS,
+  useModelStore,
+} from '@web/stores/useModelStore';
 import type { ChangeEvent } from 'react';
 import { useCallback, useEffect } from 'react';
 import type { Control, FieldError, FieldErrors } from 'react-hook-form';
@@ -21,10 +31,6 @@ interface AdditionalFieldsProps {
   ) => void;
   mode?: 'create' | 'edit';
 }
-
-// Developer feature toggle for advanced fields that are rarely used and potentially dangerous if misconfigured
-// Set to true to show incremental strategy, exclude filters, etc. for development/testing purposes
-const SHOW_ADVANCED_FIELDS = false;
 
 // Move static options outside component to avoid recreation
 const INCREMENTAL_STRATEGY_OPTIONS = [
@@ -538,20 +544,74 @@ export function AdditionalFields({
               onChange={(value) => {
                 const next =
                   value === 'all' || value === 'columns' ? value : undefined;
-                field.onChange(next);
-                setValue('exclude_framework_artifacts', next);
+                // Drive the form with '' (the "Default" option) rather than
+                // undefined: a controlled field reset to undefined is retained
+                // under shouldUnregister:false and leaves the dropdown stuck on
+                // the prior value. The store gets undefined so the key stays out
+                // of the generated JSON.
+                field.onChange(next ?? '');
                 setAdditionalField('exclude_framework_artifacts', next);
               }}
               label="Exclude Framework Artifacts"
               options={[...EXCLUDE_FRAMEWORK_ARTIFACTS_OPTIONS]}
               tooltipText={
-                'Drop framework-generated artifacts in one switch.\n' +
-                '\u2022 Exclude framework columns: drops datetime, portal_partition_*, and portal_source_count. The auto WHERE date filters still fire.\n' +
-                '\u2022 Exclude all framework artifacts: also drops the auto _ext_event_date_filter WHERE clauses.\n' +
-                'Individual exclude flags below override this per column (e.g. set "Exclude Portal Source Count" to false to keep that one column even when this is "all"). Mutually exclusive with from.rollup when the resolved value implies excluding datetime.'
+                'Drop several framework artifacts at once.\n' +
+                '\u2022 Columns: drops datetime, portal_partition_*, and portal_source_count.\n' +
+                '\u2022 All: also drops the auto date-filter WHERE clauses.\n' +
+                'The individual flags below override this per column.'
               }
             />
           )}
+        />
+
+        {/* Exclude Partition Columns - available for all models.
+            Multi-select: pick a subset to drop only those partition columns,
+            leave empty to keep all. The legacy boolean `true` (drop all) maps
+            to every option selected. */}
+        <Controller
+          control={control}
+          name="exclude_portal_partition_columns"
+          render={({ field }) => {
+            const selectedPartitions = Array.isArray(field.value)
+              ? field.value
+              : field.value === true
+                ? [...FRAMEWORK_PARTITIONS]
+                : [];
+            return (
+              <div className="flex flex-col gap-1">
+                <label className="text-sm font-medium text-foreground flex gap-1 items-center">
+                  Exclude Partition Columns
+                  <Tooltip
+                    content={
+                      'Drops specific auto-generated partition columns (monthly, daily, hourly). Leave empty to keep all.\n' +
+                      'Downstream models that inherit columns in bulk drop the same grains automatically, so remove only a grain this model (or a downstream) does not use for incremental partitioning or filtering. Overrides Exclude Framework Artifacts for the partition columns at this scope.'
+                    }
+                  />
+                </label>
+                <SelectMulti
+                  options={[...PORTAL_PARTITION_COLUMN_OPTIONS]}
+                  value={selectedPartitions}
+                  placeholder="Keep all partition columns"
+                  onChange={(values) => {
+                    const next =
+                      values.length > 0
+                        ? (values as AdditionalFieldsSchema['exclude_portal_partition_columns'])
+                        : undefined;
+                    // Keep the field an array ([] when empty) so the control
+                    // clears; undefined would be retained under
+                    // shouldUnregister:false and the last removed chip would
+                    // reappear. The store gets undefined so the key is omitted
+                    // from the generated JSON.
+                    field.onChange(next ?? []);
+                    setAdditionalField(
+                      'exclude_portal_partition_columns',
+                      next,
+                    );
+                  }}
+                />
+              </div>
+            );
+          }}
         />
 
         {/* Exclude Portal Source Count - available for all models */}
@@ -559,34 +619,19 @@ export function AdditionalFields({
           control={control}
           name="exclude_portal_source_count"
           render={({ field }) => (
-            <Checkbox
-              checked={field.value || false}
-              onChange={createCheckboxHandler(
-                'exclude_portal_source_count',
-                field.onChange,
-              )}
-              label="Exclude Portal Source Count"
-            />
-          )}
-        />
-
-        {/* Exclude Portal Partition Columns - available for all models */}
-        {SHOW_ADVANCED_FIELDS && (
-          <Controller
-            control={control}
-            name="exclude_portal_partition_columns"
-            render={({ field }) => (
+            <div className="flex items-center gap-2">
               <Checkbox
                 checked={field.value || false}
                 onChange={createCheckboxHandler(
-                  'exclude_portal_partition_columns',
+                  'exclude_portal_source_count',
                   field.onChange,
                 )}
-                label="Exclude Portal Partition Columns"
+                label="Exclude Portal Source Count"
               />
-            )}
-          />
-        )}
+              <Tooltip content="Drops the auto-generated portal_source_count column (a per-row tally of contributing source rows). Models that inherit columns in bulk stop receiving it automatically and dependent inherited metrics are dropped, so this is low-risk — the exception is a downstream model that references portal_source_count by name." />
+            </div>
+          )}
+        />
 
         {/* Exclude Datetime - available for all models, surfaced by default
             so users can opt out of the auto-injected datetime column without
@@ -596,49 +641,58 @@ export function AdditionalFields({
           control={control}
           name="exclude_datetime"
           render={({ field }) => (
-            <Checkbox
-              checked={field.value || false}
-              onChange={createCheckboxHandler(
-                'exclude_datetime',
-                field.onChange,
-              )}
-              label="Exclude Datetime"
-            />
+            <div className="flex items-center gap-2">
+              <Checkbox
+                checked={field.value || false}
+                onChange={createCheckboxHandler(
+                  'exclude_datetime',
+                  field.onChange,
+                )}
+                label="Exclude Datetime"
+              />
+              <Tooltip content="Drops the auto-injected datetime column; downstream models inherit the removal automatically. Time-grain rollups, date-based incremental loads, and Lightdash date dimensions all rely on datetime, so drop it only for pure dimension or lookup models. Cannot be combined with a rollup." />
+            </div>
           )}
         />
 
         {/* Exclude Date Filter - NOT available for mart models */}
-        {SHOW_ADVANCED_FIELDS && !isMartModelType && (
+        {!isMartModelType && (
           <Controller
             control={control}
             name="exclude_date_filter"
             render={({ field }) => (
-              <Checkbox
-                checked={field.value || false}
-                onChange={createCheckboxHandler(
-                  'exclude_date_filter',
-                  field.onChange,
-                )}
-                label="Exclude Date Filter"
-              />
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  checked={field.value || false}
+                  onChange={createCheckboxHandler(
+                    'exclude_date_filter',
+                    field.onChange,
+                  )}
+                  label="Exclude Date Filter"
+                />
+                <Tooltip content="Removes the automatic event-date WHERE filter. Without it the model scans every partition (full history) on each run, which is much slower and more expensive — exclude only when you deliberately need all dates." />
+              </div>
             )}
           />
         )}
 
         {/* Exclude Daily Filter - NOT available for mart models and stg source models */}
-        {SHOW_ADVANCED_FIELDS && isExcludeDailyFilterAvailable && (
+        {isExcludeDailyFilterAvailable && (
           <Controller
             control={control}
             name="exclude_daily_filter"
             render={({ field }) => (
-              <Checkbox
-                checked={field.value || false}
-                onChange={createCheckboxHandler(
-                  'exclude_daily_filter',
-                  field.onChange,
-                )}
-                label="Exclude Daily Filter"
-              />
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  checked={field.value || false}
+                  onChange={createCheckboxHandler(
+                    'exclude_daily_filter',
+                    field.onChange,
+                  )}
+                  label="Exclude Daily Filter"
+                />
+                <Tooltip content="Drops only the daily-grain date filter but keeps the monthly one, so the model scans the whole month instead of just recent days. Widens how much data is read — use it when the model needs the full month." />
+              </div>
             )}
           />
         )}

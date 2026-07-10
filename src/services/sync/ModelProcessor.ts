@@ -21,6 +21,7 @@ import {
 } from '@services/framework/utils';
 import {
   validateBucketAndSortedBy,
+  validateBulkExcludeFrameworkColumns,
   validateCteColumnReferences,
   validateDeadOuterLayer,
   validateDjIcebergPartitionOverwrite,
@@ -236,6 +237,20 @@ export class ModelProcessor {
         validateMaterializationPartitionsExist(modelJson);
       if (matPartitionsWarnings.length > 0) {
         for (const w of matPartitionsWarnings) {
+          this.config.logger.warn?.(`${modelName}: ${w.message}`);
+          validationWarnings.push(w);
+        }
+      }
+
+      // A bulk-select `exclude` that names a framework-managed column
+      // (datetime, portal_partition_*, portal_source_count) does not drop it:
+      // the framework re-injects those columns after bulk expansion. Point the
+      // author at the dedicated exclude flag. Warning-only, anchored at the
+      // offending exclude entry.
+      const bulkExcludeWarnings =
+        validateBulkExcludeFrameworkColumns(modelJson);
+      if (bulkExcludeWarnings.length > 0) {
+        for (const w of bulkExcludeWarnings) {
           this.config.logger.warn?.(`${modelName}: ${w.message}`);
           validationWarnings.push(w);
         }

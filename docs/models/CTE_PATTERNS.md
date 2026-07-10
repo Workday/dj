@@ -273,7 +273,11 @@ The full set:
 - `"exclude_portal_partition_columns": true` — drops `portal_partition_*`
   injection. For pure-dimension or lookup models that need neither datetime
   nor partitions, set this together with `exclude_datetime` (or use
-  `exclude_framework_artifacts: "columns"`).
+  `exclude_framework_artifacts: "columns"`). Accepts an array instead of a
+  boolean (e.g. `["portal_partition_hourly"]`) to drop only the listed
+  partition columns while keeping the rest — useful when a model inherits a
+  partition grain it doesn't need (a union model, say). An array at a scope
+  overrides `exclude_framework_artifacts` at that scope.
 - `"exclude_portal_source_count": true` — drops `portal_source_count`
   injection.
 - `"exclude_date_filter": true` — drops the auto `_ext_event_date_filter`
@@ -381,7 +385,12 @@ CTE's registry the same way a `from: { model }` consumer inherits from the
 manifest. Use the standard exclude flags
 (`exclude_datetime`, `exclude_portal_partition_columns`,
 `exclude_portal_source_count`, or the combined `exclude_framework_artifacts`)
-on the CTE — or on the main model — to opt out.
+on the CTE — or on the main model — to opt out. Naming one of these columns in a
+bulk-select `exclude` on its own does not drop it (the framework re-injects it)
+and raises a Problems-tab warning pointing at the matching flag. The exception is
+a deliberate replace: `exclude` the column in the bulk **and** re-add it as a
+named select in the same CTE (for example, to re-grain `datetime`) — the exclude
+then lets your copy win over the inherited one and does not warn.
 
 When the main model is materialized as `incremental` with a
 partition-overwrite strategy (`overwrite_existing_partitions`,

@@ -1,6 +1,20 @@
 {
   "$id": "model.exclude_portal_partition_columns.schema.json",
   "title": "Schema Model Exclude Portal Partition Columns",
-  "description": "Will prevent the automatic portal partition date columns from getting added",
-  "type": "boolean"
+  "description": "Controls auto-injection of the portal partition date columns. `true` drops all of them (`portal_partition_monthly`, `portal_partition_daily`, `portal_partition_hourly`); `false` or omitted keeps all. Provide an array of partition column names (e.g. [\"portal_partition_hourly\"]) to drop only those while keeping the rest. An array overrides `exclude_framework_artifacts` at the same scope, narrowing its all-partitions exclusion to just the listed columns. Columns you list explicitly in `select` are always kept.",
+  "oneOf": [
+    { "type": "boolean" },
+    {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "portal_partition_monthly",
+          "portal_partition_daily",
+          "portal_partition_hourly"
+        ]
+      }
+    }
+  ]
 }

@@ -4,11 +4,13 @@ import {
   TrashIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline';
+import { FRAMEWORK_PARTITIONS } from '@shared/framework/constants';
 import {
   Button,
   ButtonGroup,
   Checkbox,
   InputText,
+  SelectMulti,
   SelectSingle,
   TagInput,
   Tooltip,
@@ -16,6 +18,7 @@ import {
 import {
   type AdditionalFieldsSchema,
   type CteState,
+  PORTAL_PARTITION_COLUMN_OPTIONS,
   useModelStore,
 } from '@web/stores/useModelStore';
 import React, { useCallback, useMemo } from 'react';
@@ -97,6 +100,8 @@ const FLAG_ROWS: ReadonlyArray<{
    * (the JSON key is reserved for the diagnostics tab and YAML emit).
    */
   label: string;
+  /** Decision guidance shown on hover -- what the flag drops and the trade-off. */
+  tooltip: string;
   inheritKey:
     | 'exclude_date_filter'
     | 'exclude_daily_filter'
@@ -108,31 +113,39 @@ const FLAG_ROWS: ReadonlyArray<{
   {
     key: 'exclude_date_filter',
     label: 'Exclude Date Filter',
+    tooltip:
+      'Removes the automatic event-date WHERE filter. Without it every partition is scanned (full history) on each run, which is much slower and more expensive — exclude only when all dates are genuinely needed.',
     inheritKey: 'exclude_date_filter',
   },
   {
     key: 'exclude_daily_filter',
     label: 'Exclude Daily Filter',
+    tooltip:
+      'Drops only the daily-grain date filter but keeps the monthly one, so the whole month is scanned instead of just recent days. Widens how much data is read.',
     inheritKey: 'exclude_daily_filter',
   },
   {
     key: 'exclude_datetime',
     label: 'Exclude Datetime',
+    tooltip:
+      'Drops the auto-injected datetime column; downstream inherits the removal automatically. Time-grain rollups, date-based incremental loads, and Lightdash date dimensions rely on datetime, so drop it only for pure dimension or lookup models. Cannot be combined with a rollup.',
     inheritKey: 'exclude_datetime',
   },
-  {
-    key: 'exclude_portal_partition_columns',
-    label: 'Exclude Portal Partition Columns',
-    inheritKey: 'exclude_portal_partition_columns',
-  },
+  // `exclude_portal_partition_columns` is intentionally absent here -- it
+  // accepts a boolean OR an array of specific partition columns, so it gets a
+  // dedicated multi-select row instead of the boolean tri-state pattern.
   {
     key: 'exclude_portal_source_count',
     label: 'Exclude Portal Source Count',
+    tooltip:
+      'Drops the auto-generated portal_source_count column (a per-row tally of contributing source rows). Models that inherit columns in bulk stop receiving it automatically and dependent inherited metrics are dropped, so this is low-risk — the exception is a downstream model that references portal_source_count by name.',
     inheritKey: 'exclude_portal_source_count',
   },
   {
     key: 'include_full_month',
     label: 'Include Full Month',
+    tooltip:
+      'Emits the full-month range filter instead of the daily one, so the whole month is scanned. Same partition-pruning effect as Exclude Daily Filter.',
     inheritKey: null,
   },
 ];
@@ -604,7 +617,10 @@ const FrameworkArtifactsSection: React.FC<FrameworkArtifactsSectionProps> = ({
   onPatch,
 }) => {
   const setFlag = useCallback(
-    (key: keyof CteState, value: boolean | 'all' | 'columns' | undefined) => {
+    (
+      key: keyof CteState,
+      value: boolean | string[] | 'all' | 'columns' | undefined,
+    ) => {
       // Send a minimal patch -- `{ [key]: undefined }` is intentional and
       // tells `useModelStore.patchCte` to delete the key from the CTE
       // (which makes `stripCteForSerialize` drop it from the JSON so the
@@ -660,7 +676,7 @@ const FrameworkArtifactsSection: React.FC<FrameworkArtifactsSectionProps> = ({
 
       {/* Individual flag rows. */}
       <div className="space-y-1.5">
-        {FLAG_ROWS.map(({ key, label, inheritKey }) => {
+        {FLAG_ROWS.map(({ key, label, tooltip, inheritKey }) => {
           const overrideRaw = cte[key];
           const isOverridden = typeof overrideRaw === 'boolean';
           const inheritedValue = inheritKey ? inherited[inheritKey] : undefined;
@@ -706,6 +722,7 @@ const FrameworkArtifactsSection: React.FC<FrameworkArtifactsSectionProps> = ({
               >
                 {label}
               </span>
+              <Tooltip content={tooltip} />
               {isOverridden && (
                 <Button
                   variant="iconButton"
@@ -726,6 +743,87 @@ const FrameworkArtifactsSection: React.FC<FrameworkArtifactsSectionProps> = ({
             </div>
           );
         })}
+
+        {/* Exclude Portal Partition Columns -- dedicated row because the flag
+            accepts a boolean (all/none) or an array of specific partition
+            columns. Empty selection overrides to "keep all"; the X clears the
+            override so the CTE re-inherits the main-model value. */}
+        {(() => {
+          const override = cte.exclude_portal_partition_columns;
+          const isOverridden = override !== undefined;
+          const inheritedValue = inherited.exclude_portal_partition_columns;
+          const isInherited = !isOverridden && inheritedValue !== undefined;
+          const toSelection = (
+            v: boolean | readonly string[] | undefined,
+          ): string[] =>
+            v === true
+              ? [...FRAMEWORK_PARTITIONS]
+              : Array.isArray(v)
+                ? [...v]
+                : [];
+          const describe = (
+            v: boolean | readonly string[] | undefined,
+          ): string =>
+            v === true
+              ? 'all'
+              : v === false
+                ? 'none'
+                : Array.isArray(v)
+                  ? v.join(', ')
+                  : '';
+          const selection = toSelection(
+            isOverridden ? override : inheritedValue,
+          );
+          return (
+            <div className="pt-1">
+              <div className="flex items-center gap-2 text-sm mb-1">
+                <span className="text-foreground">
+                  Exclude Partition Columns
+                </span>
+                <Tooltip
+                  content={
+                    'Drops specific auto-generated partition columns (monthly, daily, hourly). Leave empty to keep all.\n' +
+                    'Downstream models that inherit columns in bulk drop the same grains automatically, so remove only a grain this CTE (or a downstream) does not use for incremental partitioning or filtering.'
+                  }
+                />
+                {isOverridden && (
+                  <Button
+                    variant="iconButton"
+                    className="ml-1 p-0.5 text-muted-foreground hover:text-error hover:bg-surface"
+                    title="Clear override (inherit from main model)"
+                    aria-label="Clear Exclude Partition Columns override"
+                    icon={<XMarkIcon className="w-3 h-3" />}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setFlag('exclude_portal_partition_columns', undefined);
+                    }}
+                  />
+                )}
+                {isInherited && (
+                  <span className={`ml-1 ${MUTED_CHIP}`}>inherited</span>
+                )}
+              </div>
+              <SelectMulti
+                options={[...PORTAL_PARTITION_COLUMN_OPTIONS]}
+                value={selection}
+                placeholder="Keep all partition columns"
+                onChange={(values) =>
+                  setFlag(
+                    'exclude_portal_partition_columns',
+                    values.length > 0 ? values : false,
+                  )
+                }
+              />
+              {isInherited && (
+                <span className="text-xs text-muted-foreground">
+                  inherited:{' '}
+                  <span className="font-mono">{describe(inheritedValue)}</span>
+                </span>
+              )}
+            </div>
+          );
+        })()}
       </div>
     </section>
   );

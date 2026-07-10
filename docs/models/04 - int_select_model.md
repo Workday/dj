@@ -216,6 +216,8 @@ Select only dimensions:
 }
 ```
 
+> `exclude` (and `include`) only shape ordinary columns. The framework-managed columns (`datetime`, `portal_partition_*`, `portal_source_count`) are re-injected after bulk expansion, so listing one in a bulk `exclude` on its own leaves it in the output and raises a Problems-tab warning. To fully drop one, use its dedicated flag instead — `exclude_datetime`, `exclude_portal_partition_columns` (accepts an array to drop specific grains), or `exclude_portal_source_count`. To re-grain or re-express one (for example, aggregate `datetime` to a coarser interval), `exclude` it in the bulk **and** re-add it as a named select in the same list: the exclude then does real work — it lets your copy win over the raw inherited one — and does not warn.
+
 Select only facts:
 
 ```json
