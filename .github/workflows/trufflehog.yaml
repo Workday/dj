@@ -25,12 +25,10 @@ jobs:
 
       - name: TruffleHog OSS
         id: trufflehog
-        uses: trufflesecurity/trufflehog@v3.90.8
+        uses: trufflesecurity/trufflehog@v3.95.8
         continue-on-error: true
         with:
           path: ./
-          base: "${{ github.event.repository.default_branch }}"
-          head: HEAD
           extra_args: --log-level=2 --results=verified
 
       - name: Scan Results Status
