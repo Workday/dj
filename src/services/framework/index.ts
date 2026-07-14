@@ -1338,14 +1338,14 @@ export class Framework implements ApiEnabledService<'framework'> {
                   },
                 });
                 // Type assertion: parseManifest should return DbtProjectManifest
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                return manifest as any;
+
+                return manifest;
               },
               fetchManifest: async (project) => {
                 const manifest = await this.dbt.fetchManifest({ project });
                 // Type assertion: fetchManifest should return DbtProjectManifest
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                return manifest as any;
+
+                return manifest;
               },
             });
 
@@ -1458,6 +1458,13 @@ export class Framework implements ApiEnabledService<'framework'> {
   }
 
   async handleLoadEtlSources({ project }: { project: DbtProject }) {
+    // Runs automatically when a workspace is opened. Skip the Trino CLI
+    // invocation in untrusted workspaces so merely opening a folder never
+    // spawns a process driven by its dbt_project.yml.
+    if (!vscode.workspace.isTrusted) {
+      return;
+    }
+
     const etlSourcesResponse = await this.getApi().handleApi({
       type: 'trino-fetch-etl-sources',
       request: {
@@ -1793,7 +1800,7 @@ export class Framework implements ApiEnabledService<'framework'> {
         });
         // Type assertion: dbt-parse-project returns DbtProjectManifest
         await this.dbt.handleManifest({
-          manifest: manifestResponse as any,
+          manifest: manifestResponse,
           project,
         });
       } catch (err: unknown) {

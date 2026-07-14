@@ -2,7 +2,7 @@ import { getDjConfig } from '@services/config';
 import type { Dbt } from '@services/dbt';
 import type { DJLogger } from '@services/djLogger';
 import type { ApiEnabledService } from '@services/types';
-import { buildProcessEnv } from '@services/utils/process';
+import { buildProcessEnv, safeSpawn } from '@services/utils/process';
 import type { ApiPayload, ApiResponse } from '@shared/api/types';
 import { apiResponse } from '@shared/api/utils';
 
@@ -43,7 +43,6 @@ import type {
 } from '@shared/modellineage/types';
 import type { TreeItem } from 'admin';
 import { ThemeIcon, WORKSPACE_ROOT } from 'admin';
-import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -601,9 +600,10 @@ export class Lightdash implements ApiEnabledService<'lightdash'> {
 
       this.log.info(`Executing: lightdash ${args.join(' ')}`);
 
-      const childProcess = spawn('lightdash', args, {
+      const childProcess = safeSpawn('lightdash', args, {
         cwd: WORKSPACE_ROOT,
         env,
+        shell: false,
       });
 
       let output = '';
@@ -692,9 +692,10 @@ export class Lightdash implements ApiEnabledService<'lightdash'> {
       this.log.info(`Executing: lightdash ${args.join(' ')}`);
 
       // Execute lightdash command
-      const childProcess = spawn('lightdash', args, {
+      const childProcess = safeSpawn('lightdash', args, {
         cwd: WORKSPACE_ROOT,
         env,
+        shell: false,
       });
 
       let output = '';

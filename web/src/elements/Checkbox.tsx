@@ -42,7 +42,7 @@ export const Checkbox: React.FC<CheckboxProps> = ({
   return (
     <Field className={`flex items-center gap-2 ${className}`}>
       <HeadlessCheckbox
-        ref={checkboxRef as never}
+        ref={checkboxRef}
         id={id}
         checked={checked}
         onChange={onChange}

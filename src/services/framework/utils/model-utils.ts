@@ -269,10 +269,7 @@ export function frameworkGetParentMeta({
 }): unknown {
   if ('cte' in modelJson.from) {
     if ('ctes' in modelJson && modelJson.ctes?.length) {
-      const rootFrom = resolveCteRootFrom(
-        (modelJson.from as { cte: string }).cte,
-        modelJson.ctes,
-      );
+      const rootFrom = resolveCteRootFrom(modelJson.from.cte, modelJson.ctes);
       if (rootFrom) {
         if ('source' in rootFrom) {
           return frameworkGetSourceMeta({ project, ...rootFrom });

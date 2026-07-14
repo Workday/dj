@@ -14,6 +14,7 @@ import type {
   DbtProperties,
   DbtRunConfig,
 } from '@shared/dbt/types';
+import { assertSqlIdentifier } from '@shared/sql/identifier';
 import * as _ from 'lodash';
 
 export function dbtEventDates({ project }: { project: DbtProject }): {
@@ -79,6 +80,11 @@ export function dbtSourceRegisterSql({
   const properties = dbtSourcePropertiesString({ project, sourceId });
 
   const etlSchema = project.properties.vars?.etl_schema || 'source_etl';
+
+  // project.name and etl_schema come from dbt_project.yml (untrusted); constrain
+  // them to bare identifiers before interpolating into the query.
+  assertSqlIdentifier(project.name, 'project name');
+  assertSqlIdentifier(etlSchema, 'etl_schema');
 
   const sql = `
 MERGE INTO ${project.name}.${etlSchema}.dbt_sources old

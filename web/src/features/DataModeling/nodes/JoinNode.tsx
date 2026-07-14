@@ -246,7 +246,7 @@ export const JoinNode: React.FC<NodeProps> = ({ data, id }) => {
               'expr' in condition &&
               typeof (condition as { expr?: string }).expr === 'string'
             ) {
-              const expr = (condition as { expr: string }).expr;
+              const expr = condition.expr;
 
               // Trim whitespace from expression
               const trimmedExpr = expr.trim();
@@ -594,7 +594,7 @@ export const JoinNode: React.FC<NodeProps> = ({ data, id }) => {
                 : 'dimension',
             description:
               ('description' in selectItem
-                ? (selectItem.description as string)
+                ? selectItem.description
                 : undefined) || '',
           });
         }
@@ -830,7 +830,7 @@ export const JoinNode: React.FC<NodeProps> = ({ data, id }) => {
     ): Record<string, unknown> => {
       const base: Record<string, unknown> = {
         model,
-        type: type as 'inner' | 'left' | 'right' | 'full' | 'cross',
+        type: type,
       };
       if (alias.trim()) {
         base.override_alias = alias.trim();
@@ -1339,7 +1339,7 @@ export const JoinNode: React.FC<NodeProps> = ({ data, id }) => {
       if (selectedModel?.value) {
         const base: Record<string, unknown> = {
           model: selectedModel.value,
-          type: joinType as 'inner' | 'left' | 'right' | 'full' | 'cross',
+          type: joinType,
         };
         const alias = overrideAliasRef.current;
         if (alias.trim()) {
@@ -1554,9 +1554,7 @@ export const JoinNode: React.FC<NodeProps> = ({ data, id }) => {
           subquerySourceOptions={subquerySourceOptions}
           subqueryCteOptions={subqueryCteOptions}
           subqueryColumnOptions={subqueryColumnOptions}
-          manifest={
-            (currentProject?.manifest as Record<string, unknown>) ?? null
-          }
+          manifest={currentProject?.manifest ?? null}
           ctes={ctes}
         />
       )}

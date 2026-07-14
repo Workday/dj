@@ -739,7 +739,7 @@ export const useModelStore = create<ModelStore>()(
                   type: 'cross_join_unnest' as const,
                   column: '',
                   fields: [''] as [string, ...string[]],
-                } as SchemaModelFromJoinColumn,
+                },
               };
             } else {
               // Initialize with regular join structure
@@ -1097,7 +1097,7 @@ export const useModelStore = create<ModelStore>()(
       if (data.topic !== undefined) state.setBasicField('topic', data.topic);
       if (data.type !== undefined) state.setBasicField('type', data.type);
       if (data.materialized !== undefined)
-        state.setBasicField('materialized', data.materialized as string);
+        state.setBasicField('materialized', data.materialized);
       if (data.projectName !== undefined)
         state.setBasicField('projectName', data.projectName);
       if (data.source !== undefined) state.setBasicField('source', data.source);
@@ -1262,7 +1262,7 @@ export const useModelStore = create<ModelStore>()(
             } else if (Array.isArray(value)) {
               value = value.filter(
                 (item) => typeof item === 'string' && item.trim() !== '',
-              ) as AdditionalFieldsSchema[typeof key];
+              );
             } else {
               console.warn(`${key} is not an array, skipping`);
               return;
@@ -1290,10 +1290,7 @@ export const useModelStore = create<ModelStore>()(
                   typeof item === 'string' &&
                   (FRAMEWORK_PARTITIONS as readonly string[]).includes(item),
               );
-              value =
-                cleaned.length > 0
-                  ? (cleaned as AdditionalFieldsSchema[typeof key])
-                  : undefined;
+              value = cleaned.length > 0 ? cleaned : undefined;
             } else if (typeof value !== 'boolean') {
               value = false; // Default to false if invalid
             }
@@ -1816,10 +1813,7 @@ export const useModelStore = create<ModelStore>()(
         return {
           ctes: draft.ctes ?? newCtes,
           modelingState: (draft.modelingState ??
-            (state.modelingState as unknown as Record<
-              string,
-              unknown
-            >)) as unknown as ModelingStateAdapter,
+            state.modelingState) as unknown as ModelingStateAdapter,
           editingCteIndex:
             state.editingCteIndex === index ? null : state.editingCteIndex,
         };
@@ -1881,10 +1875,7 @@ export const useModelStore = create<ModelStore>()(
         return {
           ctes: draft.ctes ?? state.ctes,
           modelingState: (draft.modelingState ??
-            (state.modelingState as unknown as Record<
-              string,
-              unknown
-            >)) as unknown as ModelingStateAdapter,
+            state.modelingState) as unknown as ModelingStateAdapter,
         };
       });
       void get().saveField('ctes', get().ctes);
@@ -2018,7 +2009,7 @@ export const useModelStore = create<ModelStore>()(
         }
       }
 
-      return modelJson as unknown as Partial<FrameworkModel>;
+      return modelJson;
     },
   })),
 );

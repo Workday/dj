@@ -319,7 +319,13 @@ export const buildTransformationConfigs = (
 export const buildSelectConfig = (
   basicFields: { type: string },
   modelingState: ModelingStateAdapter,
-): Record<string, unknown>[] | null => {
+  // Element type is unknown rather than Record<string, unknown>: some select
+  // variants are generated interfaces (e.g. SchemaModelSelectInterval) with no
+  // index signature, so they are not assignable to Record<string, unknown>
+  // without a type assertion -- and an assertion here is what the
+  // no-unnecessary-type-assertion autofix strips. unknown lets every branch pass
+  // through assertion-free; callers serialize these entries directly to JSON.
+): unknown[] | null => {
   if (!modelingState.select || basicFields.type === 'int_rollup_model')
     return null;
 
@@ -334,14 +340,14 @@ export const buildSelectConfig = (
       // Handle expr-based columns (SchemaModelSelectExpr, SchemaModelSelectExprWithAgg, etc.)
       if ('expr' in selectItem && 'name' in selectItem) {
         // Return the entire expr-based column object (it's already in the correct schema format)
-        return selectItem as Record<string, unknown>;
+        return selectItem;
       }
 
       // Handle model-reference columns with name (SchemaModelSelectModelWithAgg, SchemaModelSelectModel)
       // These have 'model' AND 'name' - unlike model selection types (all_from_model, etc.) which only have 'model' and 'type'
       if ('model' in selectItem && 'name' in selectItem) {
         // Return the entire model-reference column object (it's already in the correct schema format)
-        return selectItem as Record<string, unknown>;
+        return selectItem;
       }
 
       // Handle model/source selection items (all_from_model, dims_from_model, fcts_from_model, all_from_source, etc.)
@@ -391,8 +397,9 @@ export const buildSelectConfig = (
         return processed;
       }
 
-      // Fallback: return as-is for other types (SchemaModelSelectInterval, etc.)
-      return selectItem as unknown as Record<string, unknown>;
+      // Fallback: pass remaining select variants (e.g. SchemaModelSelectInterval)
+      // through unchanged; they are already in schema shape.
+      return selectItem;
     });
 };
 

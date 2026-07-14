@@ -11,12 +11,6 @@ import { TestStatus } from './TestStatus';
 import type { RunAnalytics } from './types';
 import { DEFAULT_MODEL_CONFIG } from './types';
 
-interface ModelInfo {
-  modelName: string | null;
-  projectName: string;
-  projectPath: string;
-}
-
 export function ModelTest() {
   const { api } = useApp();
   const { vscode } = useEnvironment();
@@ -58,10 +52,10 @@ export function ModelTest() {
       setIsLoading(true);
 
       // First get model info to get project name
-      const modelInfo = (await api.post({
+      const modelInfo = await api.post({
         type: 'dbt-get-model-info',
         request: null,
-      })) as ModelInfo | null;
+      });
 
       if (!modelInfo?.projectName) {
         console.error('No project found');
@@ -239,10 +233,10 @@ export function ModelTest() {
 
     try {
       // Get project info
-      const modelInfo = (await api.post({
+      const modelInfo = await api.post({
         type: 'dbt-get-model-info',
         request: null,
-      })) as ModelInfo | null;
+      });
 
       if (!modelInfo?.projectName) {
         addLog('> Error: No project found');

@@ -227,7 +227,7 @@ export function buildUpdatedSelections(
           newEntries.push({
             name: colName,
             expr: qualifier ? `${qualifier}.${colName}` : colName,
-          } as never);
+          });
         });
       } else {
         addTypeDeterminedSelection(
@@ -243,7 +243,7 @@ export function buildUpdatedSelections(
     const baseSelection = buildBaseSelection(
       effectiveKind,
       selectedModelValue,
-      selectionType as SelectionTypeValues,
+      selectionType,
     );
 
     const newSelection = {

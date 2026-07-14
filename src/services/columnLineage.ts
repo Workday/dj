@@ -1199,9 +1199,7 @@ export class ColumnLineageService implements DJService {
           ctes: ctes as Parameters<
             typeof frameworkBuildCteColumnRegistry
           >[0]['ctes'],
-          modelJson: modelJson as Parameters<
-            typeof frameworkBuildCteColumnRegistry
-          >[0]['modelJson'],
+          modelJson: modelJson,
           project,
         });
         const cteCols = registry.get(cteName) || [];
@@ -1753,12 +1751,8 @@ export class ColumnLineageService implements DJService {
       }
       try {
         const registry = frameworkBuildCteColumnRegistry({
-          ctes: modelJson.ctes as Parameters<
-            typeof frameworkBuildCteColumnRegistry
-          >[0]['ctes'],
-          modelJson: modelJson as Parameters<
-            typeof frameworkBuildCteColumnRegistry
-          >[0]['modelJson'],
+          ctes: modelJson.ctes,
+          modelJson: modelJson,
           project,
         });
         const cteCols = registry.get(selected.cte) || [];
@@ -1832,10 +1826,7 @@ export class ColumnLineageService implements DJService {
       cte?: string;
     };
     if (from.cte && 'ctes' in modelJson && modelJson.ctes) {
-      return this.resolveCteToExternalRef(
-        from.cte,
-        modelJson.ctes as CteDefinition[],
-      );
+      return this.resolveCteToExternalRef(from.cte, modelJson.ctes);
     }
     // source fallback is for main model from (staging types), not CTEs
     return from.model ?? from.source ?? null;

@@ -91,13 +91,13 @@ export const ColumnConfigLightdash = () => {
       metrics.forEach((metric, index) => {
         if (typeof metric === 'string') {
           // Standard metric (string value like 'avg', 'count')
-          standard.push(metric as LightdashStandardMetricValue);
+          standard.push(metric);
         } else if (typeof metric === 'object' && metric !== null) {
           // Custom metric (object with properties)
           custom.push({
             ...metric,
             id: `metric-${Date.now()}-${index}`, // Add unique ID
-          } as LightdashMetricWithId);
+          });
         }
       });
     }
@@ -182,7 +182,7 @@ export const ColumnConfigLightdash = () => {
           lightdash: {
             ...currentLightdash,
             ...updates,
-          } as SchemaColumnLightdash,
+          },
         });
       }
     },
@@ -215,7 +215,7 @@ export const ColumnConfigLightdash = () => {
         dimension: {
           ...dimensionConfig,
           [property]: processedValue,
-        } as SchemaLightdashDimension,
+        },
       });
     },
     [dimensionConfig, updateEditingColumnLightdash],
@@ -368,7 +368,7 @@ export const ColumnConfigLightdash = () => {
 
       // Update editingColumn
       updateEditingColumnLightdash({
-        metrics_merge: updatedConfig as SchemaLightdashMetricMerge,
+        metrics_merge: updatedConfig,
       });
     },
     [metricsMergeConfig, updateEditingColumnLightdash],
@@ -393,7 +393,7 @@ export const ColumnConfigLightdash = () => {
         dimension: {
           ...dimensionConfig,
           case_sensitive: value,
-        } as SchemaLightdashDimension,
+        },
       });
     },
     [dimensionConfig, updateEditingColumnLightdash],

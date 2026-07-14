@@ -29,7 +29,6 @@ import {
 import type {
   FrameworkColumn,
   FrameworkColumnAgg,
-  FrameworkColumnMeta,
   FrameworkCTE,
   FrameworkDims,
   FrameworkInterval,
@@ -197,7 +196,7 @@ export function frameworkProcessSelected({
       meta: {
         ...(userSelectedMeta ?? {}),
         type: selected.type || 'dim',
-      } as FrameworkColumnMeta,
+      },
       internal: {},
     };
     if ('data_type' in selected && selected.data_type) {
@@ -475,8 +474,8 @@ export function frameworkBuildColumns({
             ? null
             : 'from' in modelJson &&
                 'cte' in modelJson.from &&
-                (modelJson.from as { cte: string }).cte
-              ? (modelJson.from as { cte: string }).cte
+                modelJson.from.cte
+              ? modelJson.from.cte
               : null;
       // Strip CTE-materialized SQL metadata from CTE-sourced columns. `agg`,
       // `expr`, and `prefix` describe how the column was computed inside the
@@ -701,7 +700,7 @@ export function frameworkBuildColumns({
     'cte' in modelJson.from &&
     (modelJson.from as { cte?: string }).cte
   ) {
-    baseCte = (modelJson.from as { cte: string }).cte;
+    baseCte = modelJson.from.cte;
     if ('join' in modelJson.from && modelJson.type !== 'int_join_column') {
       basePrefix = baseCte;
     }
@@ -2434,13 +2433,12 @@ export function frameworkApplyCteSelectMeta(
     col.data_tests = sel.data_tests as FrameworkColumn['data_tests'];
   }
 
-  const ld = (
-    'lightdash' in sel && sel.lightdash
-      ? (sel.lightdash as { dimension?: unknown })
-      : null
-  ) as { dimension?: unknown } | null;
+  // Type via annotation, not an `as` reshape: sel.lightdash is unknown, and an
+  // assertion here is removed by the no-unnecessary-type-assertion autofix.
+  const ld: { dimension?: FrameworkColumn['meta']['dimension'] } | null =
+    'lightdash' in sel && sel.lightdash ? sel.lightdash : null;
   if (ld?.dimension) {
-    col.meta.dimension = ld.dimension as FrameworkColumn['meta']['dimension'];
+    col.meta.dimension = ld.dimension;
   }
 
   // Ensure col.internal exists for SQL-internal field assignments below.
@@ -2560,10 +2558,10 @@ function normalizeSourceColumnMeta(
   meta: Record<string, unknown> | undefined | null,
 ): Record<string, unknown> {
   const next: Record<string, unknown> = { ...(meta ?? {}) };
-  const lightdash = (meta?.lightdash ?? null) as {
-    dimension?: unknown;
-    case_sensitive?: unknown;
-  } | null;
+  // Annotate instead of asserting the shape: meta.lightdash is unknown, and an
+  // `as` reshape here is removed by the no-unnecessary-type-assertion autofix.
+  const lightdash: { dimension?: unknown; case_sensitive?: unknown } | null =
+    meta?.lightdash ?? null;
   if (lightdash?.dimension && next.dimension === undefined) {
     next.dimension = lightdash.dimension;
   }
@@ -2651,9 +2649,7 @@ export function frameworkGetNodeColumns({
         c.meta = { ...c.meta, type: 'dim' };
       }
       const rawMeta = isSource
-        ? (normalizeSourceColumnMeta(
-            c.meta as unknown as Record<string, unknown>,
-          ) as typeof c.meta)
+        ? (normalizeSourceColumnMeta(c.meta) as typeof c.meta)
         : c.meta;
       // Defensively strip SQL-internal keys (`agg`, `aggs`, `prefix`,
       // `expr`, `interval`, `exclude_from_group_by`, `override_suffix_agg`)

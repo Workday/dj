@@ -40,7 +40,7 @@ describe('normalizeGroupBy', () => {
 describe('frameworkModelGroupBy', () => {
   test('returns empty sql when no aggregation and no group_by', () => {
     const result = frameworkModelGroupBy({
-      columns: dimColumns as any,
+      columns: dimColumns,
       modelJson: { from: { model: 'stg_events' } } as any,
     });
     expect(result.sql).toBe('');
@@ -58,7 +58,7 @@ describe('frameworkModelGroupBy', () => {
 
   test('explicit string columns in group_by', () => {
     const result = frameworkModelGroupBy({
-      columns: dimColumns as any,
+      columns: dimColumns,
       modelJson: {
         from: { model: 'stg_events' },
         group_by: ['region'],
@@ -70,7 +70,7 @@ describe('frameworkModelGroupBy', () => {
 
   test('explicit { expr } in group_by', () => {
     const result = frameworkModelGroupBy({
-      columns: dimColumns as any,
+      columns: dimColumns,
       modelJson: {
         from: { model: 'stg_events' },
         group_by: [{ expr: 'UPPER(region)' }],
