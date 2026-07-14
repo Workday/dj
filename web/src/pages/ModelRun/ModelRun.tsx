@@ -203,7 +203,7 @@ export function ModelRun() {
             setSelectedModifiedModels(
               models.map((modelName) => ({
                 modelName,
-                lineage: 'downstream' as DbtRunLineage,
+                lineage: 'downstream',
               })),
             );
             setHasFetchedModels(true); // Mark as fetched only on success

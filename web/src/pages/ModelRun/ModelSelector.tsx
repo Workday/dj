@@ -63,7 +63,7 @@ export const ModelSelector = React.memo<ModelSelectorProps>(
               // Create new model with default lineage
               return {
                 modelName,
-                lineage: 'model-only' as DbtRunLineage,
+                lineage: 'model-only',
               };
             }
           },

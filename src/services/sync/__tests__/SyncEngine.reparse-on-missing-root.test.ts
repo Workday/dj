@@ -60,7 +60,7 @@ function makeManifest(
     selectors: {},
     semantic_models: {},
     ...overrides,
-  } as DbtProjectManifest;
+  };
 }
 
 function makeProject(manifest: DbtProjectManifest): DbtProject {
@@ -73,7 +73,7 @@ function makeProject(manifest: DbtProjectManifest): DbtProject {
     modelPaths: ['models'],
     properties: {},
     manifest,
-  } as DbtProject;
+  };
 }
 
 function makeLogger(): SyncLogger {
@@ -90,7 +90,7 @@ function makeConfig(logger: SyncLogger): SyncConfig {
     extensionConfig: {
       logLevel: 'info',
       autoGenerateTests: { enabled: false },
-    } as SyncConfig['extensionConfig'],
+    },
     logger,
     enableChangeDetection: false,
     parallelBatchSize: 1,

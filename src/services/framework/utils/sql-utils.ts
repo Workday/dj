@@ -414,10 +414,7 @@ export function frameworkModelFrom({
     'cte' in modelJson.from
   ) {
     // CTE as the base table with model or CTE joins (e.g. from.cte + from.join)
-    const cteFrom = modelJson.from as {
-      cte: string;
-      join?: SchemaModelFromJoinModels;
-    };
+    const cteFrom = modelJson.from;
     const baseCte = cteFrom.cte;
     appendSql('from');
     appendSql(`${baseCte} ${baseCte}`);
@@ -549,7 +546,7 @@ export function frameworkModelFrom({
     );
     const fromCte =
       'from' in modelJson && 'cte' in modelJson.from
-        ? (modelJson.from as { cte: string }).cte
+        ? modelJson.from.cte
         : null;
     const alreadyJoined = new Set<string | null>([fromCte]);
     if ('from' in modelJson && 'join' in modelJson.from) {
@@ -850,10 +847,7 @@ export function frameworkModelWhere({
     'ctes' in modelJson &&
     modelJson.ctes?.length
   ) {
-    const rootFrom = resolveCteRootFrom(
-      (modelJson.from as { cte: string }).cte,
-      modelJson.ctes,
-    );
+    const rootFrom = resolveCteRootFrom(modelJson.from.cte, modelJson.ctes);
     if (rootFrom) {
       sqlAndFramework.push(
         ...frameworkBuildFilters({
@@ -2188,15 +2182,20 @@ export function frameworkGenerateModelOutput({
         // Strategy resolution: check materialization.strategy (newer nested format),
         // then top-level incremental_strategy (older flat format), then fall back to
         // a storage-type-aware default.
-        const strategy = (getMaterializationProp(modelJson, 'strategy') ||
-          ('incremental_strategy' in modelJson &&
-            modelJson.incremental_strategy) ||
-          null) as {
+        // Annotate the resolved strategy rather than asserting its shape:
+        // getMaterializationProp returns unknown and the incremental_strategy
+        // fallback is loosely typed, so an `as` reshape here is removed by the
+        // no-unnecessary-type-assertion autofix.
+        const strategy: {
           type?: string;
           unique_key?: string | string[];
           merge_update_columns?: string[];
           merge_exclude_columns?: string[];
-        } | null;
+        } | null =
+          getMaterializationProp(modelJson, 'strategy') ||
+          ('incremental_strategy' in modelJson &&
+            modelJson.incremental_strategy) ||
+          null;
 
         // Build the partition column list from columns that actually exist on
         // the model. Candidate partition columns can come from parent meta
@@ -2546,10 +2545,7 @@ export function frameworkModelProperties({
     'ctes' in modelJson &&
     modelJson.ctes?.length
   ) {
-    const rootFrom = resolveCteRootFrom(
-      (modelJson.from as { cte: string }).cte,
-      modelJson.ctes,
-    );
+    const rootFrom = resolveCteRootFrom(modelJson.from.cte, modelJson.ctes);
     if (rootFrom) {
       if ('source' in rootFrom) {
         const sourceMeta = frameworkGetSourceMeta({
@@ -2605,9 +2601,7 @@ export function frameworkModelProperties({
     const tableMeta: Record<string, unknown> = {
       ...(modelJson.lightdash?.table ?? {}),
     };
-    const explicitSqlFilter = (
-      modelJson.lightdash?.table as { sql_filter?: string | null } | undefined
-    )?.sql_filter;
+    const explicitSqlFilter = modelJson.lightdash?.table?.sql_filter;
 
     if (explicitSqlFilter === null) {
       delete tableMeta.sql_filter;
@@ -3463,7 +3457,7 @@ export function frameworkMakeModelTemplate(
           model: from?.model ?? '',
           join: [] as unknown as SchemaModelFromJoinModels,
           ...(from?.rollup && { rollup: from.rollup }),
-        } as SchemaModelTypeIntJoinModels['from'],
+        },
         select: getSelect(
           [] as unknown as SchemaModelTypeIntJoinModels['select'],
         ),
@@ -3645,7 +3639,7 @@ export function frameworkMakeModelTemplate(
       const baseModel: SchemaModelTypeIntUnionModels = {
         ...base,
         type,
-        from: baseModelFrom as SchemaModelTypeIntUnionModels['from'],
+        from: baseModelFrom,
       };
 
       // If we have union models/ctes data, populate it
@@ -3655,21 +3649,17 @@ export function frameworkMakeModelTemplate(
         fromWithUnion.union.models.length > 0 &&
         'model' in baseModel.from
       ) {
-        (
-          baseModel.from as { model: string; union: { models: string[] } }
-        ).union.models = fromWithUnion.union.models;
+        baseModel.from.union.models = fromWithUnion.union.models;
       } else if (
         fromWithUnion?.union?.ctes &&
         Array.isArray(fromWithUnion.union.ctes) &&
         fromWithUnion.union.ctes.length > 0 &&
         'cte' in baseModel.from
       ) {
-        (
-          baseModel.from as {
-            cte: string;
-            union: { ctes: [string, ...string[]] };
-          }
-        ).union.ctes = fromWithUnion.union.ctes as [string, ...string[]];
+        baseModel.from.union.ctes = fromWithUnion.union.ctes as [
+          string,
+          ...string[],
+        ];
       }
 
       const selectLists = getSelect(
@@ -3706,7 +3696,7 @@ export function frameworkMakeModelTemplate(
         from: {
           model: from?.model ?? '',
           join: [] as unknown as SchemaModelFromJoinModels,
-        } as SchemaModelTypeMartJoinModels['from'],
+        },
         select: [] as unknown as SchemaModelTypeMartJoinModels['select'],
       };
 
@@ -3866,8 +3856,7 @@ export function frameworkMakeModelTemplate(
         from: {
           source: fromWithSourceUnion?.source ?? '',
           union: {
-            sources:
-              [] as unknown as SchemaModelTypeStgUnionSources['from']['union']['sources'],
+            sources: [],
           },
         },
       };
@@ -3877,8 +3866,7 @@ export function frameworkMakeModelTemplate(
         fromWithSourceUnion?.union?.sources &&
         Array.isArray(fromWithSourceUnion.union.sources)
       ) {
-        baseModel.from.union.sources = fromWithSourceUnion.union
-          .sources as unknown as SchemaModelTypeStgUnionSources['from']['union']['sources'];
+        baseModel.from.union.sources = fromWithSourceUnion.union.sources;
       }
 
       const selectLists = getSelect(

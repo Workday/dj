@@ -46,7 +46,7 @@ export const WhereClauseNode: React.FC<NodeProps> = () => {
 
         const project = projects[0];
         if (project.manifest) {
-          setManifest(project.manifest as Record<string, unknown>);
+          setManifest(project.manifest);
         }
         if (project.manifest?.nodes) {
           const modelNames = Object.keys(project.manifest.nodes)

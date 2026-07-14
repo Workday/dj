@@ -125,7 +125,7 @@ describe('frameworkBuildDatetimeColumn', () => {
     const result = frameworkBuildDatetimeColumn({
       interval: 'hour',
       sourceInterval: null,
-      userDimension: { label: 'Custom', hidden: true } as any,
+      userDimension: { label: 'Custom', hidden: true },
     });
     expect(result.dimension.label).toBe('Custom');
     expect((result.dimension as any).hidden).toBe(true);

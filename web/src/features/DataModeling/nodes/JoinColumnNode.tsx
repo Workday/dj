@@ -222,7 +222,7 @@ export const JoinColumnNode: React.FC<NodeProps> = () => {
       const filteredSelections = currentSelections.filter(
         (item) => !(typeof item === 'string' && item === fieldToRemove),
       );
-      updateSelectState(filteredSelections as any);
+      updateSelectState(filteredSelections);
     },
     [
       fields,

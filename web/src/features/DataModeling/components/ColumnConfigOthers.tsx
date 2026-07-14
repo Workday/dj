@@ -192,12 +192,11 @@ export const ColumnConfigOthers = () => {
             ? columnToEdit.exclude_from_group_by
             : false) || false,
         interval:
-          ('interval' in columnToEdit
-            ? (columnToEdit.interval as 'day' | 'hour' | 'month' | 'year')
-            : undefined) || undefined,
+          ('interval' in columnToEdit ? columnToEdit.interval : undefined) ||
+          undefined,
         override_prefix:
           ('override_prefix' in columnToEdit
-            ? (columnToEdit.override_prefix as string)
+            ? columnToEdit.override_prefix
             : '') || '',
         override_suffix_agg:
           (('override_suffix_agg' in columnToEdit
@@ -371,7 +370,7 @@ export const ColumnConfigOthers = () => {
               Where Condition (optional)
             </label>
             <InputText
-              value={(test.config?.where as string) || ''}
+              value={test.config?.where || ''}
               onChange={(e) =>
                 handleDataTestConfigChange(test.id, 'where', e.target.value)
               }
@@ -430,7 +429,7 @@ export const ColumnConfigOthers = () => {
                 Field
               </label>
               <InputText
-                value={(test.config?.field as string) || ''}
+                value={test.config?.field || ''}
                 onChange={(e) =>
                   handleDataTestConfigChange(test.id, 'field', e.target.value)
                 }
@@ -443,7 +442,7 @@ export const ColumnConfigOthers = () => {
                 To (ref/model)
               </label>
               <InputText
-                value={(test.config?.to as string) || ''}
+                value={test.config?.to || ''}
                 onChange={(e) =>
                   handleDataTestConfigChange(test.id, 'to', e.target.value)
                 }
@@ -514,12 +513,7 @@ export const ColumnConfigOthers = () => {
                   }
                 : null
             }
-            onChange={(option) =>
-              handleFieldChange(
-                'interval',
-                option?.value as 'day' | 'hour' | 'month' | 'year' | undefined,
-              )
-            }
+            onChange={(option) => handleFieldChange('interval', option?.value)}
             onBlur={() => {}}
             options={
               INTERVAL_OPTIONS as unknown as { label: string; value: string }[]

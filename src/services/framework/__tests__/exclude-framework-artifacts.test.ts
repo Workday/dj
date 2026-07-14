@@ -302,8 +302,8 @@ describe('frameworkResolveExcludedPartitionColumns', () => {
 
   test.each(rows)('resolver set: %s', (_label, cte, model, expected) => {
     const result = frameworkResolveExcludedPartitionColumns(
-      cte as any,
-      model as any,
+      cte,
+      model,
       FRAMEWORK_PARTITIONS,
     );
     expect([...result].sort()).toEqual([...expected].sort());

@@ -120,11 +120,11 @@ export function mergeDeep<T extends Record<string, any>>(
     const v = add[key] as T[keyof T];
     if (isObject(v)) {
       if (!_obj[key]) {
-        _obj = { ..._obj, [key]: {} } as T;
+        _obj = { ..._obj, [key]: {} };
       }
       _obj[key] = mergeDeep(_obj[key], v);
     } else {
-      _obj = { ..._obj, [key]: v } as T;
+      _obj = { ..._obj, [key]: v };
     }
   }
   return _obj;

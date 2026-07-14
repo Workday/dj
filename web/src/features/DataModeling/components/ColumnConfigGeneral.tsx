@@ -173,7 +173,7 @@ export const ColumnConfigGeneral = ({
       // Force type to 'dim' for datetime columns
       setFormData((prev) => ({
         ...prev,
-        name: value as string,
+        name: value,
         type: 'dim', // datetime must be dimension
         dataType: '', // clear data type
         expression: '', // clear expression
@@ -184,7 +184,7 @@ export const ColumnConfigGeneral = ({
       // Clear aggregations and model when changing to 'dim' type
       setFormData((prev) => ({
         ...prev,
-        type: value as ColumnTypeValue,
+        type: value,
         aggregations: [],
         model: '',
       }));
@@ -207,7 +207,7 @@ export const ColumnConfigGeneral = ({
       // Map form fields to schema fields
       switch (field) {
         case 'name': {
-          (updatedColumn as Record<string, unknown>).name = value as string;
+          (updatedColumn as Record<string, unknown>).name = value;
 
           // Special handling for datetime columns
           if (value === 'datetime') {
@@ -221,8 +221,7 @@ export const ColumnConfigGeneral = ({
           break;
         }
         case 'type': {
-          (updatedColumn as Record<string, unknown>).type =
-            value as ColumnTypeValue;
+          (updatedColumn as Record<string, unknown>).type = value;
 
           // Clear aggregations and model when changing to 'dim' type
           if (value === 'dim') {
@@ -233,19 +232,17 @@ export const ColumnConfigGeneral = ({
           break;
         }
         case 'dataType':
-          (updatedColumn as Record<string, unknown>).data_type =
-            value as string;
+          (updatedColumn as Record<string, unknown>).data_type = value;
           break;
         case 'description':
-          (updatedColumn as Record<string, unknown>).description =
-            value as string;
+          (updatedColumn as Record<string, unknown>).description = value;
           break;
         case 'expression':
-          (updatedColumn as Record<string, unknown>).expr = value as string;
+          (updatedColumn as Record<string, unknown>).expr = value;
           break;
         case 'model':
           if (value) {
-            (updatedColumn as Record<string, unknown>).model = value as string;
+            (updatedColumn as Record<string, unknown>).model = value;
           } else {
             delete (updatedColumn as Record<string, unknown>).model;
           }
@@ -404,10 +401,7 @@ export const ColumnConfigGeneral = ({
                 options={AGGREGATION_OPTIONS}
                 value={formData.aggregations}
                 onChange={(selectedValues) =>
-                  handleFieldChange(
-                    'aggregations',
-                    selectedValues as AggregationType[],
-                  )
+                  handleFieldChange('aggregations', selectedValues)
                 }
                 placeholder="Select aggregation(s)"
               />

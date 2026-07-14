@@ -96,7 +96,7 @@ function extractApiErrorDetails(
     typeof apiError === 'object' &&
     apiError !== null &&
     'details' in apiError &&
-    Array.isArray((apiError as { details: unknown }).details)
+    Array.isArray(apiError.details)
   ) {
     const errorDetails = (apiError as { details: string[] }).details;
     errorDetails.forEach((detail: string) => {
@@ -111,7 +111,7 @@ function extractApiErrorDetails(
     typeof apiError === 'object' &&
     apiError !== null &&
     'message' in apiError &&
-    typeof (apiError as { message: unknown }).message === 'string'
+    typeof apiError.message === 'string'
   ) {
     const message = (apiError as { message: string }).message;
     if (!details.includes(message)) {
@@ -124,7 +124,7 @@ function extractApiErrorDetails(
     typeof apiError === 'object' &&
     apiError !== null &&
     'response' in apiError &&
-    typeof (apiError as { response: unknown }).response === 'object'
+    typeof apiError.response === 'object'
   ) {
     const response = (apiError as { response: Record<string, unknown> })
       .response;
@@ -139,7 +139,7 @@ function extractApiErrorDetails(
         response.data !== null &&
         'message' in response.data
       ) {
-        const msg = (response.data as { message: unknown }).message;
+        const msg = response.data.message;
         if (typeof msg === 'string' && !details.includes(msg)) {
           details.push(msg);
         }

@@ -155,7 +155,7 @@ export function ModelCreate({ mode = 'create' }: ModelCreateProps) {
         setValue('source', data.source);
       }
       if (data.type !== undefined) {
-        setBasicField('type', data.type as any);
+        setBasicField('type', data.type);
         setValue('type', data.type as any);
       }
       if (data.group !== undefined) {
@@ -167,7 +167,7 @@ export function ModelCreate({ mode = 'create' }: ModelCreateProps) {
         setValue('topic', data.topic);
       }
       if (data.materialized !== undefined) {
-        setBasicField('materialized', data.materialized as any);
+        setBasicField('materialized', data.materialized);
         setValue('materialized', data.materialized as any);
       }
 
