@@ -37,7 +37,7 @@ function toError(err: unknown): Error {
     return new Error(err);
   }
   if (err && typeof err === 'object' && 'message' in err) {
-    const message = (err as { message: unknown }).message;
+    const message = err.message;
     return new Error(
       typeof message === 'string' ? message : JSON.stringify(message),
     );

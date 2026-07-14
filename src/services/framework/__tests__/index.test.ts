@@ -1031,7 +1031,7 @@ describe('incremental strategy variants', () => {
     } as unknown as FrameworkModel;
 
     const { config } = frameworkGenerateModelOutput({
-      dj: { config: {} } as DJ,
+      dj: { config: {} },
       modelJson,
       project: partitionedProject,
     });
@@ -1247,7 +1247,7 @@ describe('incremental strategy variants', () => {
       project: icebergProject,
     });
 
-    const properties = config.properties as Record<string, unknown> | undefined;
+    const properties = config.properties;
     // Bucket joins the partition transform list with a canonical no-space form
     // so the DJ-shipped partition-overwrite macro's parser stays intact.
     expect(properties?.partitioning).toBe(
@@ -1289,7 +1289,7 @@ describe('incremental strategy variants', () => {
       project: partitionedProject,
     });
 
-    const properties = config.properties as Record<string, unknown> | undefined;
+    const properties = config.properties;
     expect(properties?.partitioned_by).toBe("ARRAY['portal_partition_daily']");
     expect(properties?.bucketed_by).toBe("ARRAY['tenant_name']");
     // bucket_count is emitted as an unquoted integer (Trino table property type).
@@ -1328,7 +1328,7 @@ describe('incremental strategy variants', () => {
       project: icebergProject,
     });
 
-    const properties = config.properties as Record<string, unknown> | undefined;
+    const properties = config.properties;
     expect(properties?.partitioning).toBe("ARRAY['bucket(tenant_name,16)']");
     expect(properties?.sorted_by).toBeUndefined();
     expect(properties?.partitioned_by).toBeUndefined();

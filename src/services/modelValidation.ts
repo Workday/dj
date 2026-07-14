@@ -1545,9 +1545,10 @@ export function validateMaterializationPartitionsExist(
 const FRAMEWORK_COLUMN_EXCLUDE_FLAG = new Map<string, string>([
   ['datetime', 'exclude_datetime'],
   ['portal_source_count', 'exclude_portal_source_count'],
-  ...FRAMEWORK_PARTITIONS.map(
-    (name): [string, string] => [name, 'exclude_portal_partition_columns'],
-  ),
+  ...FRAMEWORK_PARTITIONS.map((name): [string, string] => [
+    name,
+    'exclude_portal_partition_columns',
+  ]),
 ]);
 
 /**

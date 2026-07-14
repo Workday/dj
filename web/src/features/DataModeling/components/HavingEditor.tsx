@@ -1,7 +1,4 @@
-import type {
-  SchemaModelHaving,
-  SchemaModelWhere,
-} from '@shared/schema/types/model.schema';
+import type { SchemaModelHaving } from '@shared/schema/types/model.schema';
 import type { CteState } from '@web/stores/useModelStore';
 import React from 'react';
 
@@ -32,10 +29,6 @@ export const HavingEditor: React.FC<HavingEditorProps> = ({
   ...rest
 }) => {
   return (
-    <WhereEditor
-      value={value as SchemaModelWhere | undefined}
-      onChange={(next) => onChange(next as SchemaModelHaving | undefined)}
-      {...rest}
-    />
+    <WhereEditor value={value} onChange={(next) => onChange(next)} {...rest} />
   );
 };

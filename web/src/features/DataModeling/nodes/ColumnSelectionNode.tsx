@@ -290,11 +290,11 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
           ('source' in selectItem ? selectItem.source : undefined);
         const include: string[] =
           'include' in selectItem && selectItem.include
-            ? (selectItem.include as string[])
+            ? selectItem.include
             : [];
         const exclude: string[] =
           'exclude' in selectItem && selectItem.exclude
-            ? (selectItem.exclude as string[])
+            ? selectItem.exclude
             : [];
 
         if (!modelName) continue;
@@ -455,7 +455,7 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
                 : 'dimension',
             description:
               ('description' in selectItem
-                ? (selectItem.description as string)
+                ? selectItem.description
                 : undefined) || 'NA',
             modelName: 'Derived Column', // Indicate it's manually added (model-reference)
           };
@@ -481,7 +481,7 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
                 : 'dimension',
             description:
               ('description' in selectItem
-                ? (selectItem.description as string)
+                ? selectItem.description
                 : undefined) || 'NA',
             modelName: 'Derived Column', // Indicate it's manually added
           };
@@ -1023,9 +1023,7 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
                     ref={(el) => {
                       provided.innerRef(el);
                       if (columnsContainerRef.current !== el) {
-                        (
-                          columnsContainerRef as React.MutableRefObject<HTMLDivElement | null>
-                        ).current = el;
+                        columnsContainerRef.current = el;
                       }
                     }}
                     {...provided.droppableProps}

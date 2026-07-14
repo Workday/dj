@@ -12,8 +12,8 @@ export function Box({
   ...props
 }: BoxProps) {
   const className = useMemo(() => {
-    let _className: React.ComponentProps<'div'>['className'] = (classNameProp ||
-      '') as React.ComponentProps<'div'>['className'];
+    let _className: React.ComponentProps<'div'>['className'] =
+      classNameProp || '';
     switch (variant) {
       case 'bordered': {
         _className = makeClassName(

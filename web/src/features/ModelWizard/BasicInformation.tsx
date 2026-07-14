@@ -153,7 +153,7 @@ export function BasicInformation({
 
       // Load data into ModelStore (this handles all transformations)
 
-      loadInitialData(modelData as any);
+      loadInitialData(modelData);
 
       // Sync form values with loaded data from ModelStore
       setValue('name', ''); // Clear name for cloning

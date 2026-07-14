@@ -11,7 +11,7 @@ function makeModel(name: string, pathSystemFile: string): DbtModel {
     pathRelativeDirectory: '',
     pathSystemDirectory: '',
     pathSystemFile,
-  } as DbtModel;
+  };
 }
 
 describe('findModelForSql', () => {

@@ -4,7 +4,7 @@ import {
   LIGHTDASH_DASHBOARD_SCHEMA_URL,
 } from '@services/constants';
 import type { DJLogger } from '@services/djLogger';
-import { buildProcessEnv } from '@services/utils/process';
+import { buildProcessEnv, safeSpawn } from '@services/utils/process';
 import type { LightdashRestrictionStatus } from '@shared/lightdash/restrictions';
 import {
   describeLightdashRestriction,
@@ -15,7 +15,6 @@ import type {
   LightdashYamlNode,
 } from '@shared/lightdash/types';
 import { WORKSPACE_ROOT } from 'admin';
-import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -155,7 +154,7 @@ function runLightdash(
     });
 
     const env = buildProcessEnv({});
-    const child = spawn('lightdash', args, { cwd, env });
+    const child = safeSpawn('lightdash', args, { cwd, env, shell: false });
     let stdout = '';
     let stderr = '';
 

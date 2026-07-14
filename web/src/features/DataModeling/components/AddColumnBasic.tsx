@@ -152,12 +152,12 @@ export const AddColumnBasic = ({
         'aggs' in tutorialSelectedColumn &&
         Array.isArray(tutorialSelectedColumn.aggs)
       ) {
-        aggregations = tutorialSelectedColumn.aggs as AggregationType[];
+        aggregations = tutorialSelectedColumn.aggs;
       } else if (
         'agg' in tutorialSelectedColumn &&
         tutorialSelectedColumn.agg
       ) {
-        aggregations = [tutorialSelectedColumn.agg as AggregationType];
+        aggregations = [tutorialSelectedColumn.agg];
       }
 
       setFormData({
@@ -286,7 +286,7 @@ export const AddColumnBasic = ({
       // CTE row emits a valid SchemaModelSelectInterval out of the gate.
       setFormData((prev) => ({
         ...prev,
-        name: value as string,
+        name: value,
         type: 'dim',
         dataType: '',
         expression: '',
@@ -299,7 +299,7 @@ export const AddColumnBasic = ({
       // Clear aggregations and model when switching to dimension
       setFormData((prev) => ({
         ...prev,
-        type: value as ColumnTypeValue,
+        type: value,
         aggregations: [],
         model: '',
         cte: '',
@@ -440,12 +440,12 @@ export const AddColumnBasic = ({
       type: formData.type,
       expr: formData.expression.trim() || '',
       ...(formData.model ? { model: formData.model } : {}),
-      data_type: (formData.dataType as SchemaColumnDataType) || undefined,
+      data_type: formData.dataType || undefined,
       description: formData.description || undefined,
       ...(aggs.length === 1
-        ? { agg: aggs[0] as SchemaColumnAgg }
+        ? { agg: aggs[0] }
         : aggs.length > 1
-          ? { aggs: aggs as SchemaColumnAgg[] }
+          ? { aggs: aggs }
           : {}),
     });
 
@@ -491,7 +491,7 @@ export const AddColumnBasic = ({
       }),
       ...(formData.description && { description: formData.description }),
       ...(aggs.length === 1
-        ? { agg: aggs[0] as SchemaColumnAgg }
+        ? { agg: aggs[0] }
         : aggs.length > 1
           ? { aggs: aggs as SchemaColumnAgg[] }
           : {}),

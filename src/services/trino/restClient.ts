@@ -211,7 +211,7 @@ export class TrinoRestClient {
       }, timeoutMs);
 
       const req = transport.request(
-        { ...options, signal: controller.signal as unknown as AbortSignal },
+        { ...options, signal: controller.signal },
         (res) => {
           const chunks: Buffer[] = [];
           res.on('data', (chunk: Buffer) => chunks.push(chunk));

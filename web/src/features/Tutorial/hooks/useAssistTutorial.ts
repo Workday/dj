@@ -76,7 +76,7 @@ export function useAssistTutorial({
       topic:
         modelState.topic && modelState.topic.length > 0 ? 'filled' : undefined,
     };
-    return generateAssistSteps(stableState as ModelState);
+    return generateAssistSteps(stableState);
   }, [
     modelState.projectName,
     modelState.source,

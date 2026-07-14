@@ -259,7 +259,7 @@ describe('Subquery integration', () => {
           },
         ],
       },
-    } as FrameworkModel;
+    };
 
     const result = frameworkGenerateModelOutput({
       dj: createTestDJ(),
@@ -304,7 +304,7 @@ describe('Subquery integration', () => {
         { type: 'dims_from_model', model: 'model_a' },
         { type: 'dims_from_model', model: 'model_b' },
       ],
-    } as FrameworkModel;
+    };
 
     const result = frameworkGenerateModelOutput({
       dj: createTestDJ(),
