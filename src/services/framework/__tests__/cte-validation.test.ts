@@ -2396,7 +2396,9 @@ describe('validateBulkExcludeFrameworkColumns', () => {
     expect(warnings).toHaveLength(2);
     expect(warnings[0].message).toContain('`exclude_datetime: true`');
     expect(warnings[0].instancePath).toBe('/select/0/exclude/0');
-    expect(warnings[1].message).toContain('`exclude_portal_source_count: true`');
+    expect(warnings[1].message).toContain(
+      '`exclude_portal_source_count: true`',
+    );
     expect(warnings[1].instancePath).toBe('/select/0/exclude/1');
   });
 

@@ -32,6 +32,7 @@ import {
   buildProcessEnv,
   getVenvEnvironment,
   runProcess,
+  safeSpawn,
 } from '@services/utils/process';
 import { sqlFormat } from '@services/utils/sql';
 import { getHtml } from '@services/webview/utils';
@@ -55,7 +56,6 @@ import { PARTITION_DAILY } from '@shared/framework/constants';
 import type { FrameworkSchemaBase } from '@shared/framework/types';
 import type { TreeData, TreeItem } from 'admin';
 import { DJ_SCHEMAS_PATH, TreeDataInstance, WORKSPACE_ROOT } from 'admin';
-import { spawn } from 'child_process';
 import * as fs from 'fs';
 import { applyEdits, modify } from 'jsonc-parser';
 import * as _ from 'lodash';
@@ -2547,9 +2547,13 @@ ${macro.macro_sql}`;
       // Build environment with Python venv support
       const env = buildProcessEnv();
 
-      const childProcess = spawn('dbt', args, {
+      // safeSpawn locates dbt across platforms without a shell; shell: false
+      // keeps the selector a literal argument so a repository-controlled model
+      // name cannot inject shell commands.
+      const childProcess = safeSpawn('dbt', args, {
         cwd: project.pathSystem,
         env,
+        shell: false,
       });
 
       let errorOutput = '';
@@ -3441,10 +3445,13 @@ ${macro.macro_sql}`;
         ...getVenvEnvironment(),
       };
 
-      const childProcess = spawn('dbt', args, {
+      // safeSpawn locates dbt across platforms without a shell; shell: false
+      // keeps the selector a literal argument so a repository-controlled model
+      // name cannot inject shell commands.
+      const childProcess = safeSpawn('dbt', args, {
         cwd: project.pathSystem,
         env,
-        shell: true,
+        shell: false,
       });
 
       let hasErrors = false;

@@ -1,5 +1,10 @@
 # Change Log
 
+## 1.10.1
+
+- **Fixed a command-injection vulnerability when opening a dbt project.** Trino CLI queries no longer run through a shell, the project name and `vars.etl_schema` read from `dbt_project.yml` are validated, and catalog/schema/table names are safely quoted, so a crafted project file can no longer execute arbitrary commands. The automatic source lookup on open is also skipped in Restricted Mode (untrusted) workspaces.
+- **Improved Windows compatibility.** dbt, Trino, Lightdash, and git commands now resolve without relying on a shell (including `.cmd` / `.bat` shims), and Python virtual environments set via `dj.pythonVenvPath` activate using the Windows `Scripts` layout.
+
 ## 1.10.0
 
 - **Exclude specific portal partition columns.** `exclude_portal_partition_columns` now accepts an array of column names, not just the boolean, so a model or CTE can drop any subset of its monthly / daily / hourly partition grains instead of all-or-nothing. Set it in the `.model.json`, the model wizard's Exclude Partition Columns picker, or the CTE side-panel; an array overrides `exclude_framework_artifacts` at the same scope.

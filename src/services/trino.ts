@@ -23,12 +23,17 @@ import {
   TrinoRestClient,
 } from '@services/trino/restClient';
 import type { ApiEnabledService } from '@services/types';
-import { buildProcessEnv } from '@services/utils/process';
+import { buildProcessEnv, safeSpawn } from '@services/utils/process';
 import { getHtml } from '@services/webview/utils';
 import { assertExhaustive } from '@shared';
 import type { ApiMessage, ApiPayload, ApiResponse } from '@shared/api/types';
 import { apiResponse } from '@shared/api/utils';
 import type { FrameworkEtlSource } from '@shared/framework/types';
+import {
+  assertSqlIdentifier,
+  quoteTrinoIdentifier,
+} from '@shared/sql/identifier';
+import { buildTrinoCliArgs } from '@shared/trino/cli';
 import type {
   TrinoActiveQueriesResponse,
   TrinoApi,
@@ -45,7 +50,6 @@ import {
   TreeDataInstance,
   WORKSPACE_ROOT,
 } from 'admin';
-import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -77,7 +81,7 @@ export class Trino implements ApiEnabledService<'trino'> {
         case 'trino-fetch-columns': {
           const { catalog, schema, table } = payload.request;
           const columnsRaw = await this.handleQuery(
-            `show columns from "${catalog}"."${schema}"."${table}"`,
+            `show columns from ${quoteTrinoIdentifier(catalog)}.${quoteTrinoIdentifier(schema)}.${quoteTrinoIdentifier(table)}`,
           );
           const columns: TrinoTableColumn[] = columnsRaw.map((r) => {
             return {
@@ -92,6 +96,12 @@ export class Trino implements ApiEnabledService<'trino'> {
         case 'trino-fetch-etl-sources': {
           const { projectName, etlSchema } = payload.request;
           const schemaName = etlSchema || 'source_etl';
+
+          // projectName and the schema are read from dbt_project.yml (untrusted);
+          // reject anything that is not a bare identifier before it is
+          // interpolated into the query.
+          assertSqlIdentifier(projectName, 'project name');
+          assertSqlIdentifier(schemaName, 'etl_schema');
 
           const etlSourcesRaw = await this.handleQuery(
             `select source_id, properties, etl_active from ${projectName}.${schemaName}.dbt_sources`,
@@ -108,7 +118,7 @@ export class Trino implements ApiEnabledService<'trino'> {
         case 'trino-fetch-schemas': {
           const { catalog } = payload.request;
           const schemasRaw = await this.handleQuery(
-            `show schemas from ${catalog}`,
+            `show schemas from ${quoteTrinoIdentifier(catalog)}`,
           );
           const schemas = schemasRaw.map((r) => r['Schema']);
           return apiResponse<typeof payload.type>(schemas);
@@ -131,7 +141,7 @@ export class Trino implements ApiEnabledService<'trino'> {
         case 'trino-fetch-tables': {
           const { catalog, schema } = payload.request;
           const tablesRaw = await this.handleQuery(
-            `show tables from ${catalog}.${schema}`,
+            `show tables from ${quoteTrinoIdentifier(catalog)}.${quoteTrinoIdentifier(schema)}`,
           );
           const tables = tablesRaw.map((r) => r['Table']);
           return apiResponse<typeof payload.type>(tables);
@@ -500,7 +510,9 @@ export class Trino implements ApiEnabledService<'trino'> {
     // Log SQL for debugging
     this.coder.log.info(`[Trino] SQL: ${sql}`);
 
-    let command = trinoCommand;
+    // Build argv rather than a shell command string so query text and file
+    // paths reach the Trino CLI verbatim (see executeTrinoCommand's shell: false).
+    let args: string[];
     if (filename) {
       // Use file-based execution when filename is specified
       const filepath = djSqlPath({ name: filename });
@@ -509,25 +521,17 @@ export class Trino implements ApiEnabledService<'trino'> {
         ? sql
         : `${sql.trim()};`;
       djSqlWrite({ name: filename, sql: sqlWithSemicolon });
-      command += ` --file '${filepath}'`;
       this.coder.log.info(`[Trino] Using --file: ${filepath}`);
+      args = buildTrinoCliArgs({ file: filepath, raw: options?.raw });
     } else {
-      // Use --execute for direct queries (single quotes preserve double quotes in SQL)
-      command += ` --execute '${sql}'`;
       this.coder.log.info(`[Trino] Using --execute`);
+      args = buildTrinoCliArgs({ execute: sql, raw: options?.raw });
     }
 
-    if (!options?.raw) {
-      // Use CSV_HEADER format instead of JSON to properly handle complex types (arrays, maps, structs)
-      // The Trino CLI's JSON format has a known limitation where it cannot serialize
-      // java.util.Collections$UnmodifiableList (arrays) without a proper ObjectCodec
-      command += ` --output-format=CSV_HEADER`;
-    }
-
-    this.coder.log.info(`[Trino] Command: ${command}`);
+    this.coder.log.info(`[Trino] Command: ${trinoCommand} ${args.join(' ')}`);
 
     try {
-      const result = await this.executeTrinoCommand(command);
+      const result = await this.executeTrinoCommand(trinoCommand, args);
 
       if (options?.raw) {
         return result;
@@ -537,9 +541,13 @@ export class Trino implements ApiEnabledService<'trino'> {
     } catch (error: unknown) {
       this.coder.log.error('Trino query failed:', error);
 
-      // Check for command not found error
+      // Detect a missing Trino CLI. With shell: false this surfaces as a spawn
+      // ENOENT error rather than a shell "command not found" on stderr.
       const errorString = String(error);
-      if (errorString.includes('command not found')) {
+      if (
+        errorString.includes('command not found') ||
+        errorString.includes('ENOENT')
+      ) {
         if (trinoCommand) {
           throw new Error(
             `Trino CLI (trino-cli) not found at configured path: ${trinoCommand}. Please verify the path is correct and the file is executable. You can update this in VS Code Settings under "DJ > Trino Path".`,
@@ -558,26 +566,34 @@ export class Trino implements ApiEnabledService<'trino'> {
   }
 
   /**
-   * Execute Trino command with proper environment setup (venv support)
+   * Execute Trino command with proper environment setup (venv support).
+   *
+   * Spawned via safeSpawn with `shell: false`: safeSpawn resolves the CLI
+   * across platforms (PATHEXT on Windows) while `shell: false` keeps the SQL and
+   * identifiers -- some of which originate from an untrusted `dbt_project.yml` --
+   * as literal arguments that a shell never re-parses into commands.
    */
-  private executeTrinoCommand(command: string): Promise<string> {
+  private executeTrinoCommand(
+    command: string,
+    args: string[],
+  ): Promise<string> {
     return new Promise((resolve, reject) => {
       const env = buildProcessEnv();
 
-      const childProcess = spawn(command, {
+      const childProcess = safeSpawn(command, args, {
         cwd: WORKSPACE_ROOT,
         env,
-        shell: true,
+        shell: false,
       });
 
       let stdout = '';
       let stderr = '';
 
-      childProcess.stdout.on('data', (data) => {
+      childProcess.stdout?.on('data', (data) => {
         stdout += data.toString();
       });
 
-      childProcess.stderr.on('data', (data) => {
+      childProcess.stderr?.on('data', (data) => {
         stderr += data.toString();
       });
 

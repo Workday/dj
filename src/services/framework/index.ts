@@ -1458,6 +1458,13 @@ export class Framework implements ApiEnabledService<'framework'> {
   }
 
   async handleLoadEtlSources({ project }: { project: DbtProject }) {
+    // Runs automatically when a workspace is opened. Skip the Trino CLI
+    // invocation in untrusted workspaces so merely opening a folder never
+    // spawns a process driven by its dbt_project.yml.
+    if (!vscode.workspace.isTrusted) {
+      return;
+    }
+
     const etlSourcesResponse = await this.getApi().handleApi({
       type: 'trino-fetch-etl-sources',
       request: {

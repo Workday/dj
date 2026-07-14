@@ -48,8 +48,14 @@ export function getVenvEnvironment(): Partial<VenvEnvironment> {
       ? pythonVenvPath
       : path.join(WORKSPACE_ROOT, pythonVenvPath);
 
-    const binPath = path.join(absVenv, 'bin');
-    const activatePath = path.join(binPath, 'activate');
+    // Virtual environments place their executables (and the activate marker)
+    // under Scripts on Windows and bin elsewhere.
+    const isWindows = process.platform === 'win32';
+    const binPath = path.join(absVenv, isWindows ? 'Scripts' : 'bin');
+    const activatePath = path.join(
+      binPath,
+      isWindows ? 'activate.bat' : 'activate',
+    );
 
     // Validate venv exists before using it
     if (!fs.existsSync(activatePath)) {
@@ -58,7 +64,7 @@ export function getVenvEnvironment(): Partial<VenvEnvironment> {
 
     return {
       VIRTUAL_ENV: absVenv,
-      PATH: `${binPath}:${process.env.PATH ?? ''}`,
+      PATH: `${binPath}${path.delimiter}${process.env.PATH ?? ''}`,
       PYTHONHOME: undefined,
     };
   } catch {
@@ -77,17 +83,17 @@ export function getVenvEnvironment(): Partial<VenvEnvironment> {
  * - Merges any additional environment variables provided
  *
  * @param additionalEnv - Optional additional environment variables to set (e.g., CI: 'true')
- * @returns Complete NodeJS.ProcessEnv suitable for child_process.spawn()
+ * @returns Complete NodeJS.ProcessEnv suitable for safeSpawn()
  *
  * @example
  * ```typescript
  * // Basic usage for dbt
  * const env = buildProcessEnv();
- * spawn('dbt', ['compile'], { env });
+ * safeSpawn('dbt', ['compile'], { env });
  *
  * // With additional env vars for Lightdash
  * const env = buildProcessEnv({ CI: 'true' });
- * spawn('lightdash', ['start-preview'], { env });
+ * safeSpawn('lightdash', ['start-preview'], { env });
  *
  * // Override specific variables
  * const env = buildProcessEnv({ DBT_HOST: 'custom-host' });
