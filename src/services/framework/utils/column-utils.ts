@@ -1114,6 +1114,40 @@ export function frameworkGetCteDatetimeSourceInterval({
   return null;
 }
 
+const EMPTY_PARTITION_SET: ReadonlySet<FrameworkPartitionName> = new Set();
+
+// Partition grains the framework auto-drops at each coarsened `datetime` grain.
+// Coarsest-to-finest: `day` drops hourly, `month` drops daily + hourly, `year`
+// drops all three; `hour` drops nothing.
+const PARTITIONS_DROPPED_BY_INTERVAL: Record<
+  FrameworkInterval,
+  ReadonlySet<FrameworkPartitionName>
+> = {
+  hour: EMPTY_PARTITION_SET,
+  day: new Set([PARTITION_HOURLY]),
+  month: new Set([PARTITION_DAILY, PARTITION_HOURLY]),
+  year: new Set([PARTITION_MONTHLY, PARTITION_DAILY, PARTITION_HOURLY]),
+};
+
+/**
+ * Partition grains the framework auto-drops when `datetime` is coarsened to
+ * `interval`. Under a coarser datetime grain the finer `portal_partition_*`
+ * columns no longer make sense, so auto-injection skips them (see the
+ * `datetimeInterval` switch in `frameworkBuildColumns` and the CTE registry
+ * equivalent). An unresolved interval (`null` / `undefined`) drops nothing.
+ *
+ * Single source of truth for the finer-than-rollup rule, shared by the CTE
+ * rollup transform and the bulk-exclude validator.
+ */
+export function frameworkPartitionsDroppedByInterval(
+  interval: FrameworkInterval | null | undefined,
+): ReadonlySet<FrameworkPartitionName> {
+  if (!interval) {
+    return EMPTY_PARTITION_SET;
+  }
+  return PARTITIONS_DROPPED_BY_INTERVAL[interval] ?? EMPTY_PARTITION_SET;
+}
+
 /**
  * Returns true when `name` is a `portal_partition_*` column at a finer grain
  * than the rollup interval. Used by the CTE rollup transform to drop
@@ -1124,20 +1158,9 @@ function frameworkIsCtePartitionFinerThanRollup(
   name: string,
   interval: FrameworkInterval,
 ): boolean {
-  switch (interval) {
-    case 'hour':
-      return false;
-    case 'day':
-      return name === PARTITION_HOURLY;
-    case 'month':
-      return name === PARTITION_HOURLY || name === PARTITION_DAILY;
-    case 'year':
-      return (
-        name === PARTITION_HOURLY ||
-        name === PARTITION_DAILY ||
-        name === PARTITION_MONTHLY
-      );
-  }
+  return frameworkPartitionsDroppedByInterval(interval).has(
+    name as FrameworkPartitionName,
+  );
 }
 
 /**

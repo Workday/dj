@@ -1,6 +1,7 @@
 import {
   filterBulkSelectColumns,
   frameworkExtractExplicitNamesFromSelect,
+  frameworkPartitionsDroppedByInterval,
   isAggregateExpr,
   isConstantExpr,
   isJinjaExpr,
@@ -12,7 +13,11 @@ import {
   DEFAULT_INCREMENTAL_STRATEGY,
   FRAMEWORK_PARTITIONS,
 } from '@shared/framework/constants';
-import type { FrameworkColumn } from '@shared/framework/types';
+import type {
+  FrameworkColumn,
+  FrameworkInterval,
+  FrameworkPartitionName,
+} from '@shared/framework/types';
 import type { ValidateFunction } from 'ajv';
 import type { ErrorObject } from 'ajv';
 
@@ -1538,9 +1543,10 @@ export function validateMaterializationPartitionsExist(
 /**
  * Framework-managed columns and the dedicated flag that drops each. The
  * framework injects these onto every model or CTE that selects from a model
- * or CTE, so a bulk-select `exclude` can only strip them momentarily before
- * they are re-added; the dedicated flag is the one lever that removes them.
- * The three partition grains share the single partition flag.
+ * or CTE, so a bulk-select `exclude` is undone by re-injection unless the
+ * grain is one the framework was already going to skip; the dedicated flag is
+ * the reliable lever. The three partition grains share the single partition
+ * flag.
  */
 const FRAMEWORK_COLUMN_EXCLUDE_FLAG = new Map<string, string>([
   ['datetime', 'exclude_datetime'],
@@ -1552,18 +1558,85 @@ const FRAMEWORK_COLUMN_EXCLUDE_FLAG = new Map<string, string>([
 ]);
 
 /**
- * Flags bulk-select `exclude` entries that name a framework-managed column
- * (`datetime`, `portal_partition_*`, `portal_source_count`). Because the
- * framework re-injects those columns after bulk expansion, listing one in an
- * `all_from_model` / `dims_from_model` / `fcts_from_model` (or the `_cte`
- * variants) `exclude` leaves the column in the output; the dedicated exclude
- * flag is the intended opt-out.
+ * Resolve the authored `datetime` grain for a single scope (model or CTE)
+ * from JSON only -- no manifest lookup. A coarsened grain makes the framework
+ * skip finer `portal_partition_*` columns, so a bulk `exclude` of one of those
+ * grains is effective rather than a no-op.
  *
- * Suppressed when the same scope re-adds the column (scalar `name` or bulk
- * `include`): that is the canonical replace pattern -- e.g. re-graining
- * `datetime` via a `{ "name": "datetime", "interval": "day" }` scalar -- where
- * the `exclude` does real work by letting the re-added copy win column dedup
- * instead of the raw bulk-inherited one.
+ * Precedence mirrors the runtime: `from.rollup.interval` first, then a scalar
+ * `{ name: "datetime", interval }` select item in the same scope. An
+ * inherited-only grain (no authored interval here) stays unresolved so the
+ * validator keeps warning (the safe default).
+ */
+function resolveAuthoredIntervalAtScope(scope: any): FrameworkInterval | null {
+  const rollupInterval = scope?.from?.rollup?.interval;
+  if (typeof rollupInterval === 'string') {
+    return rollupInterval as FrameworkInterval;
+  }
+  const select = scope?.select;
+  if (Array.isArray(select)) {
+    for (const item of select) {
+      if (
+        item &&
+        typeof item === 'object' &&
+        item.name === 'datetime' &&
+        typeof item.interval === 'string'
+      ) {
+        return item.interval as FrameworkInterval;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Whether a scope already drops `name` through its dedicated exclude flag (or
+ * the combined `exclude_framework_artifacts`). When it does, the bulk exclude
+ * is redundant but harmless, and pointing the author at "set the flag" would
+ * be a false lead since it is already set. Within-scope precedence only: the
+ * individual flag (even `false`) beats the combined enum, matching the runtime
+ * resolver.
+ */
+function scopeDropsFrameworkColumn(scope: any, name: string): boolean {
+  if (name === 'datetime') {
+    return resolveExcludeDatetimeAtScope(scope).effective;
+  }
+  const combinedDrops =
+    scope?.exclude_framework_artifacts === 'all' ||
+    scope?.exclude_framework_artifacts === 'columns';
+  if (name === 'portal_source_count') {
+    const individual = scope?.exclude_portal_source_count;
+    return individual !== undefined ? Boolean(individual) : combinedDrops;
+  }
+  const partitions = scope?.exclude_portal_partition_columns;
+  if (partitions === true) {
+    return true;
+  }
+  if (partitions === false) {
+    return false;
+  }
+  if (Array.isArray(partitions)) {
+    return partitions.includes(name);
+  }
+  return combinedDrops;
+}
+
+/**
+ * Flags bulk-select `exclude` entries that name a framework-managed column
+ * (`datetime`, `portal_partition_*`, `portal_source_count`) in a case where
+ * the framework re-injects it after bulk expansion, so the `exclude` leaves
+ * the column in the output and the dedicated flag is the intended opt-out.
+ *
+ * Warning is suppressed when the exclude is actually effective or redundant:
+ * - **Replace pattern:** the same scope re-adds the column (scalar `name` or
+ *   bulk `include`) -- e.g. re-graining `datetime` via
+ *   `{ "name": "datetime", "interval": "day" }`, where the `exclude` lets the
+ *   re-added copy win column dedup over the raw inherited one.
+ * - **Interval drop:** the excluded column is a finer partition grain the
+ *   coarsened `datetime` already removes (e.g. `portal_partition_hourly` under
+ *   `interval: "day"`), so auto-injection never puts it back.
+ * - **Dedicated flag already set:** the scope drops the column via its
+ *   exclude flag / `exclude_framework_artifacts`, so the exclude is redundant.
  *
  * Scoped to model- and CTE-sourced bulk selects (the inheritance contexts) --
  * source-sourced bulk selects generate rather than inherit these columns.
@@ -1575,7 +1648,8 @@ export function validateBulkExcludeFrameworkColumns(
 ): ValidationErrorDetail[] {
   const warnings: ValidationErrorDetail[] = [];
 
-  const scanSelect = (select: unknown, basePath: string): void => {
+  const scanScope = (scope: any, basePath: string): void => {
+    const select = scope?.select;
     if (!Array.isArray(select)) {
       return;
     }
@@ -1583,6 +1657,11 @@ export function validateBulkExcludeFrameworkColumns(
     // bulk `exclude` of a framework column paired with a re-add is the replace
     // pattern, not a no-op, so it must not warn.
     const explicitNames = frameworkExtractExplicitNamesFromSelect(select);
+    // Finer partition grains this scope's coarsened datetime already drops --
+    // excluding one of those is effective, so no warning.
+    const droppedByInterval = frameworkPartitionsDroppedByInterval(
+      resolveAuthoredIntervalAtScope(scope),
+    );
     for (let i = 0; i < select.length; i++) {
       const item = select[i];
       const isModelOrCteBulk =
@@ -1605,6 +1684,12 @@ export function validateBulkExcludeFrameworkColumns(
         if (explicitNames.has(name)) {
           continue;
         }
+        if (droppedByInterval.has(name as FrameworkPartitionName)) {
+          continue;
+        }
+        if (scopeDropsFrameworkColumn(scope, name)) {
+          continue;
+        }
         const remedy =
           flag === 'exclude_portal_partition_columns'
             ? `\`exclude_portal_partition_columns: ["${name}"]\``
@@ -1617,10 +1702,10 @@ export function validateBulkExcludeFrameworkColumns(
     }
   };
 
-  scanSelect(modelJson?.select, '/select');
+  scanScope(modelJson, '/select');
   if (Array.isArray(modelJson?.ctes)) {
     for (let j = 0; j < modelJson.ctes.length; j++) {
-      scanSelect(modelJson.ctes[j]?.select, `/ctes/${j}/select`);
+      scanScope(modelJson.ctes[j], `/ctes/${j}/select`);
     }
   }
 

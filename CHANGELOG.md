@@ -3,6 +3,7 @@
 ## 1.11.0
 
 - **`dj.lightdash.defaultSortedByColumnCaseSensitive`** (default: `false`) — when `true`, columns listed in a model's `materialization.sorted_by` get `case_sensitive: true` in generated YAML so Lightdash doesn't wrap them in `UPPER()`, preserving Trino predicate pushdown. Per-column `lightdash.case_sensitive` overrides still apply.
+- **Bulk-exclude framework-column warning respects coarsened datetime.** When a model or CTE coarsens `datetime` (e.g. `interval: "day"` or `from.rollup`), finer partition grains are already omitted, so excluding them in an `all_from_model` / `dims_from_model` does not raise a Problems-tab warning. The warning also stays quiet when the dedicated exclude flag is already set.
 
 ## 1.10.1
 
