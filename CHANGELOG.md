@@ -1,5 +1,9 @@
 # Change Log
 
+## 1.11.0
+
+- **`dj.lightdash.defaultSortedByColumnCaseSensitive`** (default: `false`) — when `true`, columns listed in a model's `materialization.sorted_by` get `case_sensitive: true` in generated YAML so Lightdash doesn't wrap them in `UPPER()`, preserving Trino predicate pushdown. Per-column `lightdash.case_sensitive` overrides still apply.
+
 ## 1.10.1
 
 - **Fixed a command-injection vulnerability when opening a dbt project.** Trino CLI queries no longer run through a shell, the project name and `vars.etl_schema` read from `dbt_project.yml` are validated, and catalog/schema/table names are safely quoted, so a crafted project file can no longer execute arbitrary commands. The automatic source lookup on open is also skipped in Restricted Mode (untrusted) workspaces.

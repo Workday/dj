@@ -462,6 +462,8 @@ DJ emits Iceberg `bucket(col, n)` transforms with no internal space so the shipp
 
 Format is resolved from `materialization.format`, falling back to the project's `storage_type` var. When neither is set, DJ defaults to Hive-style `bucketed_by` / `bucket_count` and warns in the Problems tab — set `format` (or `storage_type`) explicitly so an Iceberg table doesn't silently get Hive bucketing.
 
+When `dj.lightdash.defaultSortedByColumnCaseSensitive` is enabled, DJ sets `case_sensitive: true` on each `sorted_by` column's Lightdash dimension in the generated YAML so Lightdash doesn't wrap those filters in `UPPER()` (which breaks Trino predicate pushdown). Per-column `lightdash.case_sensitive` / `lightdash.dimension.case_sensitive` overrides still apply.
+
 ### Data Quality
 
 - **Validation**: Implement data quality checks at each stage

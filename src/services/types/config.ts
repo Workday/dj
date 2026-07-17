@@ -28,6 +28,7 @@ export type CoderConfig = {
   lightdashDefaultSqlFilter?: string;
   lightdashDefaultSqlFilterRequiredColumns?: string[];
   lightdashDefaultPartitionColumnCaseSensitive?: boolean;
+  lightdashDefaultSortedByColumnCaseSensitive?: boolean;
   lightdashDefaultAddPathToGitignore?: boolean;
   lightdashRestrictedProjects?: LightdashRestrictedProject[];
   materializationDefaultIncrementalStrategy?: DefaultIncrementalStrategy;

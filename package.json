@@ -476,6 +476,11 @@
           "default": false,
           "description": "Automatically set case_sensitive: true on partition columns in generated YAML. Requires 'DJ: Sync to SQL and YML' to take effect."
         },
+        "dj.lightdash.defaultSortedByColumnCaseSensitive": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically set case_sensitive: true on materialization.sorted_by columns in generated YAML. Requires 'DJ: Sync to SQL and YML' to take effect."
+        },
         "dj.lightdash.defaultAddPathToGitignore": {
           "type": "boolean",
           "default": true,

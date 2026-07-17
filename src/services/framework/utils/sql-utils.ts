@@ -2643,12 +2643,17 @@ export function frameworkModelProperties({
   const modelCaseSensitive =
     'lightdash' in modelJson ? modelJson.lightdash?.case_sensitive : undefined;
 
-  // Partition columns need case_sensitive: true to preserve predicate pushdown
-  // (Lightdash wraps non-case-sensitive dimensions in UPPER() which prevents it)
+  // Partition and sorted_by columns need case_sensitive: true to preserve
+  // predicate pushdown (Lightdash wraps non-case-sensitive dimensions in
+  // UPPER() which prevents it). Both defaults are gated by workspace settings.
   const partitionColumnNames = frameworkGetPartitionColumnNames({
     modelJson,
     project,
   });
+  const sortedByRaw = getMaterializationProp(modelJson, 'sorted_by');
+  const sortedByColumnNames = (
+    Array.isArray(sortedByRaw) ? (sortedByRaw as unknown[]) : []
+  ).filter((s): s is string => typeof s === 'string');
 
   // Persist columns on the model properties.
   // Each column is built inside a try/catch so that an unexpected failure
@@ -2820,15 +2825,19 @@ export function frameworkModelProperties({
       const explicitCaseSensitive = dimension.case_sensitive;
       const cleanedDimension = removeEmpty(dimension);
 
-      // Re-inject case_sensitive after removeEmpty. Explicit values from
-      // lightdash.dimension.case_sensitive take priority; otherwise auto-set
-      // true on partition columns to prevent Lightdash from wrapping them in
-      // UPPER(), which breaks Trino-Iceberg predicate pushdown.
+      // Re-inject case_sensitive after removeEmpty. Explicit
+      // lightdash.dimension.case_sensitive wins; otherwise apply the
+      // partition / sorted_by workspace defaults.
       if (explicitCaseSensitive !== undefined) {
         cleanedDimension.case_sensitive = explicitCaseSensitive;
       } else if (
         dj.config.lightdashDefaultPartitionColumnCaseSensitive &&
         partitionColumnNames.includes(column.name)
+      ) {
+        cleanedDimension.case_sensitive = true;
+      } else if (
+        dj.config.lightdashDefaultSortedByColumnCaseSensitive &&
+        sortedByColumnNames.includes(column.name)
       ) {
         cleanedDimension.case_sensitive = true;
       }
