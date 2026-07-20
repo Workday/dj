@@ -1,5 +1,18 @@
 # Change Log
 
+## 1.11.0
+
+### DJ Python Model
+
+DJ Python Models let you author dbt Python models the same JSON-first way as SQL models, with the same validation, DAG wiring, and generated-file guarantees you already get from DJ.
+
+- **Create Python models from the wizard**, just like SQL models — pick project, group, topic, and name, and DJ scaffolds the `.model.json`.
+- **Create and map Dags.** Generate a new Airflow Dag or attach a Python model to an existing one directly from the wizard.
+- **Notebook support** for authoring and iterating on Python model logic before it's wired into the pipeline.
+- **DJ-generated files for Python models**, kept in sync with the `.model.json` the same way SQL/YAML is generated for other model types.
+- **Guardrails against destructive SQL.** DROP, DELETE, and TRUNCATE statements inside Python model code are flagged so a Python model can't silently drop or delete data across the project.
+- **New `dj-create-python-model` and `dj-review-python-model` agent skills** for scaffolding and reviewing Python models through your AI assistant.
+
 ## 1.10.1
 
 - **Fixed a command-injection vulnerability when opening a dbt project.** Trino CLI queries no longer run through a shell, the project name and `vars.etl_schema` read from `dbt_project.yml` are validated, and catalog/schema/table names are safely quoted, so a crafted project file can no longer execute arbitrary commands. The automatic source lookup on open is also skipped in Restricted Mode (untrusted) workspaces.
