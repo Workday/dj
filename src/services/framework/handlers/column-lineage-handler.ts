@@ -10,6 +10,7 @@ import {
   generateAllColumnsCSV,
   generateLineageCSV,
 } from '@shared/lineage';
+import { quoteTrinoIdentifier } from '@shared/sql/identifier';
 import * as vscode from 'vscode';
 
 import type { FrameworkContext } from '../context';
@@ -38,8 +39,9 @@ export class ColumnLineageHandler {
    * - switch-to-model-column: Navigate to model column and compute lineage
    * - switch-to-source-column: Navigate to source column and compute lineage
    * - get-source-tables: List all tables in a source file
-   * - get-source-columns: Get columns for a specific source table
-   * - compute-source-lineage: Compute forward lineage from a source column
+ * - get-source-columns: Get columns for a specific source table
+ * - get-seed-columns: Get columns for a specific seed
+ * - compute-source-lineage: Compute forward lineage from a source column
    * - export-source-lineage: Export source lineage to CSV
    * - validate: Validate model files exist
    * - get-columns: Get all columns in a model
@@ -204,6 +206,39 @@ export class ColumnLineageHandler {
         return apiResponse<typeof payload.type>({
           success: true,
           modelName: `${result.sourceName}.${tableName}`,
+          columns,
+        });
+      }
+
+      if (action === 'get-seed-columns') {
+        const { seedName } = payload.request;
+        if (!seedName) {
+          return apiResponse<typeof payload.type>({
+            success: false,
+            error: 'seedName is required for get-seed-columns',
+          });
+        }
+        const result = await lineageService.getSeedColumns(filePath, seedName);
+        if (!result.success) {
+          return apiResponse<typeof payload.type>({
+            success: false,
+            error: result.error,
+          });
+        }
+        // Convert seed columns to FrameworkColumn format
+        const columns: FrameworkColumn[] = (result.columns ?? []).map(
+          (col) => ({
+            name: col.name,
+            data_type: col.data_type as FrameworkColumn['data_type'],
+            description: col.description || '',
+            meta: { type: col.type ?? 'dim' },
+            internal: {},
+          }),
+        );
+        return apiResponse<typeof payload.type>({
+          success: true,
+          seedName: result.seedName,
+          modelName: result.seedName,
           columns,
         });
       }
@@ -661,7 +696,7 @@ export class ColumnLineageHandler {
     const queries = [...sourceTableMap.entries()].map(
       async ([modelName, { catalog, schema, table }]) => {
         try {
-          const sql = `SELECT key, value FROM ${catalog}.${schema}."${table}$properties" WHERE key LIKE 'python_model_%'`;
+          const sql = `SELECT key, value FROM ${quoteTrinoIdentifier(catalog)}.${quoteTrinoIdentifier(schema)}.${quoteTrinoIdentifier(`${table}$properties`)} WHERE key LIKE 'python_model_%'`;
           const rows = await this.ctx.coder.trino.handleQuery(sql, {
             filename: 'data-explorer-query.sql',
           });

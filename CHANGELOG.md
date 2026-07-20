@@ -4,13 +4,14 @@
 
 ### DJ Python Model
 
-DJ Python Models let you author dbt Python models the same JSON-first way as SQL models, with the same validation, DAG wiring, and generated-file guarantees you already get from DJ.
+Bring Python-based transformations into DJ as first-class models — with full lineage, DAG integration, and a unified developer experience alongside your dbt models.
 
-- **Create Python models from the wizard**, just like SQL models — pick project, group, topic, and name, and DJ scaffolds the `.model.json`.
-- **Create and map Dags.** Generate a new Airflow Dag or attach a Python model to an existing one directly from the wizard.
-- **Notebook support** for authoring and iterating on Python model logic before it's wired into the pipeline.
-- **DJ-generated files for Python models**, kept in sync with the `.model.json` the same way SQL/YAML is generated for other model types.
-- **Guardrails against destructive SQL.** DROP, DELETE, and TRUNCATE statements inside Python model code are flagged so a Python model can't silently drop or delete data across the project.
+- **Create Python models from the wizard.** Fill in name, group, topic, and select a DAG, and DJ scaffolds a `.python.json` config, a `.python.py` module with ETL boilerplate (`extract` / `transform_and_load` / `cleanup` / `run_etl`), and — when notebook support is enabled — a companion `.python.ipynb`.
+- **Automatic DAG creation and attachment.** Create a new DAG or map the model onto an existing one from the same wizard; selecting a DAG injects `register_python_model_tasks` so the model runs ahead of dbt sources with no manual DAG editing.
+- **Notebook-backed development.** `.python.py` stays the single source of truth for code, with jupytext-style cell markers so you can iterate in a Jupyter notebook (`.python.ipynb`) alongside the module.
+- **DJ-generated shared runtime files.** `_trino_io.py` (Trino connection + DML/DDL helpers like `overwrite_partition` and `merge`), `_config.py` (per-model config and Iceberg table properties), and `_model_tasks.py` (dependency-ordered task batching, shared with the Airflow `etl_helper.py`) are generated and kept in sync — never hand-edited.
+- **Guardrails against destructive SQL.** DROP, DELETE, and TRUNCATE statements written inside Python model code are flagged in the Problems tab so you can catch them before committing or running.
+- **Lineage from Iceberg upstream, all the way through.** Python models write their metadata as Iceberg table properties; the Data Explorer reads those properties to render Python model nodes upstream of their dbt sources, plus each model's own upstream Iceberg tables — so lineage traces cleanly from raw source through Python transformation into your dbt DAG.
 - **New `dj-create-python-model` and `dj-review-python-model` agent skills** for scaffolding and reviewing Python models through your AI assistant.
 
 ## 1.10.1

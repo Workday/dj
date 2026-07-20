@@ -17,6 +17,8 @@ from airflow.utils.task_group import TaskGroup
 
 log = logging.getLogger(__name__)
 
+# Assumes this file lives at dags/_ext_/etl_helper.py so parent.parent is the
+# dags/ folder and python models are discovered under dags/python_models/.
 PYTHON_DIR = Path(__file__).parent.parent / "python_models"
 
 PYTHON_SOURCE_CONFIG_VAR = "python_source_config"
@@ -283,7 +285,9 @@ def _execute_model_with_context(
                 "Skipping model %s (topic %s skip_model=%s)",
                 model["model_id"], topic, skip_models,
             )
-            return
+            raise AirflowSkipException(
+                f"topic {topic} skip_model includes {model['model_id']}"
+            )
 
         dates_in = topic_cfg.get("dates_in", "")
 

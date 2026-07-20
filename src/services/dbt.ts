@@ -139,7 +139,7 @@ export class Dbt implements ApiEnabledService<'dbt'> {
   };
   treeItemPythonModelCreate: TreeItem = {
     command: {
-      command: 'dj.command.pythonModelCreate',
+      command: COMMAND_ID.PYTHON_MODEL_CREATE,
       title: 'Create Python Model',
     },
     iconPath: new vscode.ThemeIcon('add'),
@@ -1720,7 +1720,6 @@ ${macro.macro_sql}`;
         'source_etl.py',
         'utils.py',
         'variables.py',
-        'python_models.py',
       ];
 
       // Use Promise.all for parallel file operations
@@ -1911,28 +1910,7 @@ ${macro.macro_sql}`;
               skillDirName,
             );
 
-            // Read all files in the skill directory and copy them
-            const files = await vscode.workspace.fs.readDirectory(
-              vscode.Uri.file(sourceDir),
-            );
-
-            for (const [fileName, fileType] of files) {
-              if (fileType === vscode.FileType.File) {
-                const sourcePath = vscode.Uri.file(
-                  path.join(sourceDir, fileName),
-                );
-                // Strip leading underscore from template filenames (e.g. _SKILL.md → SKILL.md)
-                // so they aren't interpreted as skills inside this repo's own templates directory.
-                const targetFileName = fileName.startsWith('_')
-                  ? fileName.slice(1)
-                  : fileName;
-                const targetPath = vscode.Uri.file(
-                  path.join(targetDir, targetFileName),
-                );
-                const content = await vscode.workspace.fs.readFile(sourcePath);
-                await vscode.workspace.fs.writeFile(targetPath, content);
-              }
-            }
+            await this.copySkillDirectoryRecursive(sourceDir, targetDir);
           } catch (err: unknown) {
             this.log.error(`Error writing skill ${skillDirName}:`, err);
           }
@@ -2309,6 +2287,7 @@ ${macro.macro_sql}`;
       this.treeItemDagCreate,
       this.treeItemQueryCreate,
       this.coder.lightdash.treeItemLightdashPreview,
+      this.coder.lightdash.treeItemLightdashDashboardsAsCode,
       this.treeItemModelRun,
       this.treeItemModelTest,
       this.treeItemModelCompile,
@@ -3170,7 +3149,7 @@ ${macro.macro_sql}`;
 
     // Python model Create Command
     context.subscriptions.push(
-      vscode.commands.registerCommand('dj.command.pythonModelCreate', () => {
+      vscode.commands.registerCommand(COMMAND_ID.PYTHON_MODEL_CREATE, () => {
         if (this.coder.framework.webviewPanelPythonModelCreate) {
           this.coder.framework.webviewPanelPythonModelCreate.reveal();
         } else {

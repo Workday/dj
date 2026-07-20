@@ -243,6 +243,11 @@
         "title": "DJ: Test Trino Connection"
       },
       {
+        "command": "dj.command.pythonModelCreate",
+        "title": "DJ: Create Python Model",
+        "icon": "$(add)"
+      },
+      {
         "command": "dj.command.pythonModelOpenNotebook",
         "title": "DJ: Open Python Model Notebook",
         "icon": "$(notebook)"

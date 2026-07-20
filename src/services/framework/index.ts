@@ -70,6 +70,8 @@ import {
   generatePythonModelScaffoldPy,
   generatePythonModelTasksPy,
   generateTrinoIoPy,
+  buildDagInjectionPreview,
+  buildInjectedDagSource,
 } from './utils';
 
 /**
@@ -418,7 +420,7 @@ export class Framework implements ApiEnabledService<'framework'> {
           await this.generateDagFile(project, dagConfig);
         }
 
-        // Auto-modify selected DAGs to add fetch/run_python_models tasks
+        // Modify selected DAGs to add register_python_model_tasks (with confirm)
         if (dags && dags.length > 0) {
           for (const dagName of dags) {
             await this.injectPythonModelTasksIntoDag(project, dagName);
@@ -926,9 +928,12 @@ export class Framework implements ApiEnabledService<'framework'> {
 
     // CLEAR_SYNC_CACHE - clear framework sync cache
     context.subscriptions.push(
-      vscode.commands.registerCommand(COMMAND_ID.CLEAR_SYNC_CACHE, () => {
-        this.handleClearSyncCache();
-      }),
+      vscode.commands.registerCommand(
+        COMMAND_ID.CLEAR_SYNC_CACHE,
+        (options?: { silent?: boolean }) => {
+          this.handleClearSyncCache(options);
+        },
+      ),
     );
 
     // PYTHON_MODEL_OPEN_NOTEBOOK - open ephemeral notebook for a .python.json / .python.py file
@@ -1820,10 +1825,14 @@ export class Framework implements ApiEnabledService<'framework'> {
    * Clears the entire sync cache.
    * Useful for debugging or forcing a full regeneration.
    */
-  handleClearSyncCache() {
+  handleClearSyncCache(options?: { silent?: boolean }) {
     this.cacheManager.clear();
-    vscode.window.showInformationMessage('JSON sync cache cleared');
-    this.log.info('Sync cache manually cleared');
+    if (!options?.silent) {
+      vscode.window.showInformationMessage('JSON sync cache cleared');
+    }
+    this.log.info(
+      `Sync cache cleared${options?.silent ? ' (silent)' : ' (manual)'}`,
+    );
   }
 
   /**
@@ -1879,6 +1888,19 @@ export class Framework implements ApiEnabledService<'framework'> {
           vscode.DiagnosticSeverity.Warning,
         );
         this.diagnosticModelJson.set(uri, diagnostics);
+      },
+
+      // Reserved-key lint warnings for model/column meta. Appended to any
+      // diagnostics already posted for this URI (e.g. CTE warnings above)
+      // so multiple lint categories coexist on the same file.
+      onModelValidationLintWarnings: (uri, warnings, jsonContent) => {
+        const existing = Array.from(this.diagnosticModelJson.get(uri) ?? []);
+        const positioned = buildPositionedDiagnostics(
+          warnings,
+          jsonContent,
+          vscode.DiagnosticSeverity.Warning,
+        );
+        this.diagnosticModelJson.set(uri, [...existing, ...positioned]);
       },
 
       // Handle generation errors
@@ -2669,8 +2691,8 @@ with DAG(
 
   /**
    * Inject register_python_model_tasks wiring into an existing DAG file.
-   * This is called when a Python model is created and mapped to a DAG.
-   * The method checks if the wiring already exists and only adds it if not present.
+   * Called when a Python model is created and mapped to a DAG.
+   * Shows a confirm modal with a short preview before writing.
    * @param dagName - Can be a simple name (e.g., "source_etl") or a relative path (e.g., "_ext_/source_etl")
    */
   private async injectPythonModelTasksIntoDag(
@@ -2725,216 +2747,44 @@ with DAG(
     const dagContent = await vscode.workspace.fs.readFile(
       vscode.Uri.file(dagFilePath),
     );
-    let dagCode = Buffer.from(dagContent).toString();
+    const dagCode = Buffer.from(dagContent).toString();
 
-    // Check if python_models wiring already exists
-    if (dagCode.includes('register_python_model_tasks(')) {
+    const built = buildInjectedDagSource(dagCode);
+    if (!built) {
       this.log.info(
         `DAG ${dagName} already has register_python_model_tasks wiring`,
       );
       return;
     }
 
-    // Find import section and add etl_helper import if not present
-    if (
-      !dagCode.includes('from _ext_.etl_helper import') &&
-      !dagCode.includes('from python_models import') &&
-      !dagCode.includes('from _ext_.python_models import')
-    ) {
-      const etlHelperImport =
-        'from _ext_.etl_helper import register_python_model_tasks\n';
-
-      // Try inserting after other _ext_ imports
-      const extImportMatch = dagCode.match(/from _ext_\.\w+ import[^;]+\n/g);
-      if (extImportMatch && extImportMatch.length > 0) {
-        const lastExtImport = extImportMatch[extImportMatch.length - 1];
-        const insertPos = dagCode.indexOf(lastExtImport) + lastExtImport.length;
-        dagCode =
-          dagCode.slice(0, insertPos) +
-          etlHelperImport +
-          dagCode.slice(insertPos);
-      } else {
-        // Fallback: insert after last import line
-        const importLines = dagCode.match(/^(?:from |import ).+$/gm);
-        if (importLines && importLines.length > 0) {
-          const lastImport = importLines[importLines.length - 1];
-          const insertPos = dagCode.indexOf(lastImport) + lastImport.length;
-          dagCode =
-            dagCode.slice(0, insertPos) +
-            '\n' +
-            etlHelperImport +
-            dagCode.slice(insertPos);
-        }
-      }
-    }
-
-    // Detect DAG style
-    const isDecoratorStyle = dagCode.includes('@dag');
-    const isContextManagerStyle = /with\s+DAG\s*\(/.test(dagCode);
-
-    if (isDecoratorStyle) {
-      dagCode = this.injectTasksDecoratorStyle(dagCode);
-      this.log.info(`[DAG Injection] Used @dag decorator path for: ${dagName}`);
-    } else if (isContextManagerStyle) {
-      dagCode = this.injectTasksContextManagerStyle(dagCode);
-      this.log.info(
-        `[DAG Injection] Used 'with DAG(...)' path for: ${dagName}`,
+    if (built.style === 'imports-only') {
+      this.log.warn(
+        `[DAG Injection] Unrecognised DAG style in ${dagName}. Imports would be added but tasks not injected.`,
       );
     } else {
-      this.log.warn(
-        `[DAG Injection] Unrecognised DAG style in ${dagName}. Imports added but tasks not injected.`,
+      this.log.info(
+        `[DAG Injection] Prepared ${built.style} injection for: ${dagName}`,
       );
     }
 
-    // Write the modified DAG file
+    const preview = buildDagInjectionPreview(dagFilePath, dagName);
+    const choice = await vscode.window.showWarningMessage(
+      `Modify DAG "${dagName}" to register Python model tasks?`,
+      { modal: true, detail: preview },
+      'Apply',
+      'Skip',
+    );
+    if (choice !== 'Apply') {
+      this.log.info(`DAG injection skipped by user for: ${dagName}`);
+      return;
+    }
+
     await vscode.workspace.fs.writeFile(
       vscode.Uri.file(dagFilePath),
-      Buffer.from(dagCode),
+      Buffer.from(built.next),
     );
 
-    this.log.info(`Injected python_models tasks into DAG: ${dagName}`);
-  }
-
-  /**
-   * Inject tasks into a @dag decorator-style DAG file.
-   */
-  private injectTasksDecoratorStyle(dagCode: string): string {
-    const dagIdMatch = dagCode.match(/dag_id\s*=\s*["']([^"']+)["']/);
-    const dagId = dagIdMatch?.[1] ?? 'unknown';
-
-    const taskDefinitions = `
-    # ── PYTHON MODELS (auto-generated by DJ Framework) ──
-
-    entry_tasks, exit_tasks = register_python_model_tasks("${dagId}")
-
-`;
-
-    const sequenceMarker = dagCode.indexOf('# Sequence tasks');
-    const taskInstantiationMarker = dagCode.match(
-      /_start_etl\s*=\s*start_etl\(\)/,
-    );
-
-    if (sequenceMarker !== -1) {
-      dagCode =
-        dagCode.slice(0, sequenceMarker) +
-        taskDefinitions +
-        dagCode.slice(sequenceMarker);
-    } else if (taskInstantiationMarker) {
-      const insertPos = taskInstantiationMarker.index!;
-      dagCode =
-        dagCode.slice(0, insertPos) +
-        taskDefinitions +
-        dagCode.slice(insertPos);
-    }
-
-    dagCode = dagCode.replace(
-      /\s*_models = fetch_python_models\(\)\s*\n\s*_run = run_python_models\.expand\(model=_models\)\s*\n/g,
-      '\n',
-    );
-
-    dagCode = dagCode.replace(
-      /(\s*)_start >> _models >> _run >> _end/g,
-      '$1_start >> entry_tasks\n$1exit_tasks >> _end',
-    );
-
-    const createSourceTablesMatch = dagCode.match(
-      /_create_source_tables\s*=\s*create_source_tables\(\)\n/,
-    );
-    if (createSourceTablesMatch?.index !== undefined) {
-      const insertPos =
-        createSourceTablesMatch.index + createSourceTablesMatch[0].length;
-      const taskInstantiation = `    entry_tasks, exit_tasks = register_python_model_tasks("${dagId}")
-`;
-      dagCode =
-        dagCode.slice(0, insertPos) +
-        taskInstantiation +
-        dagCode.slice(insertPos);
-    }
-
-    const fetchSourcesPattern = />> _fetch_sources\n/;
-    if (fetchSourcesPattern.test(dagCode)) {
-      dagCode = dagCode.replace(
-        fetchSourcesPattern,
-        '>> entry_tasks >> exit_tasks\n        >> _fetch_sources\n',
-      );
-    }
-
-    return dagCode;
-  }
-
-  /**
-   * Inject tasks into a `with DAG(...)` context-manager-style DAG file.
-   */
-  private injectTasksContextManagerStyle(dagCode: string): string {
-    const dagIdMatch = dagCode.match(/dag_id\s*=\s*["']([^"']+)["']/);
-    const dagId = dagIdMatch?.[1] ?? 'unknown';
-
-    // Ensure PythonOperator import (optional when using explicit dag=)
-    if (!dagCode.includes('from airflow.operators.python')) {
-      const importLine =
-        'from airflow.operators.python import PythonOperator\n';
-      const importLines = dagCode.match(/^(?:from |import ).+$/gm);
-      if (importLines && importLines.length > 0) {
-        const lastImport = importLines[importLines.length - 1];
-        const insertPos = dagCode.indexOf(lastImport) + lastImport.length;
-        dagCode =
-          dagCode.slice(0, insertPos) +
-          '\n' +
-          importLine +
-          dagCode.slice(insertPos);
-      }
-    }
-
-    // Detect indentation from the with block body
-    const withBodyMatch = dagCode.match(
-      /with\s+DAG\s*\([^)]*\)[^:]*:\s*\n(\s+)/s,
-    );
-    const indent = withBodyMatch ? withBodyMatch[1] : '    ';
-
-    const taskDefs = [
-      '',
-      `${indent}# ── PYTHON MODELS (auto-generated by DJ Framework) ──`,
-      `${indent}_python_models, _python_run = register_python_model_tasks("${dagId}", dag)`,
-      '',
-    ].join('\n');
-
-    // Find the last >> chain (dependency chain) in the file
-    const chainPattern = /^(\s*\S+\s*(?:>>\s*\S+\s*)+)$/gm;
-    let lastChainMatch: RegExpExecArray | null = null;
-    let match: RegExpExecArray | null;
-    while ((match = chainPattern.exec(dagCode)) !== null) {
-      lastChainMatch = match;
-    }
-
-    if (lastChainMatch) {
-      const chainLine = lastChainMatch[0];
-      const chainPos = lastChainMatch.index;
-
-      // Insert task definitions before the chain line
-      dagCode =
-        dagCode.slice(0, chainPos) + taskDefs + '\n' + dagCode.slice(chainPos);
-
-      // Split entry/exit: upstream operators >> python entry roots; python exits >> last operator
-      const parts = chainLine.trim().split(/\s*>>\s*/);
-      if (parts.length >= 2) {
-        const lastOp = parts[parts.length - 1];
-        const beforeLast = parts.slice(0, -1).join(' >> ');
-        const chainIndent = chainLine.match(/^\s*/)?.[0] ?? indent;
-        const bridge = `${chainIndent}${beforeLast} >> _python_models\n${chainIndent}_python_run >> ${lastOp}`;
-        dagCode = dagCode.replace(chainLine, bridge);
-      }
-    } else {
-      // No chain found -- just append task definitions before last line of the with block
-      const withBlockEnd = dagCode.lastIndexOf('\n');
-      if (withBlockEnd !== -1) {
-        dagCode =
-          dagCode.slice(0, withBlockEnd) +
-          taskDefs +
-          dagCode.slice(withBlockEnd);
-      }
-    }
-
-    return dagCode;
+    this.log.info(`Injected register_python_model_tasks into DAG: ${dagName}`);
   }
 
   /** Close all editor tabs open at the given file path. */
@@ -3082,16 +2932,37 @@ function resolveValidationDiagnostics(
       ),
     ];
   }
+  // Pass the channel default through so warning-channel callers
+  // (`onModelValidationWarning`) render details without an explicit
+  // `severity` override as Warning rather than Error. Per-detail
+  // `severity: 'error'` overrides still win inside
+  // `buildPositionedDiagnostics` so a warning batch can carry a hard error
+  // (e.g. `validateDjIcebergPartitionOverwrite`) on the same URI.
+  return buildPositionedDiagnostics(errors, jsonContent, severity);
+}
 
+/**
+ * Build `vscode.Diagnostic[]` from structured `ValidationErrorDetail[]` with
+ * JSON-pointer positions resolved against the provided source text.
+ *
+ * Shared by the error path (`resolveValidationDiagnostics`) and the lint
+ * warning path (`onModelValidationLintWarnings`) so positioning behaves
+ * identically for both.
+ */
+function buildPositionedDiagnostics(
+  details: ValidationErrorDetail[],
+  jsonContent: string,
+  severity: vscode.DiagnosticSeverity,
+): vscode.Diagnostic[] {
   const tree = parseTree(jsonContent, undefined, {
     allowTrailingComma: true,
   });
 
-  return errors.map((err) => {
+  return details.map((detail) => {
     let range = new vscode.Range(0, 0, 0, 0);
 
     if (tree) {
-      const segments = instancePathToSegments(err.instancePath);
+      const segments = instancePathToSegments(detail.instancePath);
       const node = findNodeAtLocation(tree, segments);
 
       if (node) {
@@ -3117,11 +2988,11 @@ function resolveValidationDiagnostics(
     // mix of errors and warnings (e.g. validateDjIcebergPartitionOverwrite
     // emits an Error alongside other post-generation warnings).
     const resolvedSeverity =
-      err.severity === 'error'
+      detail.severity === 'error'
         ? vscode.DiagnosticSeverity.Error
-        : err.severity === 'warning'
+        : detail.severity === 'warning'
           ? vscode.DiagnosticSeverity.Warning
           : severity;
-    return new vscode.Diagnostic(range, err.message, resolvedSeverity);
+    return new vscode.Diagnostic(range, detail.message, resolvedSeverity);
   });
 }

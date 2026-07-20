@@ -21,6 +21,7 @@ import type {
   ProjectOverviewItem,
   ReverseLineageData,
 } from '@shared/modellineage/types';
+import { quoteTrinoIdentifier } from '@shared/sql/identifier';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -430,7 +431,7 @@ export class ModelLineage {
       }
 
       try {
-        const sql = `SELECT key, value FROM ${catalog}.${schema}."${tableName}$properties" WHERE key LIKE 'python_model_%'`;
+        const sql = `SELECT key, value FROM ${quoteTrinoIdentifier(catalog)}.${quoteTrinoIdentifier(schema)}.${quoteTrinoIdentifier(`${tableName}$properties`)} WHERE key LIKE 'python_model_%'`;
         this.coder.log.info(
           `[Lineage] Querying python model properties: ${sql}`,
         );
