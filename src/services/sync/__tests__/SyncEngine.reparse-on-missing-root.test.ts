@@ -90,6 +90,7 @@ function makeConfig(logger: SyncLogger): SyncConfig {
     extensionConfig: {
       logLevel: 'info',
       autoGenerateTests: { enabled: false },
+      pythonModelGroups: [],
     },
     logger,
     enableChangeDetection: false,

@@ -1,5 +1,6 @@
 import {
   CircleStackIcon,
+  CodeBracketIcon,
   CogIcon,
   CubeIcon,
   ExclamationTriangleIcon,
@@ -17,12 +18,14 @@ const TYPE_ICONS = {
   model: CubeIcon,
   source: CircleStackIcon,
   seed: TableCellsIcon,
+  python: CodeBracketIcon,
 };
 
 const TYPE_LABELS = {
   model: 'MDL',
   source: 'SRC',
   seed: 'SEED',
+  python: 'PY',
 };
 
 const MATERIALIZATION_LABELS: Record<MaterializationType, string> = {

@@ -16,6 +16,8 @@ import { ModelRun } from '@web/pages/ModelRun';
 import { ModelTest } from '@web/pages/ModelTest';
 import { QueryControlCenter } from '@web/pages/QueryControlCenter';
 import { SourceCreate } from '@web/pages/SourceCreate';
+import { DagCreate } from '@web/pages/DagCreate';
+import { PythonModelCreate } from '@web/pages/PythonModelCreate';
 import { useCallback, useMemo, useState } from 'react';
 import {
   BrowserRouter,
@@ -86,6 +88,18 @@ const routeConfigs: WebRoute[] = [
     label: 'Source Create',
     path: '/source/create',
     regex: /^\/source\/create$/,
+  },
+  {
+    element: <PythonModelCreate />,
+    label: 'Python Model Create',
+    path: '/python-model/create',
+    regex: /^\/python-model\/create$/,
+  },
+  {
+    element: <DagCreate />,
+    label: 'Create DAG',
+    path: '/dag/create',
+    regex: /^\/dag\/create$/,
   },
   {
     element: <LightdashPreviewManager />,
@@ -1821,6 +1835,32 @@ SELECT * FROM final`,
                       exists,
                       fileName,
                       filePath,
+                    }),
+                  );
+                }
+                case 'framework-python-model-create': {
+                  return resolve(
+                    apiResponse<typeof payloadType>(
+                      'Python model created' as string,
+                    ),
+                  );
+                }
+                case 'framework-dag-create': {
+                  return resolve(
+                    apiResponse<typeof payloadType>('DAG created' as string),
+                  );
+                }
+                case 'framework-get-available-dags': {
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      dags: ['source_etl', 'cloud_dir_dag', 'data_pipeline'],
+                    }),
+                  );
+                }
+                case 'framework-get-python-model-groups': {
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      groups: ['ml', 'etl', 'analytics', 'others'],
                     }),
                   );
                 }
