@@ -61,6 +61,8 @@ import { PreferencesHandler } from './handlers/preferences-handler';
 import { SourceHandler } from './handlers/source-handler';
 import { UIHandlers } from './handlers/ui-handlers';
 import {
+  buildDagInjectionPreview,
+  buildInjectedDagSource,
   findDangerousSqlStatements,
   frameworkGetModelId,
   frameworkGetSourceIds,
@@ -70,8 +72,6 @@ import {
   generatePythonModelScaffoldPy,
   generatePythonModelTasksPy,
   generateTrinoIoPy,
-  buildDagInjectionPreview,
-  buildInjectedDagSource,
 } from './utils';
 
 /**
@@ -443,7 +443,7 @@ export class Framework implements ApiEnabledService<'framework'> {
         // Open the created file
         vscode.window.showTextDocument(pythonJsonUri);
 
-        return 'Python model created' as ApiResponse<'framework-python-model-create'>;
+        return 'Python model created';
       }
 
       case 'framework-dag-create': {

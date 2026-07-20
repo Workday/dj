@@ -60,7 +60,9 @@ export function injectTasksDecoratorStyle(dagCode: string): string {
 `;
 
   const sequenceMarker = dagCode.indexOf('# Sequence tasks');
-  const taskInstantiationMarker = dagCode.match(/_start_etl\s*=\s*start_etl\(\)/);
+  const taskInstantiationMarker = dagCode.match(
+    /_start_etl\s*=\s*start_etl\(\)/,
+  );
 
   if (sequenceMarker !== -1) {
     dagCode =
@@ -93,7 +95,9 @@ export function injectTasksDecoratorStyle(dagCode: string): string {
     const taskInstantiation = `    entry_tasks, exit_tasks = register_python_model_tasks("${dagId}")
 `;
     dagCode =
-      dagCode.slice(0, insertPos) + taskInstantiation + dagCode.slice(insertPos);
+      dagCode.slice(0, insertPos) +
+      taskInstantiation +
+      dagCode.slice(insertPos);
   }
 
   const fetchSourcesPattern = />> _fetch_sources\n/;

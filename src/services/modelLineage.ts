@@ -44,7 +44,10 @@ export class ModelLineage {
               `Fetching lineage for model: ${modelName} in project: ${projectName}`,
             );
 
-            const lineageData = await this.getModelLineage(modelName, projectName);
+            const lineageData = await this.getModelLineage(
+              modelName,
+              projectName,
+            );
 
             return apiResponse<typeof payload.type>(lineageData);
           } catch (error: unknown) {
@@ -311,7 +314,10 @@ export class ModelLineage {
   /**
    * Get the lineage (upstream and downstream) for a specific model
    */
-  private async getModelLineage(modelName: string, projectName: string): Promise<LineageData> {
+  private async getModelLineage(
+    modelName: string,
+    projectName: string,
+  ): Promise<LineageData> {
     const project = this.coder.framework.dbt.projects.get(projectName);
     if (!project) {
       throw new Error(`Project ${projectName} not found`);
@@ -462,8 +468,7 @@ export class ModelLineage {
               .filter(Boolean)
           : [];
 
-        const pythonModelTable =
-          props['python_model_table'] ?? pythonModelName;
+        const pythonModelTable = props['python_model_table'] ?? pythonModelName;
         const pythonModelId = `python.${pythonModelTable}`;
         const pythonModelNode: LineageNode = {
           id: pythonModelId,

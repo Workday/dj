@@ -73,7 +73,12 @@ export function PythonModelCreate() {
   const [availableDags, setAvailableDags] = useState<string[]>([]);
   const [groupOptions, setGroupOptions] = useState<
     { label: string; value: PythonModelGroup }[]
-  >(DEFAULT_GROUPS.map((g) => ({ label: g.charAt(0).toUpperCase() + g.slice(1), value: g })));
+  >(
+    DEFAULT_GROUPS.map((g) => ({
+      label: g.charAt(0).toUpperCase() + g.slice(1),
+      value: g,
+    })),
+  );
 
   const projectName = watch('projectName');
   const name = watch('name');
