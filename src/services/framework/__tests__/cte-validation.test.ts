@@ -2515,4 +2515,89 @@ describe('validateBulkExcludeFrameworkColumns', () => {
     expect(warnings[0].message).toContain('`exclude_datetime: true`');
     expect(warnings[0].instancePath).toBe('/select/0/exclude/0');
   });
+
+  test('does not warn when a coarsened datetime already drops the excluded finer grain', () => {
+    // Coarsened datetime (interval day) already drops hourly, so bulk-excluding
+    // portal_partition_hourly is effective; datetime excludes are the replace pattern.
+    const warnings = validateBulkExcludeFrameworkColumns({
+      type: 'int_join_models',
+      from: {
+        model: 'audits',
+        join: [{ model: 'templates', type: 'left', on: { and: [] } }],
+      },
+      select: [
+        {
+          type: 'all_from_model',
+          model: 'templates',
+          exclude: ['datetime', 'portal_partition_hourly'],
+        },
+        {
+          type: 'all_from_model',
+          model: 'audits',
+          exclude: ['datetime', 'portal_partition_hourly'],
+        },
+        { type: 'dim', name: 'datetime', interval: 'day', model: 'audits' },
+      ],
+    });
+    expect(warnings).toEqual([]);
+  });
+
+  test('still warns for a coarser grain the interval does not drop', () => {
+    // interval "day" drops only hourly, so excluding monthly is a real no-op.
+    const warnings = validateBulkExcludeFrameworkColumns({
+      type: 'int_select_model',
+      from: { model: 'stg_events' },
+      select: [
+        {
+          type: 'all_from_model',
+          model: 'stg_events',
+          exclude: ['portal_partition_monthly'],
+        },
+        { type: 'dim', name: 'datetime', interval: 'day' },
+      ],
+    });
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].message).toContain('portal_partition_monthly');
+    expect(warnings[0].instancePath).toBe('/select/0/exclude/0');
+  });
+
+  test('does not warn when from.rollup coarsens the grain that drops the excluded partition', () => {
+    const warnings = validateBulkExcludeFrameworkColumns({
+      type: 'int_select_model',
+      from: { cte: 'pre_agg' },
+      ctes: [
+        {
+          name: 'pre_agg',
+          from: { model: 'stg_events', rollup: { interval: 'month' } },
+          select: [
+            {
+              type: 'dims_from_model',
+              model: 'stg_events',
+              exclude: ['portal_partition_daily'],
+            },
+          ],
+        },
+      ],
+    });
+    expect(warnings).toEqual([]);
+  });
+
+  test('does not warn when the dedicated partition flag already drops the excluded grain', () => {
+    const warnings = validateBulkExcludeFrameworkColumns({
+      type: 'int_union_models',
+      from: {
+        model: 'stg_events',
+        union: { type: 'all', models: ['stg_events'] },
+      },
+      exclude_portal_partition_columns: ['portal_partition_hourly'],
+      select: [
+        {
+          type: 'all_from_model',
+          model: 'stg_events',
+          exclude: ['portal_partition_hourly'],
+        },
+      ],
+    });
+    expect(warnings).toEqual([]);
+  });
 });

@@ -476,7 +476,7 @@ function makeMarkdownCell(
  * written back into the .python.py source of truth.
  */
 function isNotebookOnlyCell(cell: PythonModelCell): boolean {
-  const meta = cell.metadata as Record<string, unknown> | undefined;
+  const meta = cell.metadata;
   if (meta && meta.dj_notebook_only === true) {
     return true;
   }
@@ -675,7 +675,7 @@ function buildScaffoldCodeCells(config: PythonModelConfig): PythonModelCell[] {
   const extractCell = [
     'def extract(context: dict) -> None:',
     '    """Fetch data from source and stage into Trino."""',
-    "    log.info(f\"Extracting for {context['ds']}...\")",
+    '    log.info(f"Extracting for {context[\'ds\']}...")',
     '    raise NotImplementedError("Implement extract()")',
   ].join('\n');
 

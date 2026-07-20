@@ -21,6 +21,7 @@ export type DJ = {
     lightdashDefaultSqlFilter?: string;
     lightdashDefaultSqlFilterRequiredColumns?: string[];
     lightdashDefaultPartitionColumnCaseSensitive?: boolean;
+    lightdashDefaultSortedByColumnCaseSensitive?: boolean;
     materializationDefaultIncrementalStrategy?: DefaultIncrementalStrategy;
   };
 };

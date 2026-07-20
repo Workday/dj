@@ -39,9 +39,9 @@ export class ColumnLineageHandler {
    * - switch-to-model-column: Navigate to model column and compute lineage
    * - switch-to-source-column: Navigate to source column and compute lineage
    * - get-source-tables: List all tables in a source file
- * - get-source-columns: Get columns for a specific source table
- * - get-seed-columns: Get columns for a specific seed
- * - compute-source-lineage: Compute forward lineage from a source column
+   * - get-source-columns: Get columns for a specific source table
+   * - get-seed-columns: Get columns for a specific seed
+   * - compute-source-lineage: Compute forward lineage from a source column
    * - export-source-lineage: Export source lineage to CSV
    * - validate: Validate model files exist
    * - get-columns: Get all columns in a model

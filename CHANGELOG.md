@@ -14,6 +14,11 @@ Bring Python-based transformations into DJ as first-class models — with full l
 - **Lineage from Iceberg upstream, all the way through.** Python models write their metadata as Iceberg table properties; the Data Explorer reads those properties to render Python model nodes upstream of their dbt sources, plus each model's own upstream Iceberg tables — so lineage traces cleanly from raw source through Python transformation into your dbt DAG.
 - **New `dj-create-python-model` and `dj-review-python-model` agent skills** for scaffolding and reviewing Python models through your AI assistant.
 
+### Enhancements
+
+- **`dj.lightdash.defaultSortedByColumnCaseSensitive`** (default: `false`) — when `true`, columns listed in a model's `materialization.sorted_by` get `case_sensitive: true` in generated YAML so Lightdash doesn't wrap them in `UPPER()`, preserving Trino predicate pushdown. Per-column `lightdash.case_sensitive` overrides still apply.
+- **Bulk-exclude framework-column warning respects coarsened datetime.** When a model or CTE coarsens `datetime` (e.g. `interval: "day"` or `from.rollup`), finer partition grains are already omitted, so excluding them in an `all_from_model` / `dims_from_model` does not raise a Problems-tab warning. The warning also stays quiet when the dedicated exclude flag is already set.
+
 ## 1.10.1
 
 - **Fixed a command-injection vulnerability when opening a dbt project.** Trino CLI queries no longer run through a shell, the project name and `vars.etl_schema` read from `dbt_project.yml` are validated, and catalog/schema/table names are safely quoted, so a crafted project file can no longer execute arbitrary commands. The automatic source lookup on open is also skipped in Restricted Mode (untrusted) workspaces.

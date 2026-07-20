@@ -51,6 +51,19 @@ You can override the auto-detection by setting these VS Code configuration optio
 { "dj.lightdash.defaultPartitionColumnCaseSensitive": true }
 ```
 
+#### `dj.lightdash.defaultSortedByColumnCaseSensitive`
+
+- **Type**: `boolean`
+- **Default**: `false`
+- **Description**: When `true`, the extension emits `meta.dimension.case_sensitive: true` on every column listed in a model's `materialization.sorted_by` in generated YAML. This stops Lightdash from wrapping those columns in `UPPER()` in queries, preserving Trino predicate pushdown on sorted columns.
+- **When to enable**: Lightdash projects that filter on `sorted_by` columns and notice slow scans because those predicates are wrapped in `UPPER()`.
+- **Per-model override**: `lightdash.case_sensitive` on a specific model or column in `.model.json` continues to take precedence in either mode.
+- **Takes effect**: Run `DJ: Sync to SQL and YML` (`Cmd+Shift+P`) to regenerate YAML with the new value.
+
+```json
+{ "dj.lightdash.defaultSortedByColumnCaseSensitive": true }
+```
+
 ## Examples
 
 ### Example 1: dbt project in subdirectory

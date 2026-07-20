@@ -76,6 +76,10 @@ export function getDjConfig(): CoderConfig {
       'lightdash.defaultPartitionColumnCaseSensitive',
       false,
     ),
+    lightdashDefaultSortedByColumnCaseSensitive: config.get(
+      'lightdash.defaultSortedByColumnCaseSensitive',
+      false,
+    ),
     lightdashDefaultAddPathToGitignore: config.get(
       'lightdash.defaultAddPathToGitignore',
       true,
@@ -319,6 +323,12 @@ export function getSettingReloadRequirement(
       description: "Requires 'DJ: Sync to SQL and YML' to take effect",
     },
     'lightdash.defaultPartitionColumnCaseSensitive': {
+      requiresAction: true,
+      action: 'compile',
+      actionCommand: 'dj.command.jsonSync',
+      description: "Requires 'DJ: Sync to SQL and YML' to take effect",
+    },
+    'lightdash.defaultSortedByColumnCaseSensitive': {
       requiresAction: true,
       action: 'compile',
       actionCommand: 'dj.command.jsonSync',
@@ -867,6 +877,18 @@ export function registerConfigurationChangeHandler(
       ) {
         void vscode.window.setStatusBarMessage(
           "DJ: Partition column case_sensitive updated - run 'DJ: Sync to SQL and YML' to apply",
+          5000,
+        );
+      }
+
+      // lightdash.defaultSortedByColumnCaseSensitive - notify about compile requirement
+      if (
+        event.affectsConfiguration(
+          'dj.lightdash.defaultSortedByColumnCaseSensitive',
+        )
+      ) {
+        void vscode.window.setStatusBarMessage(
+          "DJ: Sorted-by column case_sensitive updated - run 'DJ: Sync to SQL and YML' to apply",
           5000,
         );
       }

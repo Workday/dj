@@ -51,9 +51,15 @@ describe('parsePythonToCells / serializeCellsToPython', () => {
 
   test('multi-cell code round-trips through markers', () => {
     const cells = parsePythonToCells(
-      ['# %%', 'import os', '', '# %%', 'def f():', '    return os.getcwd()', ''].join(
-        '\n',
-      ),
+      [
+        '# %%',
+        'import os',
+        '',
+        '# %%',
+        'def f():',
+        '    return os.getcwd()',
+        '',
+      ].join('\n'),
     );
     expect(cells).toHaveLength(2);
     expect(cells.every((c) => c.cell_type === 'code')).toBe(true);
@@ -102,7 +108,9 @@ describe('buildNotebookCells (notebook view)', () => {
     const headerText = Array.isArray(header.source)
       ? header.source.join('')
       : header.source;
-    expect(headerText).toContain('# Python Model: python__analytics__revenue__my_model');
+    expect(headerText).toContain(
+      '# Python Model: python__analytics__revenue__my_model',
+    );
     expect(headerText).toContain('**DAGs**: full_source_etl');
   });
 
@@ -146,7 +154,9 @@ describe('stripNotebookOnlyCells (persisted .python.json snapshot)', () => {
       outputs: [],
       source: ['x = 1'],
     };
-    expect(stripNotebookOnlyCells([headerByText, codeCell])).toEqual([codeCell]);
+    expect(stripNotebookOnlyCells([headerByText, codeCell])).toEqual([
+      codeCell,
+    ]);
   });
 });
 

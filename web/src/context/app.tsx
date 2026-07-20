@@ -7,6 +7,7 @@ import type { FrameworkModel } from '@shared/framework/types';
 import type { LightdashYamlNode } from '@shared/lightdash/types';
 import { TrinoProvider } from '@web/context/trino';
 import { useEnvironment } from '@web/context/useEnvironment';
+import { DagCreate } from '@web/pages/DagCreate';
 import DataExplorer from '@web/pages/DataExplorer';
 import { Home } from '@web/pages/Home';
 import { LightdashDashboardsAsCode } from '@web/pages/LightdashDashboardsAsCode';
@@ -14,10 +15,9 @@ import { LightdashPreviewManager } from '@web/pages/LightdashPreviewManager';
 import { ModelCreate } from '@web/pages/ModelCreate';
 import { ModelRun } from '@web/pages/ModelRun';
 import { ModelTest } from '@web/pages/ModelTest';
+import { PythonModelCreate } from '@web/pages/PythonModelCreate';
 import { QueryControlCenter } from '@web/pages/QueryControlCenter';
 import { SourceCreate } from '@web/pages/SourceCreate';
-import { DagCreate } from '@web/pages/DagCreate';
-import { PythonModelCreate } from '@web/pages/PythonModelCreate';
 import { useCallback, useMemo, useState } from 'react';
 import {
   BrowserRouter,
@@ -1840,14 +1840,12 @@ SELECT * FROM final`,
                 }
                 case 'framework-python-model-create': {
                   return resolve(
-                    apiResponse<typeof payloadType>(
-                      'Python model created' as string,
-                    ),
+                    apiResponse<typeof payloadType>('Python model created'),
                   );
                 }
                 case 'framework-dag-create': {
                   return resolve(
-                    apiResponse<typeof payloadType>('DAG created' as string),
+                    apiResponse<typeof payloadType>('DAG created'),
                   );
                 }
                 case 'framework-get-available-dags': {
