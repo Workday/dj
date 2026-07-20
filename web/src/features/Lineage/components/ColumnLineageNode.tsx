@@ -49,6 +49,12 @@ const LAYER_CONFIG: Record<ModelLayerType, BadgeConfig> = {
     text: 'var(--color-layer-mart-contrast)',
     Icon: ModelIcon,
   },
+  python: {
+    label: 'Python',
+    bg: 'var(--color-layer-source)',
+    text: 'var(--color-layer-source-contrast)',
+    Icon: SourceIcon,
+  },
 };
 
 /** Transformation badge configuration - colors from CSS variables */

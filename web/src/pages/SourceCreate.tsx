@@ -379,7 +379,7 @@ export function SourceCreate() {
                 error={errors.trinoCatalog}
                 label="Select Trino Catalog"
                 options={trinoCatalogOptions}
-                tooltipText="Choose the Trino catalog that contains your data. A catalog in Trino represents a data source or connector (e.g., 'development', 'opus', 'portal')."
+                tooltipText="Choose the Trino catalog that contains your data. A catalog in Trino represents a data source or connector (e.g., 'production', 'development', 'staging')."
               />
             )}
           />

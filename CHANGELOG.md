@@ -1,5 +1,19 @@
 # Change Log
 
+## 1.11.0
+
+### DJ Python Model
+
+Bring Python-based transformations into DJ as first-class models — with full lineage, DAG integration, and a unified developer experience alongside your dbt models.
+
+- **Create Python models from the wizard.** Fill in name, group, topic, and select a DAG, and DJ scaffolds a `.python.json` config, a `.python.py` module with ETL boilerplate (`extract` / `transform_and_load` / `cleanup` / `run_etl`), and — when notebook support is enabled — a companion `.python.ipynb`.
+- **Automatic DAG creation and attachment.** Create a new DAG or map the model onto an existing one from the same wizard; selecting a DAG injects `register_python_model_tasks` so the model runs ahead of dbt sources with no manual DAG editing.
+- **Notebook-backed development.** `.python.py` stays the single source of truth for code, with jupytext-style cell markers so you can iterate in a Jupyter notebook (`.python.ipynb`) alongside the module.
+- **DJ-generated shared runtime files.** `_trino_io.py` (Trino connection + DML/DDL helpers like `overwrite_partition` and `merge`), `_config.py` (per-model config and Iceberg table properties), and `_model_tasks.py` (dependency-ordered task batching, shared with the Airflow `etl_helper.py`) are generated and kept in sync — never hand-edited.
+- **Guardrails against destructive SQL.** DROP, DELETE, and TRUNCATE statements written inside Python model code are flagged in the Problems tab so you can catch them before committing or running.
+- **Lineage from Iceberg upstream, all the way through.** Python models write their metadata as Iceberg table properties; the Data Explorer reads those properties to render Python model nodes upstream of their dbt sources, plus each model's own upstream Iceberg tables — so lineage traces cleanly from raw source through Python transformation into your dbt DAG.
+- **New `dj-create-python-model` and `dj-review-python-model` agent skills** for scaffolding and reviewing Python models through your AI assistant.
+
 ## 1.10.1
 
 - **Fixed a command-injection vulnerability when opening a dbt project.** Trino CLI queries no longer run through a shell, the project name and `vars.etl_schema` read from `dbt_project.yml` are validated, and catalog/schema/table names are safely quoted, so a crafted project file can no longer execute arbitrary commands. The automatic source lookup on open is also skipped in Restricted Mode (untrusted) workspaces.
@@ -85,6 +99,7 @@
 
 ### Agent Skills
 
+- **Create Python ETL models through your AI assistant.** When `dj.codingAgent` is enabled, a new skill at `.agents/skills/dj-create-python-model/SKILL.md` interactively guides an IDE agent through scaffolding a `.python.json` file — gathering model identity, DAG assignment, data source type, transformation needs, and output configuration. Follows a **SQL-first approach**: transformations and loading use Trino SQL (`INSERT INTO ... SELECT`, `CREATE TABLE AS SELECT`) wherever possible, with pandas DataFrames reserved only for external data ingestion and cases where SQL cannot express the logic. Defaults to `glue_development` catalog and `opus_python_source` schema for Iceberg output. The agent proactively suggests performance optimizations — partitioning strategy, predicate pushdown, column pruning, write mode selection, and staging table cleanup. Includes a full reference of SQL-first transform/load patterns alongside DataFrame-only fallbacks for nested JSON flattening and ML preprocessing.
 - **Migrate legacy ephemeral models into inline CTEs through your AI assistant.** When `dj.codingAgent` is enabled, a new skill at `.agents/skills/dj-migrate-ephemerals-to-ctes/SKILL.md` walks an IDE agent through finding ephemeral `.model.json` files, deciding which ones can safely fold into their downstream consumers, applying the rewrite, and prompting you before any deletion. Ephemerals carrying Lightdash metadata or staging models that read from sources are flagged as unsafe so nothing is silently lost. Lets you say "audit the ephemerals under the sales group and migrate the qualifying ones" to dissolve redundant intermediate layers in one pass.
 - **Modernize legacy `.model.json` shapes through your AI assistant.** When `dj.codingAgent` is enabled, a new skill at `.agents/skills/dj-review-and-refactor-model/SKILL.md` audits a single model file (or a folder, dependency tree, or the whole workspace) and renders every finding upfront in two buckets — safe rewrites the agent can apply confidently, and judgment calls where it gives you the context and lets you pick. Nothing is edited until you confirm. Lets you say "review this model and modernize whatever's safe" and get a confirmation-driven cleanup pass that round-trips your existing Lightdash metadata, AI hints, tags, and free-form `meta` keys.
 - **Agent skills can bundle nested subdirectories.** A skill template's `references/`, `scripts/`, and `assets/` subdirectories are copied to `.agents/skills/<skill>/` alongside its `SKILL.md`, matching the [agentskills.io](https://agentskills.io) progressive-disclosure layout.

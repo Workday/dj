@@ -8,7 +8,7 @@ import {
   GITIGNORE,
   IGNORE_PROMPT_KEY,
 } from '@services/constants';
-import { BASE_SCHEMAS_PATH } from '@services/constants';
+import { BASE_AIRFLOW_PATH, BASE_SCHEMAS_PATH } from '@services/constants';
 import type { Dbt } from '@services/dbt';
 import type { DJLogger } from '@services/djLogger';
 import type { StateManager } from '@services/statemanager';
@@ -17,6 +17,7 @@ import {
   CacheManager,
   ERROR_MESSAGES,
   ManifestManager,
+  PythonModelSyncService,
   SYNC_BATCH_SIZES,
   type SyncCallbacks,
   SyncEngine,
@@ -34,6 +35,7 @@ import type {
   FrameworkDataType,
   FrameworkModel,
   FrameworkSource,
+  PythonModelConfig,
 } from '@shared/framework/types';
 import { DJ_SCHEMAS_PATH, WORKSPACE_ROOT } from 'admin';
 import type { ValidateFunction } from 'ajv';
@@ -59,10 +61,17 @@ import { PreferencesHandler } from './handlers/preferences-handler';
 import { SourceHandler } from './handlers/source-handler';
 import { UIHandlers } from './handlers/ui-handlers';
 import {
+  findDangerousSqlStatements,
   frameworkGetModelId,
   frameworkGetSourceIds,
   frameworkMakeSourcePrefix,
   generateAutoTests,
+  generatePythonModelConfigPy,
+  generatePythonModelScaffoldPy,
+  generatePythonModelTasksPy,
+  generateTrinoIoPy,
+  buildDagInjectionPreview,
+  buildInjectedDagSource,
 } from './utils';
 
 /**
@@ -101,6 +110,8 @@ export class Framework implements ApiEnabledService<'framework'> {
   validateSourceJson: ValidateFunction | undefined;
   webviewPanelModelCreate: vscode.WebviewPanel | undefined;
   webviewPanelSourceCreate: vscode.WebviewPanel | undefined;
+  webviewPanelPythonModelCreate: vscode.WebviewPanel | undefined;
+  webviewPanelDagCreate: vscode.WebviewPanel | undefined;
 
   // Track files that are locked during DJ Sync operations
   private lockedModelFiles: Set<string> = new Set();
@@ -132,6 +143,15 @@ export class Framework implements ApiEnabledService<'framework'> {
   private jsonFileWatcher?: vscode.FileSystemWatcher;
   private sqlFileWatcher?: vscode.FileSystemWatcher;
   private ymlFileWatcher?: vscode.FileSystemWatcher;
+  /** Revert-on-edit guards for DJ-generated python model shared files */
+  private generatedFileWatchers: vscode.FileSystemWatcher[] = [];
+  /** Diagnostics for dangerous SQL statements in user python model files */
+  private pythonSqlGuardDiagnostics?: vscode.DiagnosticCollection;
+  private pythonSqlGuardWatcher?: vscode.FileSystemWatcher;
+  private pythonSqlGuardDisposables: vscode.Disposable[] = [];
+
+  // Python model sync service for keeping .python.json, .py, and .ipynb in sync
+  private pythonModelSyncService?: PythonModelSyncService;
 
   constructor({
     getApi,
@@ -303,6 +323,161 @@ export class Framework implements ApiEnabledService<'framework'> {
       case 'framework-source-create':
         return await this.sourceHandler.handleSourceCreate(payload);
 
+      case 'framework-python-model-create': {
+        const {
+          projectName,
+          name,
+          group,
+          topic,
+          description,
+          model_type,
+          dags,
+          enable_notebook,
+          tags,
+          namespace: reqNamespace,
+          table_name: reqTableName,
+          create_dag: createDag,
+          dag_config: dagConfig,
+        } = payload.request;
+
+        const project = this.dbt.projects.get(projectName);
+        if (!project) {
+          throw new Error('Project not found');
+        }
+
+        // Create directory structure: dags/python_models/<group>/<topic>/
+        const pythonModelDir = path.join(
+          WORKSPACE_ROOT,
+          'dags',
+          'python_models',
+          group,
+          topic,
+        );
+        await vscode.workspace.fs.createDirectory(
+          vscode.Uri.file(pythonModelDir),
+        );
+
+        // Ensure __init__.py files exist for Python package structure
+        await this.ensurePythonModelsInitFiles(group, topic);
+
+        // Check if python model file already exists
+        const pythonJsonFileName = `${name}.python.json`;
+        const pythonJsonPath = path.join(pythonModelDir, pythonJsonFileName);
+        const pythonJsonUri = vscode.Uri.file(pythonJsonPath);
+        try {
+          await vscode.workspace.fs.stat(pythonJsonUri);
+          throw new Error(
+            `Python model '${name}' already exists in ${group}/${topic}`,
+          );
+        } catch (err) {
+          // File doesn't exist, which is expected - continue with creation
+          if (err instanceof Error && err.message.includes('already exists')) {
+            throw err;
+          }
+        }
+
+        const pythonModelConfig: PythonModelConfig = {
+          name,
+          group,
+          topic,
+          ...(description && { description }),
+          model_type,
+          dags,
+          ...(enable_notebook && { enable_notebook }),
+          tags: tags && tags.length > 0 ? tags : ['python-model', group],
+          ...(reqNamespace && { namespace: reqNamespace }),
+          ...(reqTableName && { table_name: reqTableName }),
+          variables: {},
+        };
+
+        // Write metadata-only JSON (the .python.py is the source of truth).
+        await vscode.workspace.fs.writeFile(
+          pythonJsonUri,
+          Buffer.from(JSON.stringify(pythonModelConfig, null, '    ')),
+        );
+
+        // Scaffold a clean, marker-delimited .python.py source of truth
+        const modelContent = generatePythonModelScaffoldPy(pythonModelConfig);
+        const modelFileName = `${name}.python.py`;
+        const modelUri = vscode.Uri.file(
+          path.join(pythonModelDir, modelFileName),
+        );
+        await vscode.workspace.fs.writeFile(
+          modelUri,
+          Buffer.from(modelContent),
+        );
+
+        // Ensure shared _config.py, _trino_io.py, _model_tasks.py, etl_helper.py,
+        // and .airflowignore exist
+        await this.ensurePythonModelConfigPy();
+        await this.ensureTrinoIoPy();
+        await this.ensureModelTasksPy();
+        await this.ensureEtlHelperFile();
+        await this.ensureAirflowIgnoreFile();
+
+        // Generate new DAG file if requested
+        if (createDag && dagConfig?.name) {
+          await this.generateDagFile(project, dagConfig);
+        }
+
+        // Modify selected DAGs to add register_python_model_tasks (with confirm)
+        if (dags && dags.length > 0) {
+          for (const dagName of dags) {
+            await this.injectPythonModelTasksIntoDag(project, dagName);
+          }
+        }
+
+        // Clear form state
+        try {
+          await this.getApi().handleApi({
+            type: 'state-clear',
+            request: { formType: 'python-model-create' },
+          });
+        } catch (error) {
+          this.log.warn(
+            'Failed to clear python model create form state:',
+            error,
+          );
+        }
+
+        // Open the created file
+        vscode.window.showTextDocument(pythonJsonUri);
+
+        return 'Python model created' as ApiResponse<'framework-python-model-create'>;
+      }
+
+      case 'framework-dag-create': {
+        const { projectName, name, schedule, tags, description } =
+          payload.request;
+
+        const project = this.dbt.projects.get(projectName);
+        if (!project) {
+          throw new Error('Project not found');
+        }
+
+        const dagFilePath = await this.generateEmptyDagFile({
+          name,
+          schedule,
+          tags,
+          description,
+        });
+
+        // Clear form state
+        try {
+          await this.getApi().handleApi({
+            type: 'state-clear',
+            request: { formType: 'dag-create' },
+          });
+        } catch (error) {
+          this.log.warn('Failed to clear dag create form state:', error);
+        }
+
+        // Open the generated DAG file
+        await vscode.window.showTextDocument(vscode.Uri.file(dagFilePath));
+
+        return `DAG '${name}' created at dags/${name}.py`;
+      }
+
       case 'framework-get-current-model-data':
         return await this.modelDataHandlers.handleGetCurrentModelData(payload);
 
@@ -338,6 +513,11 @@ export class Framework implements ApiEnabledService<'framework'> {
       case 'framework-preferences':
         return await this.preferencesHandler.handlePreferences(payload);
 
+      case 'framework-get-available-dags':
+        return await this.handleGetAvailableDags(payload);
+
+      case 'framework-get-python-model-groups':
+        return { groups: getDjConfig().pythonModelGroups };
       case 'framework-model-cte-analysis':
         return await this.cteAnalysisHandlers.handleCteAnalysis(payload);
 
@@ -426,6 +606,10 @@ export class Framework implements ApiEnabledService<'framework'> {
       {
         fileMatch: ['*.source.json'],
         url: '.dj/schemas/source.schema.json',
+      },
+      {
+        fileMatch: ['*.python.json'],
+        url: '.dj/schemas/python-model.schema.json',
       },
     ]);
 
@@ -748,6 +932,25 @@ export class Framework implements ApiEnabledService<'framework'> {
         COMMAND_ID.CLEAR_SYNC_CACHE,
         (options?: { silent?: boolean }) => {
           this.handleClearSyncCache(options);
+        },
+      ),
+    );
+
+    // PYTHON_MODEL_OPEN_NOTEBOOK - open ephemeral notebook for a .python.json / .python.py file
+    context.subscriptions.push(
+      vscode.commands.registerCommand(
+        COMMAND_ID.PYTHON_MODEL_OPEN_NOTEBOOK,
+        async (uri?: vscode.Uri) => {
+          const filePath =
+            uri?.fsPath ?? vscode.window.activeTextEditor?.document.uri.fsPath;
+          if (!filePath) {
+            return;
+          }
+          const jsonPath = filePath.replace(
+            /\.python\.(json|py)$/,
+            '.python.json',
+          );
+          await this.pythonModelSyncService?.openNotebook(jsonPath);
         },
       ),
     );
@@ -1533,6 +1736,35 @@ export class Framework implements ApiEnabledService<'framework'> {
       }
     });
 
+    // Initialize Python model sync service
+    this.pythonModelSyncService = new PythonModelSyncService({
+      info: (msg, ...args) => this.log.info(msg, ...args),
+      error: (msg, ...args) => this.log.error(msg, ...args),
+      warn: (msg, ...args) => this.log.warn(msg, ...args),
+    });
+    this.pythonModelSyncService.initialize();
+
+    // Ensure python model infrastructure files are up-to-date on activation
+    const pythonModelsDir = path.join(WORKSPACE_ROOT, 'dags', 'python_models');
+    vscode.workspace.fs.stat(vscode.Uri.file(pythonModelsDir)).then(
+      async () => {
+        await this.ensurePythonModelConfigPy();
+        await this.ensureTrinoIoPy();
+        await this.ensureModelTasksPy();
+        await this.ensureEtlHelperFile();
+        await this.ensureAirflowIgnoreFile();
+      },
+      () => {
+        /* dags/python_models/ doesn't exist yet -- nothing to do */
+      },
+    );
+
+    // Watch DJ-generated python model files for unauthorized edits and revert them
+    this.registerGeneratedFileGuards();
+
+    // Guard user python model files against destructive SQL (DROP/DELETE/TRUNCATE)
+    this.registerPythonSqlGuard();
+
     this.log.info('File watchers initialized for cache invalidation');
   }
 
@@ -1590,14 +1822,8 @@ export class Framework implements ApiEnabledService<'framework'> {
   }
 
   /**
-   * Clears the entire sync cache. The next sync run will treat every JSON
-   * file as changed and regenerate its SQL/YML output regardless of whether
-   * the source content was modified. Useful for debugging, forcing a full
-   * regeneration, or recovering when something outside the source files
-   * (e.g. an extension setting) has altered the generated output.
-   *
-   * @param options.silent - When true, suppresses the user-facing toast.
-   *   Intended for programmatic callers that surface their own UI.
+   * Clears the entire sync cache.
+   * Useful for debugging or forcing a full regeneration.
    */
   handleClearSyncCache(options?: { silent?: boolean }) {
     this.cacheManager.clear();
@@ -1748,6 +1974,819 @@ export class Framework implements ApiEnabledService<'framework'> {
    * @param project - The dbt project that was synced
    * @param progress - VS Code progress reporter for UI updates
    */
+  /**
+   * Get list of available DAG files from the dags/ directory.
+   * Recursively scans all subdirectories for Python files.
+   * Checks both workspace root and dbt project-relative paths.
+   */
+  private async handleGetAvailableDags(
+    payload: ApiPayload<'framework'> & { type: 'framework-get-available-dags' },
+  ): Promise<ApiResponse<'framework-get-available-dags'>> {
+    const { projectName } = payload.request;
+
+    const project = this.dbt.projects.get(projectName);
+    if (!project) {
+      this.log.warn(`Project not found: ${projectName}`);
+      return { dags: [] };
+    }
+
+    this.log.info(
+      `[DAG Discovery] project="${projectName}", projectPath="${project.pathSystem}"`,
+    );
+
+    const dags: string[] = [];
+    const seenDags = new Set<string>();
+
+    const scanForDags = async (dirPath: string) => {
+      this.log.info(`[DAG Discovery] Scanning: ${dirPath}`);
+      try {
+        const entries = await vscode.workspace.fs.readDirectory(
+          vscode.Uri.file(dirPath),
+        );
+        const pyFiles = entries.filter(
+          ([fn, ft]) =>
+            ft === vscode.FileType.File &&
+            fn.endsWith('.py') &&
+            !fn.startsWith('__'),
+        );
+        this.log.info(
+          `[DAG Discovery]   Found ${pyFiles.length} .py files in ${dirPath}`,
+        );
+
+        for (const [fileName] of pyFiles) {
+          const dagName = fileName.replace('.py', '');
+          if (seenDags.has(dagName)) {
+            this.log.info(`[DAG Discovery]   Skip duplicate: ${dagName}`);
+            continue;
+          }
+
+          try {
+            const content = await vscode.workspace.fs.readFile(
+              vscode.Uri.file(path.join(dirPath, fileName)),
+            );
+            const text = Buffer.from(content).toString();
+            const hasDag = text.includes('@dag') || text.includes('DAG(');
+            if (hasDag) {
+              dags.push(dagName);
+              seenDags.add(dagName);
+              this.log.info(`[DAG Discovery]   + ${dagName} (DAG detected)`);
+            } else {
+              this.log.info(`[DAG Discovery]   - ${dagName} (no DAG marker)`);
+            }
+          } catch (readErr) {
+            this.log.warn(
+              `[DAG Discovery]   ! ${dagName} (read error: ${readErr})`,
+            );
+          }
+        }
+      } catch {
+        this.log.info(`[DAG Discovery]   Directory not found: ${dirPath}`);
+      }
+    };
+
+    // 1. Workspace root dags/ folder and its _ext_ subfolder
+    const workspaceDagsPath = path.join(WORKSPACE_ROOT, 'dags');
+    await scanForDags(workspaceDagsPath);
+    await scanForDags(path.join(workspaceDagsPath, '_ext_'));
+
+    // 2. If dbt project is in a subfolder, also check parent dags/ folder
+    const projectParentDags = path.resolve(project.pathSystem, '..');
+    if (
+      projectParentDags !== workspaceDagsPath &&
+      projectParentDags.endsWith('dags')
+    ) {
+      await scanForDags(projectParentDags);
+      await scanForDags(path.join(projectParentDags, '_ext_'));
+    }
+
+    // 3. Also check project-relative dags/ folder
+    const projectDagsPath = path.join(project.pathSystem, 'dags');
+    if (
+      projectDagsPath !== workspaceDagsPath &&
+      projectDagsPath !== projectParentDags
+    ) {
+      await scanForDags(projectDagsPath);
+      await scanForDags(path.join(projectDagsPath, '_ext_'));
+    }
+
+    this.log.info(
+      `[DAG Discovery] Result: ${dags.length} DAGs [${dags.join(', ')}]`,
+    );
+    return { dags };
+  }
+
+  /**
+   * Ensure python_models/_config.py exists in dags/python_models/.
+   * Creates the shared PythonModelConfig module if missing.
+   */
+  private async ensurePythonModelConfigPy(): Promise<void> {
+    const configDir = path.join(WORKSPACE_ROOT, 'dags', 'python_models');
+    const configPath = path.join(configDir, '_config.py');
+
+    try {
+      await vscode.workspace.fs.createDirectory(vscode.Uri.file(configDir));
+
+      // Also create __init__.py so python_models is importable as a package
+      const initPath = path.join(configDir, '__init__.py');
+      try {
+        await vscode.workspace.fs.stat(vscode.Uri.file(initPath));
+      } catch {
+        await vscode.workspace.fs.writeFile(
+          vscode.Uri.file(initPath),
+          Buffer.from(''),
+        );
+      }
+
+      const content = generatePythonModelConfigPy();
+      await vscode.workspace.fs.writeFile(
+        vscode.Uri.file(configPath),
+        Buffer.from(content),
+      );
+      this.log.info(`Generated python_models/_config.py at: ${configPath}`);
+    } catch (err) {
+      this.log.warn(
+        `Could not generate python_models/_config.py: ${String(err)}`,
+      );
+    }
+  }
+
+  /**
+   * Ensure python_models/_model_tasks.py exists and is up-to-date.
+   * Always overwrites to pick up framework fixes automatically.
+   */
+  private async ensureModelTasksPy(): Promise<void> {
+    const configDir = path.join(WORKSPACE_ROOT, 'dags', 'python_models');
+    const modelTasksPath = path.join(configDir, '_model_tasks.py');
+
+    try {
+      await vscode.workspace.fs.createDirectory(vscode.Uri.file(configDir));
+
+      const content = generatePythonModelTasksPy();
+      await vscode.workspace.fs.writeFile(
+        vscode.Uri.file(modelTasksPath),
+        Buffer.from(content),
+      );
+      this.log.info(
+        `Generated python_models/_model_tasks.py at: ${modelTasksPath}`,
+      );
+    } catch (err) {
+      this.log.warn(
+        `Could not generate python_models/_model_tasks.py: ${String(err)}`,
+      );
+    }
+  }
+
+  /**
+   * Read the etl_helper.py template for the configured Airflow version.
+   * Used both to seed the file and to revert unauthorized edits.
+   */
+  private async readEtlHelperTemplate(): Promise<string> {
+    const { airflowTargetVersion } = getDjConfig();
+    const versionFolder = airflowTargetVersion === '2.10' ? 'v2_10' : 'v2_7';
+    const templatePath = path.join(
+      BASE_AIRFLOW_PATH,
+      versionFolder,
+      'etl_helper.py',
+    );
+    const content = await vscode.workspace.fs.readFile(
+      vscode.Uri.file(templatePath),
+    );
+    return Buffer.from(content).toString();
+  }
+
+  /**
+   * Watch all DJ-generated python model shared files and revert unauthorized
+   * edits. These files are auto-generated and must not be hand-edited:
+   * _trino_io.py, _config.py, _model_tasks.py, and etl_helper.py.
+   */
+  private registerGeneratedFileGuards(): void {
+    const guards: {
+      glob: string;
+      generate: () => Promise<string> | string;
+      label: string;
+    }[] = [
+      {
+        glob: '**/python_models/_trino_io.py',
+        generate: () => generateTrinoIoPy(),
+        label: '_trino_io.py',
+      },
+      {
+        glob: '**/python_models/_config.py',
+        generate: () => generatePythonModelConfigPy(),
+        label: '_config.py',
+      },
+      {
+        glob: '**/python_models/_model_tasks.py',
+        generate: () => generatePythonModelTasksPy(),
+        label: '_model_tasks.py',
+      },
+      {
+        glob: '**/etl_helper.py',
+        generate: () => this.readEtlHelperTemplate(),
+        label: 'etl_helper.py',
+      },
+    ];
+
+    for (const guard of guards) {
+      const watcher = vscode.workspace.createFileSystemWatcher(guard.glob);
+      const revert = async (uri: vscode.Uri): Promise<void> => {
+        try {
+          const desired = await guard.generate();
+          const current = Buffer.from(
+            await vscode.workspace.fs.readFile(uri),
+          ).toString();
+          // Our own writes leave content === desired, so this is a no-op loop
+          // breaker: only revert when the file actually diverges.
+          if (current === desired) {
+            return;
+          }
+          await vscode.workspace.fs.writeFile(uri, Buffer.from(desired));
+          void vscode.window.showInformationMessage(
+            `DJ Framework: ${guard.label} is auto-generated and cannot be edited. Your changes have been reverted.`,
+          );
+        } catch (err) {
+          this.log.warn(`Could not revert ${guard.label}: ${String(err)}`);
+        }
+      };
+      watcher.onDidChange(revert);
+      this.generatedFileWatchers.push(watcher);
+    }
+  }
+
+  /** DJ-generated shared python files that are exempt from the SQL guard. */
+  private static readonly GENERATED_PYTHON_FILES = new Set([
+    '_config.py',
+    '_trino_io.py',
+    '_model_tasks.py',
+    '__init__.py',
+    'etl_helper.py',
+  ]);
+
+  /** Whether a path is a python model file that the SQL guard should scan. */
+  private isGuardedPythonModelFile(fsPath: string): boolean {
+    if (!fsPath.endsWith('.py')) {
+      return false;
+    }
+    if (!fsPath.split(path.sep).includes('python_models')) {
+      return false;
+    }
+    return !Framework.GENERATED_PYTHON_FILES.has(path.basename(fsPath));
+  }
+
+  /**
+   * Recompute destructive-SQL diagnostics for a python model file. Clears the
+   * entry when the file is generated/exempt or no longer contains violations.
+   */
+  private updatePythonSqlDiagnostics(uri: vscode.Uri, text: string): void {
+    if (!this.pythonSqlGuardDiagnostics) {
+      return;
+    }
+    if (!this.isGuardedPythonModelFile(uri.fsPath)) {
+      this.pythonSqlGuardDiagnostics.delete(uri);
+      return;
+    }
+
+    const matches = findDangerousSqlStatements(text);
+    if (matches.length === 0) {
+      this.pythonSqlGuardDiagnostics.delete(uri);
+      return;
+    }
+
+    const diagnostics = matches.map((match) => {
+      const range = new vscode.Range(
+        match.line,
+        match.startCol,
+        match.line,
+        match.endCol,
+      );
+      const diagnostic = new vscode.Diagnostic(
+        range,
+        `DJ Framework: ${match.statement} statements are not allowed in python model files. ` +
+          'Destructive SQL (DROP/DELETE/TRUNCATE) is blocked to protect your data — ' +
+          'use the safe helpers in python_models/_trino_io.py instead.',
+        vscode.DiagnosticSeverity.Error,
+      );
+      diagnostic.source = 'DJ Framework';
+      return diagnostic;
+    });
+
+    this.pythonSqlGuardDiagnostics.set(uri, diagnostics);
+  }
+
+  /**
+   * Set up the destructive-SQL guard: a diagnostics collection plus watchers
+   * and text-document listeners that flag DROP/DELETE/TRUNCATE in user python
+   * model files (DJ-generated shared files are exempt).
+   */
+  private registerPythonSqlGuard(): void {
+    this.pythonSqlGuardDiagnostics =
+      vscode.languages.createDiagnosticCollection('dj-python-sql-guard');
+
+    const scanUri = async (uri: vscode.Uri): Promise<void> => {
+      try {
+        const content = Buffer.from(
+          await vscode.workspace.fs.readFile(uri),
+        ).toString();
+        this.updatePythonSqlDiagnostics(uri, content);
+      } catch {
+        this.pythonSqlGuardDiagnostics?.delete(uri);
+      }
+    };
+
+    this.pythonSqlGuardWatcher = vscode.workspace.createFileSystemWatcher(
+      '**/python_models/**/*.py',
+    );
+    this.pythonSqlGuardWatcher.onDidChange(scanUri);
+    this.pythonSqlGuardWatcher.onDidCreate(scanUri);
+    this.pythonSqlGuardWatcher.onDidDelete((uri) =>
+      this.pythonSqlGuardDiagnostics?.delete(uri),
+    );
+
+    // Live updates as the user types / opens files
+    this.pythonSqlGuardDisposables.push(
+      vscode.workspace.onDidChangeTextDocument((e) => {
+        if (this.isGuardedPythonModelFile(e.document.uri.fsPath)) {
+          this.updatePythonSqlDiagnostics(e.document.uri, e.document.getText());
+        }
+      }),
+      vscode.workspace.onDidOpenTextDocument((doc) => {
+        if (this.isGuardedPythonModelFile(doc.uri.fsPath)) {
+          this.updatePythonSqlDiagnostics(doc.uri, doc.getText());
+        }
+      }),
+    );
+
+    // Scan already-open python model documents on activation
+    for (const doc of vscode.workspace.textDocuments) {
+      if (this.isGuardedPythonModelFile(doc.uri.fsPath)) {
+        this.updatePythonSqlDiagnostics(doc.uri, doc.getText());
+      }
+    }
+  }
+
+  /**
+   * Ensure python_models/_trino_io.py exists and is up-to-date.
+   * Always overwrites to pick up framework fixes automatically.
+   */
+  private async ensureTrinoIoPy(): Promise<void> {
+    const configDir = path.join(WORKSPACE_ROOT, 'dags', 'python_models');
+    const trinoIoPath = path.join(configDir, '_trino_io.py');
+
+    try {
+      await vscode.workspace.fs.createDirectory(vscode.Uri.file(configDir));
+
+      const content = generateTrinoIoPy();
+      await vscode.workspace.fs.writeFile(
+        vscode.Uri.file(trinoIoPath),
+        Buffer.from(content),
+      );
+      this.log.info(`Generated python_models/_trino_io.py at: ${trinoIoPath}`);
+    } catch (err) {
+      this.log.warn(
+        `Could not generate python_models/_trino_io.py: ${String(err)}`,
+      );
+    }
+  }
+
+  /**
+   * Ensure etl_helper.py exists in the DAGs _ext_ directory and is up-to-date.
+   * Always overwrites from the extension's airflow template so framework fixes
+   * are picked up automatically. This runs independently of the
+   * dj.airflowGenerateDags setting.
+   */
+  private async ensureEtlHelperFile(): Promise<void> {
+    const { airflowDagsPath, airflowTargetVersion } = getDjConfig();
+
+    // Check possible locations for etl_helper.py
+    const possibleTargets: string[] = [];
+
+    if (airflowDagsPath) {
+      possibleTargets.push(
+        path.join(WORKSPACE_ROOT, airflowDagsPath, 'etl_helper.py'),
+      );
+    }
+    possibleTargets.push(
+      path.join(WORKSPACE_ROOT, 'dags', '_ext_', 'etl_helper.py'),
+    );
+
+    // Determine best target: overwrite an existing file wherever it lives,
+    // otherwise prefer airflowDagsPath, then workspace dags/_ext_/.
+    let targetPath = possibleTargets[0];
+    for (const target of possibleTargets) {
+      try {
+        await vscode.workspace.fs.stat(vscode.Uri.file(target));
+        targetPath = target;
+        break;
+      } catch {
+        // Not found, continue
+      }
+    }
+
+    // Determine source template
+    const versionFolder = airflowTargetVersion === '2.10' ? 'v2_10' : 'v2_7';
+    const templatePath = path.join(
+      BASE_AIRFLOW_PATH,
+      versionFolder,
+      'etl_helper.py',
+    );
+
+    try {
+      const content = await vscode.workspace.fs.readFile(
+        vscode.Uri.file(templatePath),
+      );
+      // Ensure target directory exists
+      const targetDir = path.dirname(targetPath);
+      await vscode.workspace.fs.createDirectory(vscode.Uri.file(targetDir));
+      await vscode.workspace.fs.writeFile(vscode.Uri.file(targetPath), content);
+      this.log.info(`Generated etl_helper.py at: ${targetPath}`);
+    } catch (err) {
+      this.log.warn(`Could not generate etl_helper.py: ${String(err)}`);
+    }
+  }
+
+  /**
+   * Ensure __init__.py files exist in python_models/ and its subdirectories.
+   * This makes python_models a proper Python package for absolute imports.
+   */
+  private async ensurePythonModelsInitFiles(
+    group: string,
+    topic: string,
+  ): Promise<void> {
+    const pythonModelsDir = path.join(WORKSPACE_ROOT, 'dags', 'python_models');
+    const groupDir = path.join(pythonModelsDir, group);
+    const topicDir = path.join(groupDir, topic);
+
+    const dirsToCheck = [pythonModelsDir, groupDir, topicDir];
+
+    for (const dir of dirsToCheck) {
+      const initPath = path.join(dir, '__init__.py');
+      try {
+        await vscode.workspace.fs.stat(vscode.Uri.file(initPath));
+      } catch {
+        try {
+          await vscode.workspace.fs.createDirectory(vscode.Uri.file(dir));
+          await vscode.workspace.fs.writeFile(
+            vscode.Uri.file(initPath),
+            Buffer.from(''),
+          );
+          this.log.info(`Created __init__.py at: ${initPath}`);
+        } catch (err) {
+          this.log.warn(
+            `Could not create __init__.py at ${initPath}: ${String(err)}`,
+          );
+        }
+      }
+    }
+  }
+
+  /**
+   * Ensure dags/.airflowignore exists with patterns to exclude Python model files.
+   * This prevents Airflow from treating .python.py files as DAGs.
+   */
+  private async ensureAirflowIgnoreFile(): Promise<void> {
+    const airflowIgnorePath = path.join(
+      WORKSPACE_ROOT,
+      'dags',
+      '.airflowignore',
+    );
+
+    try {
+      await vscode.workspace.fs.stat(vscode.Uri.file(airflowIgnorePath));
+      // File exists, check if it has our patterns
+      const content = Buffer.from(
+        await vscode.workspace.fs.readFile(vscode.Uri.file(airflowIgnorePath)),
+      ).toString();
+
+      const requiredPatterns = [
+        '.*\\.python\\.py$',
+        'python_models/_config\\.py$',
+        'python_models/_trino_io\\.py$',
+        'python_models/_model_tasks\\.py$',
+        'python_models/.*/_helpers\\.py$',
+        'python_models/.*/__init__\\.py$',
+      ];
+
+      const missingPatterns = requiredPatterns.filter(
+        (pattern) => !content.includes(pattern),
+      );
+
+      if (missingPatterns.length > 0) {
+        const updatedContent =
+          content.trimEnd() + '\n' + missingPatterns.join('\n') + '\n';
+        await vscode.workspace.fs.writeFile(
+          vscode.Uri.file(airflowIgnorePath),
+          Buffer.from(updatedContent),
+        );
+        this.log.info(`Updated .airflowignore with missing patterns`);
+      }
+      return;
+    } catch {
+      // File doesn't exist, create it
+    }
+
+    const airflowIgnoreContent = `# Auto-generated by DJ Framework
+# Patterns to exclude Python model files from Airflow DAG discovery
+
+.*\\.python\\.py$
+python_models/_config\\.py$
+python_models/_trino_io\\.py$
+python_models/_model_tasks\\.py$
+python_models/.*/_helpers\\.py$
+python_models/.*/__init__\\.py$
+`;
+
+    try {
+      await vscode.workspace.fs.writeFile(
+        vscode.Uri.file(airflowIgnorePath),
+        Buffer.from(airflowIgnoreContent),
+      );
+      this.log.info(`Generated .airflowignore at: ${airflowIgnorePath}`);
+    } catch (err) {
+      this.log.warn(`Could not generate .airflowignore: ${String(err)}`);
+    }
+  }
+
+  /**
+   * Generate a clean, empty Airflow DAG file (start_etl -> end_etl skeleton).
+   * Used by the standalone "Create DAG" form.
+   */
+  private async generateEmptyDagFile(dagConfig: {
+    name: string;
+    schedule?: string;
+    tags?: string[];
+    description?: string;
+  }): Promise<string> {
+    const dagName = dagConfig.name;
+    const schedule = dagConfig.schedule || '@daily';
+    const tagsList =
+      dagConfig.tags && dagConfig.tags.length > 0 ? dagConfig.tags : ['etl'];
+    const tagsLiteral = JSON.stringify(tagsList);
+    const fnName = dagName.replace(/[^a-zA-Z0-9_]/g, '_') + '_dag';
+    const desc = dagConfig.description ? `\n# ${dagConfig.description}\n` : '';
+
+    const dagFilePath = path.join(WORKSPACE_ROOT, 'dags', `${dagName}.py`);
+
+    // Check if DAG file already exists
+    try {
+      await vscode.workspace.fs.stat(vscode.Uri.file(dagFilePath));
+      throw new Error(`DAG '${dagName}' already exists at dags/${dagName}.py`);
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('already exists')) {
+        throw err;
+      }
+    }
+
+    const dagContent = `from airflow.decorators import dag, task
+from airflow.utils.trigger_rule import TriggerRule
+from datetime import datetime, timedelta, timezone
+${desc}
+
+@dag(
+    catchup=False,
+    dag_id="${dagName}",
+    default_args={
+        "owner": "airflow",
+        "retries": 0,
+        "retry_delay": timedelta(minutes=1),
+        "start_date": datetime(2021, 1, 1, tzinfo=timezone.utc),
+    },
+    max_active_runs=1,
+    schedule="${schedule}",
+    start_date=datetime(1970, 1, 1),
+    tags=${tagsLiteral},
+)
+def ${fnName}():
+
+    @task(task_id="start_etl")
+    def start_etl(**context):
+        print(f"Starting ${dagName} ETL: {context['ds']}")
+
+    @task(task_id="end_etl", trigger_rule=TriggerRule.ALL_DONE)
+    def end_etl(**context):
+        print(f"Completed ${dagName} ETL: {context['ds']}")
+
+    # Sequence tasks
+    _start = start_etl()
+    _end = end_etl()
+
+    _start >> _end
+
+
+etl = ${fnName}()
+`;
+
+    const dagsDir = path.dirname(dagFilePath);
+    await vscode.workspace.fs.createDirectory(vscode.Uri.file(dagsDir));
+    await vscode.workspace.fs.writeFile(
+      vscode.Uri.file(dagFilePath),
+      Buffer.from(dagContent),
+    );
+
+    this.log.info(`Generated empty DAG file: ${dagFilePath}`);
+    return dagFilePath;
+  }
+
+  /**
+   * Generate a new minimal Airflow DAG file with Python model tasks via
+   * register_python_model_tasks (start_etl -> python models -> end_etl).
+   */
+  private async generateDagFile(
+    project: DbtProject,
+    dagConfig: { name: string; schedule?: string; tags?: string[] },
+  ): Promise<void> {
+    const dagName = dagConfig.name;
+    const schedule = dagConfig.schedule || '@daily';
+    const tagsList =
+      dagConfig.tags && dagConfig.tags.length > 0
+        ? dagConfig.tags
+        : ['python-model'];
+    const tagsLiteral = JSON.stringify(tagsList);
+
+    const dagFilePath = path.join(WORKSPACE_ROOT, 'dags', `${dagName}.py`);
+
+    // Check if DAG file already exists
+    try {
+      await vscode.workspace.fs.stat(vscode.Uri.file(dagFilePath));
+      this.log.info(
+        `DAG file already exists at ${dagFilePath}, skipping generation`,
+      );
+      return;
+    } catch {
+      // File doesn't exist -- proceed
+    }
+
+    // Also check project-relative dags/
+    const projectDagPath = path.join(project.pathSystem, '..', `${dagName}.py`);
+    try {
+      await vscode.workspace.fs.stat(vscode.Uri.file(projectDagPath));
+      this.log.info(
+        `DAG file already exists at ${projectDagPath}, skipping generation`,
+      );
+      return;
+    } catch {
+      // proceed
+    }
+
+    const dagContent = `from airflow import DAG
+from airflow.operators.python import PythonOperator
+from airflow.utils.trigger_rule import TriggerRule
+from datetime import datetime, timedelta, timezone
+from _ext_.etl_helper import register_python_model_tasks
+
+default_args = {
+    "owner": "airflow",
+    "retries": 0,
+    "retry_delay": timedelta(minutes=1),
+    "start_date": datetime(2021, 1, 1, tzinfo=timezone.utc),
+}
+
+with DAG(
+    catchup=False,
+    dag_id="${dagName}",
+    default_args=default_args,
+    max_active_runs=1,
+    schedule="${schedule}",
+    start_date=datetime(1970, 1, 1),
+    tags=${tagsLiteral},
+) as dag:
+
+    def _start_etl(**context):
+        print(f"Starting ${dagName} ETL: {context['ds']}")
+
+    def _end_etl(**context):
+        print(f"Completed ${dagName} ETL: {context['ds']}")
+
+    start_etl = PythonOperator(
+        task_id="start_etl",
+        python_callable=_start_etl,
+        dag=dag,
+    )
+    end_etl = PythonOperator(
+        task_id="end_etl",
+        python_callable=_end_etl,
+        trigger_rule=TriggerRule.ALL_DONE,
+        dag=dag,
+    )
+
+    entry_tasks, exit_tasks = register_python_model_tasks("${dagName}", dag)
+
+    if entry_tasks and exit_tasks:
+        start_etl >> entry_tasks
+        exit_tasks >> end_etl
+    else:
+        start_etl >> end_etl
+`;
+
+    // Ensure dags/ directory exists
+    const dagsDir = path.dirname(dagFilePath);
+    await vscode.workspace.fs.createDirectory(vscode.Uri.file(dagsDir));
+
+    await vscode.workspace.fs.writeFile(
+      vscode.Uri.file(dagFilePath),
+      Buffer.from(dagContent),
+    );
+
+    this.log.info(`Generated new DAG file: ${dagFilePath}`);
+  }
+
+  /**
+   * Inject register_python_model_tasks wiring into an existing DAG file.
+   * Called when a Python model is created and mapped to a DAG.
+   * Shows a confirm modal with a short preview before writing.
+   * @param dagName - Can be a simple name (e.g., "source_etl") or a relative path (e.g., "_ext_/source_etl")
+   */
+  private async injectPythonModelTasksIntoDag(
+    project: DbtProject,
+    dagName: string,
+  ): Promise<void> {
+    // Build list of possible DAG file locations
+    // dagName may contain path separators if from subdirectory (e.g., "_ext_/source_etl")
+    const possiblePaths: string[] = [
+      // Direct path under workspace dags/
+      path.join(WORKSPACE_ROOT, 'dags', `${dagName}.py`),
+      // Direct path under project dags/
+      path.join(project.pathSystem, 'dags', `${dagName}.py`),
+    ];
+
+    // If dagName doesn't contain path separator, also check _ext_ and root
+    if (!dagName.includes('/') && !dagName.includes(path.sep)) {
+      possiblePaths.push(
+        path.join(WORKSPACE_ROOT, 'dags', '_ext_', `${dagName}.py`),
+        path.join(project.pathSystem, 'dags', '_ext_', `${dagName}.py`),
+      );
+    }
+
+    this.log.info(
+      `Looking for DAG file "${dagName}.py" in: ${possiblePaths.join(', ')}`,
+    );
+
+    let dagFilePath: string | null = null;
+    for (const p of possiblePaths) {
+      try {
+        await vscode.workspace.fs.stat(vscode.Uri.file(p));
+        dagFilePath = p;
+        this.log.info(`Found DAG file at: ${p}`);
+        break;
+      } catch {
+        // File doesn't exist, try next path
+      }
+    }
+
+    if (!dagFilePath) {
+      this.log.warn(
+        `Could not find DAG file for: ${dagName}. Searched paths: ${possiblePaths.join(', ')}. ` +
+          `Configure dj.airflowDagsPath setting if your DAGs are in a custom location.`,
+      );
+      vscode.window.showWarningMessage(
+        `DAG file "${dagName}.py" not found. Configure dj.airflowDagsPath if needed.`,
+      );
+      return;
+    }
+
+    // Read the DAG file
+    const dagContent = await vscode.workspace.fs.readFile(
+      vscode.Uri.file(dagFilePath),
+    );
+    const dagCode = Buffer.from(dagContent).toString();
+
+    const built = buildInjectedDagSource(dagCode);
+    if (!built) {
+      this.log.info(
+        `DAG ${dagName} already has register_python_model_tasks wiring`,
+      );
+      return;
+    }
+
+    if (built.style === 'imports-only') {
+      this.log.warn(
+        `[DAG Injection] Unrecognised DAG style in ${dagName}. Imports would be added but tasks not injected.`,
+      );
+    } else {
+      this.log.info(
+        `[DAG Injection] Prepared ${built.style} injection for: ${dagName}`,
+      );
+    }
+
+    const preview = buildDagInjectionPreview(dagFilePath, dagName);
+    const choice = await vscode.window.showWarningMessage(
+      `Modify DAG "${dagName}" to register Python model tasks?`,
+      { modal: true, detail: preview },
+      'Apply',
+      'Skip',
+    );
+    if (choice !== 'Apply') {
+      this.log.info(`DAG injection skipped by user for: ${dagName}`);
+      return;
+    }
+
+    await vscode.workspace.fs.writeFile(
+      vscode.Uri.file(dagFilePath),
+      Buffer.from(built.next),
+    );
+
+    this.log.info(`Injected register_python_model_tasks into DAG: ${dagName}`);
+  }
+
   /** Close all editor tabs open at the given file path. */
   private async closeTabsForPath(fsPath: string): Promise<void> {
     for (const tabGroup of vscode.window.tabGroups.all) {
@@ -1822,6 +2861,17 @@ export class Framework implements ApiEnabledService<'framework'> {
     this.jsonFileWatcher?.dispose();
     this.sqlFileWatcher?.dispose();
     this.ymlFileWatcher?.dispose();
+    for (const watcher of this.generatedFileWatchers) {
+      watcher.dispose();
+    }
+    this.generatedFileWatchers = [];
+    this.pythonSqlGuardWatcher?.dispose();
+    this.pythonSqlGuardDiagnostics?.dispose();
+    for (const disposable of this.pythonSqlGuardDisposables) {
+      disposable.dispose();
+    }
+    this.pythonSqlGuardDisposables = [];
+    this.pythonModelSyncService?.dispose();
     this.syncQueue.dispose();
     this.statusBarItem.dispose();
     this.dbt.deactivate();

@@ -3,7 +3,12 @@
  */
 
 /** Model layer type based on naming conventions */
-export type ModelLayerType = 'source' | 'staging' | 'intermediate' | 'mart';
+export type ModelLayerType =
+  | 'source'
+  | 'staging'
+  | 'intermediate'
+  | 'mart'
+  | 'python';
 
 /** Model layer prefixes for name-based detection */
 export const MODEL_LAYER_PREFIXES = {

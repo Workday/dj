@@ -32,13 +32,18 @@ import {
   validateExcludeDatetimeRollupConflict,
   validateSubqueries,
 } from '@services/modelValidation';
-import type { FrameworkModel, FrameworkSource } from '@shared/framework/types';
+import type {
+  FrameworkModel,
+  FrameworkSource,
+  PythonModelConfig,
+} from '@shared/framework/types';
 import type { Ajv, ValidateFunction } from 'ajv';
 import { applyEdits, modify } from 'jsonc-parser';
 import * as path from 'path';
 
 import type {
   ModelValidationResult,
+  PythonModelValidationResult,
   SourceValidationResult,
   SyncLogger,
 } from './types';
@@ -80,6 +85,7 @@ export class ValidationService {
     private readonly ajv: Ajv | null,
     private readonly sourceValidator: ValidateFunction | undefined,
     private readonly logger: SyncLogger,
+    private readonly pythonModelValidator?: ValidateFunction | undefined,
   ) {}
 
   /**
@@ -255,10 +261,9 @@ export class ValidationService {
       };
     }
 
-    // Reject CTE rollups that omit `select`. Without an explicit select,
-    // the SQL generator emits `select *` and the rollup default
-    // `group_by: dims` expands to every upstream column, producing a
-    // runaway GROUP BY clause and broken SQL.
+    // Reject CTE rollups that omit `select`. Rollup rewrites datetime and
+    // synthesizes GROUP BY from dims; without an authored select there is
+    // nothing to roll up.
     const cteRollupSelectErrors = validateCteRollupRequiresSelect(modelJson);
     if (cteRollupSelectErrors.length > 0) {
       const message = `Model validation errors:\n${cteRollupSelectErrors
@@ -373,6 +378,51 @@ export class ValidationService {
         valid: false,
         error: message,
         errors: formatValidationErrorDetails(errors),
+        pathJson,
+      };
+    }
+
+    return {
+      valid: true,
+      pathJson,
+    };
+  }
+
+  /**
+   * Validate a python model JSON against the python-model schema.
+   *
+   * @param params - Validation parameters
+   * @returns Validation result
+   */
+  validatePythonModel(params: {
+    pythonModelJson: PythonModelConfig;
+    pathJson: string;
+  }): PythonModelValidationResult {
+    const { pythonModelJson, pathJson } = params;
+
+    if (!this.pythonModelValidator) {
+      return {
+        valid: false,
+        error: 'Python model JSON validation not active',
+        pathJson,
+      };
+    }
+
+    this.pythonModelValidator(pythonModelJson);
+    const errors = this.pythonModelValidator.errors;
+
+    if (errors) {
+      const errorMessages = formatValidationErrors(errors, 'python-model');
+      const message = errorMessages.join('\n');
+
+      this.logger.error?.(
+        `Python model validation failed for ${pathJson}:`,
+        message,
+      );
+
+      return {
+        valid: false,
+        error: message,
         pathJson,
       };
     }
