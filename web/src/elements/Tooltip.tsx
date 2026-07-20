@@ -1,7 +1,7 @@
 import { Popover, PopoverButton, PopoverPanel } from '@headlessui/react';
 import { InformationCircleIcon as OutlineInformationCircleIcon } from '@heroicons/react/24/outline';
 import { InformationCircleIcon as SolidInformationCircleIcon } from '@heroicons/react/24/solid';
-import { type FC, type ReactNode, useRef } from 'react';
+import { type ElementType, type FC, type ReactNode, useRef } from 'react';
 
 export type TooltipProps = {
   children?: ReactNode;
@@ -10,6 +10,11 @@ export type TooltipProps = {
   iconSize?: number;
   iconColor?: string;
   variant?: 'solid' | 'outline';
+  placement?: 'bottom' | 'right';
+  // Override what HTML element wraps the trigger. Use 'div'/'span' when
+  // children already contain an interactive element (e.g. a <button>) to
+  // avoid nested-interactive a11y issues.
+  as?: ElementType;
 };
 
 export const Tooltip: FC<TooltipProps> = ({
@@ -17,6 +22,8 @@ export const Tooltip: FC<TooltipProps> = ({
   content,
   align = 'start',
   variant = 'outline',
+  placement = 'bottom',
+  as,
 }) => {
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const openTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -59,7 +66,11 @@ export const Tooltip: FC<TooltipProps> = ({
           onMouseEnter={() => onMouseEnter(open)}
           onMouseLeave={() => onMouseLeave(close)}
         >
-          <PopoverButton ref={buttonRef} className="flex focus:outline-none">
+          <PopoverButton
+            ref={buttonRef}
+            as={as ?? 'button'}
+            className="flex focus:outline-none"
+          >
             {children ? children : <Icon className="h-[18px] w-[18px]" />}
           </PopoverButton>
 
@@ -68,7 +79,14 @@ export const Tooltip: FC<TooltipProps> = ({
               static
               portal
               anchor={{
-                to: align === 'center' ? 'bottom' : 'bottom start',
+                to:
+                  placement === 'right'
+                    ? align === 'center'
+                      ? 'right'
+                      : 'right start'
+                    : align === 'center'
+                      ? 'bottom'
+                      : 'bottom start',
                 gap: 8,
               }}
               className="z-[9999] w-max max-w-[20rem]"

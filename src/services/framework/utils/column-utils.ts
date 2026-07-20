@@ -10,13 +10,7 @@
  * - frameworkGetRollupInputs ↔ frameworkProcessSelected
  */
 
-import {
-  FRAMEWORK_AGGS,
-  FRAMEWORK_PARTITIONS,
-  PARTITION_DAILY,
-  PARTITION_HOURLY,
-  PARTITION_MONTHLY,
-} from '@services/framework/constants';
+import { FRAMEWORK_AGGS } from '@services/framework/constants';
 import { lightdashBuildMetrics } from '@services/lightdash/utils';
 import type { DJ } from '@shared';
 import { mergeDeep } from '@shared';
@@ -27,11 +21,14 @@ import {
   BULK_SELECT_TYPES,
   DIMS_BULK_TYPES,
   FCTS_BULK_TYPES,
+  FRAMEWORK_PARTITIONS,
+  PARTITION_DAILY,
+  PARTITION_HOURLY,
+  PARTITION_MONTHLY,
 } from '@shared/framework/constants';
 import type {
   FrameworkColumn,
   FrameworkColumnAgg,
-  FrameworkColumnMeta,
   FrameworkCTE,
   FrameworkDims,
   FrameworkInterval,
@@ -199,7 +196,7 @@ export function frameworkProcessSelected({
       meta: {
         ...(userSelectedMeta ?? {}),
         type: selected.type || 'dim',
-      } as FrameworkColumnMeta,
+      },
       internal: {},
     };
     if ('data_type' in selected && selected.data_type) {
@@ -477,8 +474,8 @@ export function frameworkBuildColumns({
             ? null
             : 'from' in modelJson &&
                 'cte' in modelJson.from &&
-                (modelJson.from as { cte: string }).cte
-              ? (modelJson.from as { cte: string }).cte
+                modelJson.from.cte
+              ? modelJson.from.cte
               : null;
       // Strip CTE-materialized SQL metadata from CTE-sourced columns. `agg`,
       // `expr`, and `prefix` describe how the column was computed inside the
@@ -703,7 +700,7 @@ export function frameworkBuildColumns({
     'cte' in modelJson.from &&
     (modelJson.from as { cte?: string }).cte
   ) {
-    baseCte = (modelJson.from as { cte: string }).cte;
+    baseCte = modelJson.from.cte;
     if ('join' in modelJson.from && modelJson.type !== 'int_join_column') {
       basePrefix = baseCte;
     }
@@ -890,14 +887,25 @@ export function frameworkBuildColumns({
   });
   columns = sortColumnsWithPartitionsLast(columns, partitionColumnNames);
 
-  // Strip auto-injected partition columns when the model opts out.
-  // Origin-aware: same rules as `portal_source_count` above.
-  if (
-    frameworkResolveExcludeFlag('portal_partition_columns', null, modelJson)
-  ) {
+  // Strip auto-injected partition columns when the model opts out. The flag
+  // accepts `true` (drop all) or an array (drop only the named partitions);
+  // the resolver returns the effective set. The universe of droppable names is
+  // the canonical FRAMEWORK_PARTITIONS set (matching the CTE path), not this
+  // model's declared materialization partition set: a model can carry a
+  // partition column it does not materialize on (e.g. portal_partition_hourly
+  // inherited via `all_from_model` from a parent whose `portal_partition_columns`
+  // meta lists only monthly/daily), and that column must stay droppable.
+  // Origin-aware: same rules as `portal_source_count` above -- columns the user
+  // listed explicitly survive.
+  const excludedPartitionColumns = frameworkResolveExcludedPartitionColumns(
+    null,
+    modelJson,
+    FRAMEWORK_PARTITIONS,
+  );
+  if (excludedPartitionColumns.size > 0) {
     columns = columns.filter(
       (c) =>
-        !partitionColumnNames.includes(c.name) ||
+        !excludedPartitionColumns.has(c.name) ||
         userExplicitColumnNames.has(c.name),
     );
   }
@@ -1659,8 +1667,18 @@ const COMBINED_FLAG_IMPLIES: Record<'all' | 'columns', Set<ExcludeFlagName>> = {
 };
 
 type ExcludeFlagSource =
-  | (Partial<Record<`exclude_${ExcludeFlagName}`, boolean | undefined>> & {
+  | (Partial<
+      Record<
+        `exclude_${Exclude<ExcludeFlagName, 'portal_partition_columns'>}`,
+        boolean | undefined
+      >
+    > & {
       exclude_framework_artifacts?: 'all' | 'columns';
+      // The partition opt-out accepts a boolean (all/none) or an array of
+      // specific partition column names to drop. `frameworkResolveExcludeFlag`
+      // coerces the array to a truthy boolean for legacy callers;
+      // `frameworkResolveExcludedPartitionColumns` reads the precise set.
+      exclude_portal_partition_columns?: boolean | string[];
     })
   | null
   | undefined;
@@ -1670,7 +1688,10 @@ export function frameworkResolveExcludeFlag(
   cte: ExcludeFlagSource,
   modelJson: ExcludeFlagSource,
 ): boolean {
-  const individual = (s: ExcludeFlagSource): boolean | undefined =>
+  // The `portal_partition_columns` individual flag can be an array; here we
+  // only need its truthiness (any exclusion in effect). Callers needing the
+  // exact set use `frameworkResolveExcludedPartitionColumns`.
+  const individual = (s: ExcludeFlagSource): boolean | string[] | undefined =>
     s?.[`exclude_${flag}`];
   const combined = (s: ExcludeFlagSource): boolean | undefined => {
     const v = s?.exclude_framework_artifacts;
@@ -1699,6 +1720,74 @@ export function frameworkResolveExcludeFlag(
   return false;
 }
 
+/**
+ * Resolves the SET of partition column names to exclude for a given scope.
+ * Generalizes `frameworkResolveExcludeFlag` for `exclude_portal_partition_columns`,
+ * which accepts `boolean | string[]`:
+ *   - `true`  -> every name in `allPartitionNames`
+ *   - `false` -> none
+ *   - array   -> exactly the listed names (intersected with `allPartitionNames`
+ *                so stale names after a materialization change are ignored)
+ *
+ * The combined `exclude_framework_artifacts` enum ("all" | "columns") implies
+ * all partitions. Precedence mirrors `frameworkResolveExcludeFlag`:
+ *
+ *   CTE individual > CTE combined > model individual > model combined > none
+ *
+ * An array at any scope overrides the combined flag at that scope, narrowing
+ * the bundle's all-partitions exclusion to just the listed columns (the same
+ * way `exclude_portal_source_count: false` keeps that one column under
+ * `exclude_framework_artifacts: "all"`).
+ */
+export function frameworkResolveExcludedPartitionColumns(
+  cte: ExcludeFlagSource,
+  modelJson: ExcludeFlagSource,
+  allPartitionNames: string[],
+): Set<string> {
+  const all = (): Set<string> => new Set<string>(allPartitionNames);
+  const none = (): Set<string> => new Set<string>();
+  const individual = (s: ExcludeFlagSource): Set<string> | undefined => {
+    const v = s?.exclude_portal_partition_columns;
+    if (v === undefined) {
+      return undefined;
+    }
+    if (v === true) {
+      return all();
+    }
+    if (v === false) {
+      return none();
+    }
+    return new Set<string>(v.filter((n) => allPartitionNames.includes(n)));
+  };
+  const combined = (s: ExcludeFlagSource): Set<string> | undefined => {
+    const fa = s?.exclude_framework_artifacts;
+    if (fa !== 'all' && fa !== 'columns') {
+      return undefined;
+    }
+    return COMBINED_FLAG_IMPLIES[fa].has('portal_partition_columns')
+      ? all()
+      : none();
+  };
+
+  const cteIndividual = individual(cte);
+  if (cteIndividual !== undefined) {
+    return cteIndividual;
+  }
+  const cteCombined = combined(cte);
+  if (cteCombined !== undefined) {
+    return cteCombined;
+  }
+  const modelIndividual = individual(modelJson);
+  if (modelIndividual !== undefined) {
+    return modelIndividual;
+  }
+  const modelCombined = combined(modelJson);
+  if (modelCombined !== undefined) {
+    return modelCombined;
+  }
+  return none();
+}
+
 const BULK_SELECT_TYPE_NAMES = new Set<string>([
   'all_from_model',
   'dims_from_model',
@@ -1710,7 +1799,7 @@ const BULK_SELECT_TYPE_NAMES = new Set<string>([
 ]);
 
 /**
- * Names the user listed explicitly in `select`. Two cases qualify:
+ * Names the user listed explicitly in a `select` array. Two cases qualify:
  *   1. Scalar select items addressed by `name`
  *      (e.g. `{ "name": "datetime", "expr": "max(datetime)" }`).
  *   2. Bulk-select `include` arrays (e.g. `{ "type": "all_from_model",
@@ -1719,16 +1808,13 @@ const BULK_SELECT_TYPE_NAMES = new Set<string>([
  * Bulk default-keep (a column the bulk picks up because it isn't in
  * `exclude`) does NOT qualify -- the user did not name that column.
  *
- * Powers origin-aware stripping for `exclude_datetime`,
- * `exclude_portal_partition_columns`, and `exclude_portal_source_count`
- * (and the combined-flag values that imply them): framework-supplied
- * copies are removed, user-typed copies are kept.
+ * Operates on a single `select` array so both the model's top-level select and
+ * a CTE's select can be scanned with identical rules.
  */
-export function frameworkExtractUserExplicitColumnNames(
-  modelJson: unknown,
+export function frameworkExtractExplicitNamesFromSelect(
+  select: unknown,
 ): Set<string> {
   const names = new Set<string>();
-  const select = (modelJson as { select?: unknown })?.select;
   if (!Array.isArray(select)) {
     return names;
   }
@@ -1759,6 +1845,22 @@ export function frameworkExtractUserExplicitColumnNames(
     }
   }
   return names;
+}
+
+/**
+ * Names the user listed explicitly in the model's top-level `select`.
+ *
+ * Powers origin-aware stripping for `exclude_datetime`,
+ * `exclude_portal_partition_columns`, and `exclude_portal_source_count`
+ * (and the combined-flag values that imply them): framework-supplied
+ * copies are removed, user-typed copies are kept.
+ */
+export function frameworkExtractUserExplicitColumnNames(
+  modelJson: unknown,
+): Set<string> {
+  return frameworkExtractExplicitNamesFromSelect(
+    (modelJson as { select?: unknown })?.select,
+  );
 }
 
 /**
@@ -2010,16 +2112,17 @@ export function frameworkShouldAutoInjectCteFrameworkDims({
 
   // Per-CTE opt-outs: `exclude_portal_partition_columns` suppresses the
   // partition columns and `exclude_datetime` suppresses the `datetime`
-  // column. Both mirror main-model flags with the same names and resolve
-  // through `frameworkResolveExcludeFlag`, which honors the combined
-  // `exclude_framework_artifacts` enum and the four-tier precedence chain
-  // (CTE individual > CTE combined > model individual > model combined).
-  // The flags are orthogonal -- set both to drop both, matching the main-
-  // model behavior.
-  const effectiveExcludePartitions = frameworkResolveExcludeFlag(
-    'portal_partition_columns',
+  // column. Both mirror main-model flags with the same names and honor the
+  // combined `exclude_framework_artifacts` enum and the four-tier precedence
+  // chain (CTE individual > CTE combined > model individual > model combined).
+  // The partition flag accepts a boolean (all/none) or an array of specific
+  // partition names; `frameworkResolveExcludedPartitionColumns` returns the
+  // effective set. The two flags are orthogonal -- set both to drop both,
+  // matching the main-model behavior.
+  const excludedPartitionSet = frameworkResolveExcludedPartitionColumns(
     cte,
     modelJson ?? null,
+    FRAMEWORK_PARTITIONS,
   );
   const effectiveExcludeDatetime = frameworkResolveExcludeFlag(
     'datetime',
@@ -2030,8 +2133,10 @@ export function frameworkShouldAutoInjectCteFrameworkDims({
   if (!effectiveExcludeDatetime) {
     candidates.push('datetime');
   }
-  if (!effectiveExcludePartitions) {
-    candidates.push(PARTITION_MONTHLY, PARTITION_DAILY, PARTITION_HOURLY);
+  for (const p of FRAMEWORK_PARTITIONS) {
+    if (!excludedPartitionSet.has(p)) {
+      candidates.push(p);
+    }
   }
   const alreadyPresent = new Set(alreadyPresentNames);
   const missing = candidates.filter(
@@ -2328,13 +2433,12 @@ export function frameworkApplyCteSelectMeta(
     col.data_tests = sel.data_tests as FrameworkColumn['data_tests'];
   }
 
-  const ld = (
-    'lightdash' in sel && sel.lightdash
-      ? (sel.lightdash as { dimension?: unknown })
-      : null
-  ) as { dimension?: unknown } | null;
+  // Type via annotation, not an `as` reshape: sel.lightdash is unknown, and an
+  // assertion here is removed by the no-unnecessary-type-assertion autofix.
+  const ld: { dimension?: FrameworkColumn['meta']['dimension'] } | null =
+    'lightdash' in sel && sel.lightdash ? sel.lightdash : null;
   if (ld?.dimension) {
-    col.meta.dimension = ld.dimension as FrameworkColumn['meta']['dimension'];
+    col.meta.dimension = ld.dimension;
   }
 
   // Ensure col.internal exists for SQL-internal field assignments below.
@@ -2454,10 +2558,10 @@ function normalizeSourceColumnMeta(
   meta: Record<string, unknown> | undefined | null,
 ): Record<string, unknown> {
   const next: Record<string, unknown> = { ...(meta ?? {}) };
-  const lightdash = (meta?.lightdash ?? null) as {
-    dimension?: unknown;
-    case_sensitive?: unknown;
-  } | null;
+  // Annotate instead of asserting the shape: meta.lightdash is unknown, and an
+  // `as` reshape here is removed by the no-unnecessary-type-assertion autofix.
+  const lightdash: { dimension?: unknown; case_sensitive?: unknown } | null =
+    meta?.lightdash ?? null;
   if (lightdash?.dimension && next.dimension === undefined) {
     next.dimension = lightdash.dimension;
   }
@@ -2545,9 +2649,7 @@ export function frameworkGetNodeColumns({
         c.meta = { ...c.meta, type: 'dim' };
       }
       const rawMeta = isSource
-        ? (normalizeSourceColumnMeta(
-            c.meta as unknown as Record<string, unknown>,
-          ) as typeof c.meta)
+        ? (normalizeSourceColumnMeta(c.meta) as typeof c.meta)
         : c.meta;
       // Defensively strip SQL-internal keys (`agg`, `aggs`, `prefix`,
       // `expr`, `interval`, `exclude_from_group_by`, `override_suffix_agg`)

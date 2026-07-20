@@ -87,7 +87,7 @@ export const transformFormValuesToApi = (values: Record<string, unknown>) => {
     typeof materialized === 'string' &&
     materialized.trim() !== ''
   ) {
-    apiRequest.materialized = materialized as 'ephemeral' | 'incremental';
+    apiRequest.materialized = materialized;
   }
 
   return apiRequest;

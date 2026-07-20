@@ -54,6 +54,7 @@ import { FRAMEWORK_JSON_SYNC_EXCLUDE_PATHS } from './constants';
 import { FrameworkContext } from './context';
 import type { FrameworkState } from './FrameworkState';
 import { ColumnLineageHandler } from './handlers/column-lineage-handler';
+import { CteAnalysisHandlers } from './handlers/cte-analysis-handlers';
 import { ModelCrudHandlers } from './handlers/model-crud-handlers';
 import { ModelDataHandlers } from './handlers/model-data-handlers';
 import { PreferencesHandler } from './handlers/preferences-handler';
@@ -106,7 +107,6 @@ export class Framework implements ApiEnabledService<'framework'> {
   private statusBarItem!: vscode.StatusBarItem;
   validateSourceJson: ValidateFunction | undefined;
   webviewPanelModelCreate: vscode.WebviewPanel | undefined;
-  webviewPanelQueryView: vscode.WebviewPanel | undefined;
   webviewPanelSourceCreate: vscode.WebviewPanel | undefined;
   webviewPanelPythonModelCreate: vscode.WebviewPanel | undefined;
   webviewPanelDagCreate: vscode.WebviewPanel | undefined;
@@ -126,6 +126,7 @@ export class Framework implements ApiEnabledService<'framework'> {
   private sourceHandler: SourceHandler;
   private columnLineageHandler: ColumnLineageHandler;
   private preferencesHandler: PreferencesHandler;
+  private cteAnalysisHandlers: CteAnalysisHandlers;
 
   // Content hash cache for change detection - skips regenerating unchanged files
   private cacheManager = new CacheManager();
@@ -185,6 +186,7 @@ export class Framework implements ApiEnabledService<'framework'> {
     this.sourceHandler = new SourceHandler(ctx);
     this.columnLineageHandler = new ColumnLineageHandler(ctx);
     this.preferencesHandler = new PreferencesHandler(ctx);
+    this.cteAnalysisHandlers = new CteAnalysisHandlers(ctx);
 
     // 4. Initialize file watchers
     this.initializeFileWatchers();
@@ -514,6 +516,8 @@ export class Framework implements ApiEnabledService<'framework'> {
 
       case 'framework-get-python-model-groups':
         return { groups: getDjConfig().pythonModelGroups };
+      case 'framework-model-cte-analysis':
+        return await this.cteAnalysisHandlers.handleCteAnalysis(payload);
 
       default:
         return assertExhaustive<ApiResponse>(payload);
@@ -1532,14 +1536,14 @@ export class Framework implements ApiEnabledService<'framework'> {
                   },
                 });
                 // Type assertion: parseManifest should return DbtProjectManifest
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                return manifest as any;
+
+                return manifest;
               },
               fetchManifest: async (project) => {
                 const manifest = await this.dbt.fetchManifest({ project });
                 // Type assertion: fetchManifest should return DbtProjectManifest
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                return manifest as any;
+
+                return manifest;
               },
             });
 
@@ -1652,6 +1656,13 @@ export class Framework implements ApiEnabledService<'framework'> {
   }
 
   async handleLoadEtlSources({ project }: { project: DbtProject }) {
+    // Runs automatically when a workspace is opened. Skip the Trino CLI
+    // invocation in untrusted workspaces so merely opening a folder never
+    // spawns a process driven by its dbt_project.yml.
+    if (!vscode.workspace.isTrusted) {
+      return;
+    }
+
     const etlSourcesResponse = await this.getApi().handleApi({
       type: 'trino-fetch-etl-sources',
       request: {
@@ -2978,7 +2989,7 @@ with DAG(
         });
         // Type assertion: dbt-parse-project returns DbtProjectManifest
         await this.dbt.handleManifest({
-          manifest: manifestResponse as any,
+          manifest: manifestResponse,
           project,
         });
       } catch (err: unknown) {

@@ -1031,7 +1031,7 @@ describe('incremental strategy variants', () => {
     } as unknown as FrameworkModel;
 
     const { config } = frameworkGenerateModelOutput({
-      dj: { config: {} } as DJ,
+      dj: { config: {} },
       modelJson,
       project: partitionedProject,
     });
@@ -1212,6 +1212,125 @@ describe('incremental strategy variants', () => {
     expect(config.unique_key).toBeUndefined();
     const properties = config.properties as Record<string, string> | undefined;
     expect(properties?.partitioning).toBe("ARRAY['portal_partition_daily']");
+    expect(properties?.partitioned_by).toBeUndefined();
+  });
+
+  test('Iceberg bucket + sorted_by: bucket transform in partitioning, standalone sorted_by', () => {
+    const icebergProject: DbtProject = {
+      ...partitionedProject,
+      variables: { storage_type: 'iceberg' },
+    };
+
+    const modelJson: FrameworkModel = {
+      type: 'int_select_model',
+      group: 'swh',
+      topic: 'misc',
+      name: 'daily_iceberg_bucket',
+      materialization: {
+        type: 'incremental',
+        strategy: { type: 'delete+insert' },
+        bucket: { column: 'tenant_name', count: 32 },
+        sorted_by: ['tenant_name', 'product_area', 'instance_type'],
+      },
+      select: [
+        'portal_partition_daily',
+        { type: 'dim', name: 'tenant_name' } as never,
+        { type: 'dim', name: 'product_area' } as never,
+        { type: 'dim', name: 'instance_type' } as never,
+      ],
+      from: { model: 'parent_daily' },
+    } as unknown as FrameworkModel;
+
+    const { config } = frameworkGenerateModelOutput({
+      dj: createTestDJ(),
+      modelJson,
+      project: icebergProject,
+    });
+
+    const properties = config.properties;
+    // Bucket joins the partition transform list with a canonical no-space form
+    // so the DJ-shipped partition-overwrite macro's parser stays intact.
+    expect(properties?.partitioning).toBe(
+      "ARRAY['portal_partition_daily', 'bucket(tenant_name,32)']",
+    );
+    expect(properties?.sorted_by).toBe(
+      "ARRAY['tenant_name', 'product_area', 'instance_type']",
+    );
+    // Iceberg never emits the Hive-style bucketing keys.
+    expect(properties?.partitioned_by).toBeUndefined();
+    expect(properties?.bucketed_by).toBeUndefined();
+    expect(properties?.bucket_count).toBeUndefined();
+  });
+
+  test('Hive bucket + sorted_by: bucketed_by + integer bucket_count + sorted_by + partitioned_by', () => {
+    const modelJson: FrameworkModel = {
+      type: 'int_select_model',
+      group: 'swh',
+      topic: 'misc',
+      name: 'daily_hive_bucket',
+      materialization: {
+        type: 'incremental',
+        format: 'hive',
+        strategy: { type: 'delete+insert' },
+        bucket: { column: 'tenant_name', count: 32 },
+        sorted_by: ['tenant_name', 'product_area'],
+      },
+      select: [
+        'portal_partition_daily',
+        { type: 'dim', name: 'tenant_name' } as never,
+        { type: 'dim', name: 'product_area' } as never,
+      ],
+      from: { model: 'parent_daily' },
+    } as unknown as FrameworkModel;
+
+    const { config } = frameworkGenerateModelOutput({
+      dj: createTestDJ(),
+      modelJson,
+      project: partitionedProject,
+    });
+
+    const properties = config.properties;
+    expect(properties?.partitioned_by).toBe("ARRAY['portal_partition_daily']");
+    expect(properties?.bucketed_by).toBe("ARRAY['tenant_name']");
+    // bucket_count is emitted as an unquoted integer (Trino table property type).
+    expect(properties?.bucket_count).toBe(32);
+    expect(properties?.sorted_by).toBe("ARRAY['tenant_name', 'product_area']");
+    // Hive path never emits the Iceberg keyword.
+    expect(properties?.partitioning).toBeUndefined();
+  });
+
+  test('Iceberg bucket-only model emits partitioning with just the bucket transform', () => {
+    const icebergProject: DbtProject = {
+      ...partitionedProject,
+      variables: { storage_type: 'iceberg' },
+    };
+
+    const modelJson: FrameworkModel = {
+      type: 'int_select_model',
+      group: 'swh',
+      topic: 'misc',
+      name: 'bucket_only_iceberg',
+      materialization: {
+        type: 'incremental',
+        // Empty partitions overrides the inherited daily partition so the
+        // bucket transform is the only entry in `partitioning`.
+        partitions: [],
+        strategy: { type: 'append' },
+        bucket: [{ column: 'tenant_name', count: 16 }],
+      },
+      select: [{ type: 'dim', name: 'tenant_name' } as never],
+      from: { model: 'parent_daily' },
+    } as unknown as FrameworkModel;
+
+    const { config } = frameworkGenerateModelOutput({
+      dj: createTestDJ(),
+      modelJson,
+      project: icebergProject,
+    });
+
+    const properties = config.properties;
+    expect(properties?.partitioning).toBe("ARRAY['bucket(tenant_name,16)']");
+    expect(properties?.sorted_by).toBeUndefined();
     expect(properties?.partitioned_by).toBeUndefined();
   });
 });

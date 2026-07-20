@@ -23,7 +23,8 @@ export type LightdashYamlDownloadOptions = {
   /**
    * When true, the download flow appends the configured path to the
    * workspace `.gitignore` (idempotent, scoped to a managed marker block)
-   * before the CLI runs. Default false.
+   * before the CLI runs. Initial state seeded from
+   * `dj.lightdash.defaultAddPathToGitignore` (default `true`).
    */
   addToGitignore: boolean;
 };
@@ -34,10 +35,15 @@ export type LightdashYamlUploadOptions = {
   project: string;
 };
 
-export type LightdashYamlPostUploadAction =
-  | 'refresh'
-  | 'clear-local'
-  | 'keep-as-is';
+/**
+ * The chart/dashboard slugs sent in the last successful upload. Empty arrays
+ * mean an entire-project upload; the post-upload dialog uses this to scope a
+ * refresh to exactly what was uploaded.
+ */
+export type UploadedSelection = {
+  chartSlugs: string[];
+  dashboardSlugs: string[];
+};
 
 /**
  * Identifies which workflow is currently producing streamed CLI output so
@@ -77,7 +83,7 @@ interface LightdashYamlState {
   uploadLogs: LightdashYamlLog[];
   isUploading: boolean;
   showPostUploadDialog: boolean;
-  lastUploadedFiles: string[];
+  lastUpload: UploadedSelection | null;
 
   /**
    * Which workflow is actively streaming logs. The global webview message
@@ -128,7 +134,7 @@ interface LightdashYamlState {
   setIsDownloading: (v: boolean) => void;
   setIsUploading: (v: boolean) => void;
   setShowPostUploadDialog: (v: boolean) => void;
-  setLastUploadedFiles: (files: string[]) => void;
+  setLastUpload: (sel: UploadedSelection | null) => void;
 
   setActiveTab: (tab: LightdashYamlTab) => void;
 
@@ -156,7 +162,7 @@ const initialState = {
     charts: [] as string[],
     project: '',
     setAsDefault: false,
-    addToGitignore: false,
+    addToGitignore: true,
   },
 
   uploadOptions: {
@@ -172,7 +178,7 @@ const initialState = {
   uploadLogs: [] as LightdashYamlLog[],
   isUploading: false,
   showPostUploadDialog: false,
-  lastUploadedFiles: [] as string[],
+  lastUpload: null as UploadedSelection | null,
 
   activeLogChannel: null as LightdashYamlLogChannel | null,
 
@@ -239,7 +245,7 @@ export const useLightdashYamlStore = create<LightdashYamlState>((set) => ({
   setIsDownloading: (v) => set({ isDownloading: v }),
   setIsUploading: (v) => set({ isUploading: v }),
   setShowPostUploadDialog: (v) => set({ showPostUploadDialog: v }),
-  setLastUploadedFiles: (files) => set({ lastUploadedFiles: files }),
+  setLastUpload: (sel) => set({ lastUpload: sel }),
 
   setActiveTab: (tab) => set({ activeTab: tab }),
 

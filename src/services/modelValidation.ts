@@ -1,5 +1,6 @@
 import {
   filterBulkSelectColumns,
+  frameworkExtractExplicitNamesFromSelect,
   isAggregateExpr,
   isConstantExpr,
   isJinjaExpr,
@@ -7,7 +8,9 @@ import {
 } from '@services/framework/utils/column-utils';
 import {
   BULK_CTE_TYPES,
+  BULK_MODEL_TYPES,
   DEFAULT_INCREMENTAL_STRATEGY,
+  FRAMEWORK_PARTITIONS,
 } from '@shared/framework/constants';
 import type { FrameworkColumn } from '@shared/framework/types';
 import type { ValidateFunction } from 'ajv';
@@ -839,9 +842,23 @@ export function validateMainModelAggregation(
       }
       const excludeList = Array.isArray(sel.exclude) ? sel.exclude : [];
       const includeList = Array.isArray(sel.include) ? sel.include : null;
+      // A column the user has already re-aggregated (or opted out of
+      // group_by enforcement on) earlier in the select array is treated
+      // as covered. The framework dedupes select items by their resulting
+      // column name on a first-wins basis (see `shouldAdd` in
+      // `column-utils.ts`): when an explicit `{ name: X, expr: "sum(X)" }`
+      // sits BEFORE the bulk directive, the bulk's bare emission of `X`
+      // is skipped, and the SELECT only carries the aggregated form. The
+      // validator must mirror that ordering so it doesn't fire on
+      // legitimate "pre-aggregate in CTE + re-aggregate in main model"
+      // patterns. Explicit entries appearing AFTER the bulk are silently
+      // dropped by the framework, so we still flag those columns.
+      const overrideNames = collectAggregatedScalarNames(modelJson.select, j);
       const leftover = fctNames.filter(
         (n) =>
-          !excludeList.includes(n) && (!includeList || includeList.includes(n)),
+          !excludeList.includes(n) &&
+          (!includeList || includeList.includes(n)) &&
+          !overrideNames.has(n),
       );
       if (leftover.length > 0) {
         errors.push({
@@ -853,6 +870,54 @@ export function validateMainModelAggregation(
   }
 
   return errors;
+}
+
+/**
+ * Collect the set of column names that the user has already addressed
+ * via an explicit scalar select entry sitting BEFORE index `cutoff` in
+ * `select`. A name is considered "covered" when its entry either
+ * carries an aggregate (`agg` / `aggs` / aggregate `expr`) or opts out
+ * of GROUP BY enforcement via `exclude_from_group_by: true`. Bulk
+ * directives are skipped -- they're handled by the caller's leftover
+ * filter, not by this override list.
+ *
+ * Only entries that produce a column *with the same name as the
+ * upstream* override the bulk's emission, which means scalar entries
+ * with `agg` / `aggs` (which suffix the name -- `col` + `sum` ->
+ * `col_sum`) are NOT counted here. The covered case in practice is
+ * `{ name: X, type: 'fct', expr: 'sum(X)' }`, where the result column
+ * keeps the upstream name and the framework's `shouldAdd` dedupe drops
+ * the bulk's bare passthrough.
+ */
+function collectAggregatedScalarNames(
+  select: unknown[],
+  cutoff: number,
+): Set<string> {
+  const names = new Set<string>();
+  for (let i = 0; i < cutoff; i++) {
+    const item = select[i];
+    if (!item || typeof item !== 'object') {
+      continue;
+    }
+    const o = item as Record<string, unknown>;
+    if (typeof o.type === 'string' && BULK_CTE_FCT_CARRIERS.has(o.type)) {
+      continue;
+    }
+    if (typeof o.name !== 'string') {
+      continue;
+    }
+    if (o.exclude_from_group_by === true) {
+      names.add(o.name);
+      continue;
+    }
+    // `agg` / `aggs` produce suffixed names (col + sum -> col_sum), so
+    // they don't override a bulk's emission of `col`. Only an aggregate
+    // expression keeps the upstream name; that's the override signal.
+    if (typeof o.expr === 'string' && isAggregateExpr(o.expr)) {
+      names.add(o.name);
+    }
+  }
+  return names;
 }
 
 function columnIsAggregated(sel: any): boolean {
@@ -1067,6 +1132,41 @@ const PARTITION_BULK_SELECT_TYPES = new Set([
   'dims_from_cte',
 ]);
 
+/**
+ * Whether a model/CTE scope suppresses *all* auto-injected partition columns.
+ * Mirrors the runtime precedence (individual flag beats the combined enum at
+ * the same scope): `exclude_portal_partition_columns` may be `true` (all),
+ * `false` (none, even under `exclude_framework_artifacts`), or an array. An
+ * array only counts as a full opt-out when it covers every auto-injected
+ * partition column -- a partial array (a strict subset) still leaves
+ * partitions in the output, so the partition-strategy heuristics must treat
+ * it as "partitions present."
+ */
+function scopeExcludesAllPartitions(
+  scope:
+    | {
+        exclude_portal_partition_columns?: unknown;
+        exclude_framework_artifacts?: unknown;
+      }
+    | null
+    | undefined,
+): boolean {
+  const individual = scope?.exclude_portal_partition_columns;
+  if (individual === true) {
+    return true;
+  }
+  if (individual === false) {
+    return false;
+  }
+  if (Array.isArray(individual)) {
+    return FRAMEWORK_PARTITIONS.every((p) => individual.includes(p));
+  }
+  return (
+    scope?.exclude_framework_artifacts === 'all' ||
+    scope?.exclude_framework_artifacts === 'columns'
+  );
+}
+
 function isModelMaterializedIncremental(modelJson: any): boolean {
   if (modelJson?.materialization) {
     if (typeof modelJson.materialization === 'string') {
@@ -1189,10 +1289,7 @@ function modelLikelyOutputsPartitionColumn(modelJson: any): boolean {
     if (from.lookback) {
       return true;
     }
-    const excludesPartitions =
-      modelJson.exclude_portal_partition_columns === true ||
-      modelJson.exclude_framework_artifacts === 'all' ||
-      modelJson.exclude_framework_artifacts === 'columns';
+    const excludesPartitions = scopeExcludesAllPartitions(modelJson);
     if (!excludesPartitions) {
       if ('source' in from) {
         return true;
@@ -1254,11 +1351,7 @@ function cteChainExposesPartitions(
     }
   }
 
-  const cteExcludes =
-    cte.exclude_portal_partition_columns === true ||
-    cte.exclude_framework_artifacts === 'all' ||
-    cte.exclude_framework_artifacts === 'columns';
-  if (cteExcludes) {
+  if (scopeExcludesAllPartitions(cte)) {
     return false;
   }
 
@@ -1379,12 +1472,12 @@ const BULK_SELECT_TYPES = new Set([
  * dropped from the dbt config, leaving the table unpartitioned. The
  * incremental strategy then no-ops or runs destructively at run time.
  *
- * Conservative: a present bulk select (`all_from_*`, `dims_from_*`,
- * `fcts_from_*`) could plausibly expand to the named column, so this
- * validator skips when one is present rather than risk a false positive.
- * That gap is acceptable -- the SQL generator's filter still prunes
- * mismatches at sync time; this validator only catches the common
- * scalar-only authoring mistake.
+ * Runs only when the model declares scalar `select` columns to check against.
+ * A bulk select (`all_from_*`, `dims_from_*`, `fcts_from_*`) may expand to the
+ * named column, and an empty/absent `select` derives the column set from
+ * upstream (rollup, `from: { model }` passthrough) where the column lives --
+ * both skip rather than risk a false positive. The SQL generator's filter
+ * still prunes real mismatches at sync time.
  */
 export function validateMaterializationPartitionsExist(
   modelJson: any,
@@ -1420,7 +1513,8 @@ export function validateMaterializationPartitionsExist(
     }
   }
 
-  if (hasBulkSelect) {
+  // Bulk or empty selects derive columns from upstream; nothing local to check.
+  if (hasBulkSelect || scalarSelectNames.size === 0) {
     return warnings;
   }
 
@@ -1439,6 +1533,253 @@ export function validateMaterializationPartitionsExist(
   }
 
   return warnings;
+}
+
+/**
+ * Framework-managed columns and the dedicated flag that drops each. The
+ * framework injects these onto every model or CTE that selects from a model
+ * or CTE, so a bulk-select `exclude` can only strip them momentarily before
+ * they are re-added; the dedicated flag is the one lever that removes them.
+ * The three partition grains share the single partition flag.
+ */
+const FRAMEWORK_COLUMN_EXCLUDE_FLAG = new Map<string, string>([
+  ['datetime', 'exclude_datetime'],
+  ['portal_source_count', 'exclude_portal_source_count'],
+  ...FRAMEWORK_PARTITIONS.map((name): [string, string] => [
+    name,
+    'exclude_portal_partition_columns',
+  ]),
+]);
+
+/**
+ * Flags bulk-select `exclude` entries that name a framework-managed column
+ * (`datetime`, `portal_partition_*`, `portal_source_count`). Because the
+ * framework re-injects those columns after bulk expansion, listing one in an
+ * `all_from_model` / `dims_from_model` / `fcts_from_model` (or the `_cte`
+ * variants) `exclude` leaves the column in the output; the dedicated exclude
+ * flag is the intended opt-out.
+ *
+ * Suppressed when the same scope re-adds the column (scalar `name` or bulk
+ * `include`): that is the canonical replace pattern -- e.g. re-graining
+ * `datetime` via a `{ "name": "datetime", "interval": "day" }` scalar -- where
+ * the `exclude` does real work by letting the re-added copy win column dedup
+ * instead of the raw bulk-inherited one.
+ *
+ * Scoped to model- and CTE-sourced bulk selects (the inheritance contexts) --
+ * source-sourced bulk selects generate rather than inherit these columns.
+ * Warning-only: the generated SQL stays valid, the targeted column simply
+ * remains present.
+ */
+export function validateBulkExcludeFrameworkColumns(
+  modelJson: any,
+): ValidationErrorDetail[] {
+  const warnings: ValidationErrorDetail[] = [];
+
+  const scanSelect = (select: unknown, basePath: string): void => {
+    if (!Array.isArray(select)) {
+      return;
+    }
+    // Names re-added in this same scope (scalar `name` or bulk `include`). A
+    // bulk `exclude` of a framework column paired with a re-add is the replace
+    // pattern, not a no-op, so it must not warn.
+    const explicitNames = frameworkExtractExplicitNamesFromSelect(select);
+    for (let i = 0; i < select.length; i++) {
+      const item = select[i];
+      const isModelOrCteBulk =
+        item &&
+        typeof item === 'object' &&
+        typeof item.type === 'string' &&
+        (BULK_MODEL_TYPES.has(item.type) || BULK_CTE_TYPES.has(item.type));
+      if (!isModelOrCteBulk || !Array.isArray(item.exclude)) {
+        continue;
+      }
+      for (let k = 0; k < item.exclude.length; k++) {
+        const name = item.exclude[k];
+        const flag =
+          typeof name === 'string'
+            ? FRAMEWORK_COLUMN_EXCLUDE_FLAG.get(name)
+            : undefined;
+        if (!flag) {
+          continue;
+        }
+        if (explicitNames.has(name)) {
+          continue;
+        }
+        const remedy =
+          flag === 'exclude_portal_partition_columns'
+            ? `\`exclude_portal_partition_columns: ["${name}"]\``
+            : `\`${flag}: true\``;
+        warnings.push({
+          message: `Bulk \`exclude\` of framework-managed column "${name}" has no effect: the framework re-injects it automatically. To drop it, set ${remedy} on the model or CTE.`,
+          instancePath: `${basePath}/${i}/exclude/${k}`,
+        });
+      }
+    }
+  };
+
+  scanSelect(modelJson?.select, '/select');
+  if (Array.isArray(modelJson?.ctes)) {
+    for (let j = 0; j < modelJson.ctes.length; j++) {
+      scanSelect(modelJson.ctes[j]?.select, `/ctes/${j}/select`);
+    }
+  }
+
+  return warnings;
+}
+
+/**
+ * Validates the `materialization.bucket` and `materialization.sorted_by`
+ * fields against the constraints of the resolved storage format, mirroring
+ * how `frameworkGenerateModelOutput` emits them:
+ *
+ * - **Delta Lake** (resolved format) supports neither bucketing nor sorted
+ *   writes in dbt-trino -> Error.
+ * - **Non-Iceberg** formats share a single `bucket_count` across all bucket
+ *   columns, so multiple bucket entries with differing `count` collapse to one
+ *   value at emit time -> Error (per-column counts are Iceberg-only).
+ * - **Hive** sorts within buckets, so `sorted_by` is only valid alongside
+ *   `bucket` -> Error when `sorted_by` is set without `bucket`.
+ * - Bucket / sort columns missing from the model's scalar `select` get
+ *   silently dropped by the generator's column filter -> Warning (skipped when
+ *   a bulk select is present, matching `validateMaterializationPartitionsExist`).
+ *
+ * Format resolution matches the generator: model-level `materialization.format`
+ * wins, then the project `storage_type` var, then neither.
+ */
+export function validateBucketAndSortedBy(
+  modelJson: any,
+  storageType?: string | null,
+): ValidationErrorDetail[] {
+  const details: ValidationErrorDetail[] = [];
+  if (!modelJson || typeof modelJson !== 'object') {
+    return details;
+  }
+  const mat = modelJson.materialization;
+  if (!mat || typeof mat !== 'object') {
+    return details;
+  }
+
+  const bucketIsArray = Array.isArray(mat.bucket);
+  const buckets: any[] = bucketIsArray
+    ? mat.bucket
+    : mat.bucket && typeof mat.bucket === 'object'
+      ? [mat.bucket]
+      : [];
+  const sortedBy: any[] = Array.isArray(mat.sorted_by) ? mat.sorted_by : [];
+  const hasBucket = buckets.length > 0;
+  const hasSortedBy = sortedBy.length > 0;
+  if (!hasBucket && !hasSortedBy) {
+    return details;
+  }
+
+  const modelFormat = typeof mat.format === 'string' ? mat.format : null;
+  const resolvedFormat = modelFormat || storageType || null;
+  const isIceberg = resolvedFormat === 'iceberg';
+
+  // With no resolvable format the generator defaults to Hive-style bucketing,
+  // which is wrong for an Iceberg table -- prompt for an explicit format
+  // rather than silently inferring one.
+  if (!resolvedFormat) {
+    details.push({
+      message:
+        'Could not resolve a storage format for `materialization.bucket` / `materialization.sorted_by`. Set `materialization.format` ("iceberg", "hive", or "delta_lake") or the project `storage_type` var — without it DJ emits Hive-style `bucketed_by` / `bucket_count`, which is incorrect for an Iceberg table.',
+      instancePath: hasBucket
+        ? '/materialization/bucket'
+        : '/materialization/sorted_by',
+      severity: 'warning',
+    });
+  }
+
+  if (resolvedFormat === 'delta_lake') {
+    if (hasBucket) {
+      details.push({
+        message:
+          '`materialization.bucket` is not supported on Delta Lake in dbt-trino. Use Iceberg or Hive format, or remove `bucket`.',
+        instancePath: '/materialization/bucket',
+        severity: 'error',
+      });
+    }
+    if (hasSortedBy) {
+      details.push({
+        message:
+          '`materialization.sorted_by` is not supported on Delta Lake in dbt-trino. Use Iceberg or Hive format, or remove `sorted_by`.',
+        instancePath: '/materialization/sorted_by',
+        severity: 'error',
+      });
+    }
+  }
+
+  if (!isIceberg && hasBucket) {
+    const counts = buckets
+      .map((b) => (b && typeof b === 'object' ? b.count : undefined))
+      .filter((c): c is number => typeof c === 'number');
+    if (new Set(counts).size > 1) {
+      details.push({
+        message:
+          'All `materialization.bucket` entries must share the same `count` outside of Iceberg: a single `bucket_count` applies to every bucket column on Hive / Glue. Use one count, or switch to Iceberg format for per-column bucket counts.',
+        instancePath: '/materialization/bucket',
+        severity: 'error',
+      });
+    }
+  }
+
+  if (resolvedFormat === 'hive' && hasSortedBy && !hasBucket) {
+    details.push({
+      message:
+        'On Hive / Glue, `materialization.sorted_by` requires `materialization.bucket` (Trino sorts rows within buckets). Add a `bucket`, or switch to Iceberg format for a standalone sort order.',
+      instancePath: '/materialization/sorted_by',
+      severity: 'error',
+    });
+  }
+
+  const select = Array.isArray(modelJson.select) ? modelJson.select : [];
+  const scalarSelectNames = new Set<string>();
+  let hasBulkSelect = false;
+  for (const item of select) {
+    if (typeof item === 'string') {
+      scalarSelectNames.add(item);
+      continue;
+    }
+    if (!item || typeof item !== 'object') {
+      continue;
+    }
+    if (typeof item.type === 'string' && BULK_SELECT_TYPES.has(item.type)) {
+      hasBulkSelect = true;
+      continue;
+    }
+    if (typeof item.name === 'string') {
+      scalarSelectNames.add(item.name);
+    }
+  }
+
+  // Like validateMaterializationPartitionsExist, only check columns against an
+  // explicit scalar select; bulk/empty selects derive columns from upstream.
+  // The format-compatibility errors above run regardless of column shape.
+  if (!hasBulkSelect && scalarSelectNames.size > 0) {
+    for (let i = 0; i < buckets.length; i++) {
+      const entry = buckets[i];
+      const col = entry && typeof entry === 'object' ? entry.column : undefined;
+      if (typeof col === 'string' && !scalarSelectNames.has(col)) {
+        details.push({
+          message: `Column "${col}" in \`materialization.bucket\` is not in the model's \`select\` output. The bucketing declaration will be silently dropped.`,
+          instancePath: bucketIsArray
+            ? `/materialization/bucket/${i}/column`
+            : '/materialization/bucket/column',
+        });
+      }
+    }
+    for (let i = 0; i < sortedBy.length; i++) {
+      const col = sortedBy[i];
+      if (typeof col === 'string' && !scalarSelectNames.has(col)) {
+        details.push({
+          message: `Column "${col}" in \`materialization.sorted_by\` is not in the model's \`select\` output. It will be silently dropped from the sort order.`,
+          instancePath: `/materialization/sorted_by/${i}`,
+        });
+      }
+    }
+  }
+
+  return details;
 }
 
 const EXISTS_OPERATORS = new Set(['exists', 'not_exists']);

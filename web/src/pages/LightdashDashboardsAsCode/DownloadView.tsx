@@ -51,6 +51,10 @@ export function DownloadView() {
 
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
+  // Cross-project guard: when the target folder already holds a different
+  // Lightdash project, confirm replacing it before downloading.
+  const [showReplaceConfirm, setShowReplaceConfirm] = useState(false);
+  const [conflictProject, setConflictProject] = useState<string | null>(null);
   // Inline validation state: errors are computed on submit and cleared
   // per-field as the user edits. The Run button stays enabled except
   // while a request is in flight; missing required input surfaces as
@@ -94,25 +98,11 @@ export function DownloadView() {
     }
   };
 
-  const onDownload = async () => {
+  // Run the actual CLI download. When `clean` is set, the existing local
+  // YAML is deleted first so the folder holds only the newly-downloaded
+  // project (the replace path of the cross-project guard).
+  const performDownload = async (opts?: { clean?: boolean }) => {
     const project = downloadOptions.project.trim();
-    const nextErrors: typeof errors = {};
-    if (!project) {
-      nextErrors.project = 'Project UUID is required.';
-    }
-    if (
-      isSpecific &&
-      filledDashboards.length === 0 &&
-      filledCharts.length === 0
-    ) {
-      nextErrors.scope =
-        'Add at least one dashboard or chart, or switch to Entire Project.';
-    }
-    setErrors(nextErrors);
-    if (Object.keys(nextErrors).length > 0) {
-      return;
-    }
-
     setIsDownloading(true);
     clearDownloadLogs();
     setActiveLogChannel('download');
@@ -127,6 +117,23 @@ export function DownloadView() {
           type: 'lightdash-yaml-ensure-gitignore',
           request: { path: gitignorePath },
         });
+      }
+
+      if (opts?.clean) {
+        const paths = localFiles.map((node) => node.path);
+        if (paths.length > 0) {
+          const delResp = await api.post({
+            type: 'lightdash-yaml-delete-files',
+            request: { paths },
+          });
+          addDownloadLog({
+            level: delResp.success ? 'info' : 'error',
+            message: delResp.success
+              ? `Removed ${paths.length} file${paths.length === 1 ? '' : 's'} from the previous project.`
+              : delResp.error ?? 'Failed to remove previous project files.',
+            timestamp: new Date().toISOString(),
+          });
+        }
       }
 
       const resp = await api.post({
@@ -164,6 +171,53 @@ export function DownloadView() {
       setIsDownloading(false);
       setActiveLogChannel(null);
     }
+  };
+
+  const onDownload = async () => {
+    const project = downloadOptions.project.trim();
+    const nextErrors: typeof errors = {};
+    if (!project) {
+      nextErrors.project = 'Project UUID is required.';
+    }
+    if (
+      isSpecific &&
+      filledDashboards.length === 0 &&
+      filledCharts.length === 0
+    ) {
+      nextErrors.scope =
+        'Add at least one dashboard or chart, or switch to Entire Project.';
+    }
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) {
+      return;
+    }
+
+    // If the target folder already holds a *different* project's YAML,
+    // confirm a replace before co-mingling two projects in one folder.
+    if (localFileCount > 0) {
+      try {
+        const resp = await api.post({
+          type: 'lightdash-yaml-get-path-project',
+          request: { path: currentPath.trim() || undefined },
+        });
+        if (resp.project && resp.project !== project) {
+          setConflictProject(resp.project);
+          setShowReplaceConfirm(true);
+          return;
+        }
+      } catch (err) {
+        // Non-fatal: if the lookup fails, fall through to a normal download.
+        console.error('[DashboardsAsCode] project lookup failed:', err);
+      }
+    }
+
+    await performDownload();
+  };
+
+  const onConfirmReplace = async () => {
+    setShowReplaceConfirm(false);
+    setConflictProject(null);
+    await performDownload({ clean: true });
   };
 
   const onClearLocalFiles = async () => {
@@ -247,8 +301,9 @@ export function DownloadView() {
           <div className="flex items-start gap-2">
             <ExclamationTriangleIcon className="w-5 h-5 shrink-0 mt-0.5" />
             <div className="text-sm">
-              <strong>Warning:</strong> Downloading will overwrite existing
-              local YAML files.
+              <strong>Warning:</strong> Downloading overwrites local YAML files
+              with the same slug. Files from a different Lightdash project stay
+              in the folder unless you choose to replace them when prompted.
             </div>
           </div>
         </Message>
@@ -273,7 +328,7 @@ export function DownloadView() {
             error={errors.project}
           />
 
-          <div>
+          <div className="flex flex-col gap-2">
             <label className="text-sm/6 font-semibold text-background-contrast">
               Save to Path
             </label>
@@ -423,6 +478,56 @@ export function DownloadView() {
                 label="Cancel"
                 disabled={isClearing}
                 onClick={() => setShowClearConfirm(false)}
+                fullWidth
+              />
+            </div>
+          </DialogPanel>
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={showReplaceConfirm}
+        onClose={() => setShowReplaceConfirm(false)}
+        className="relative z-50"
+      >
+        <div className="fixed inset-0 bg-black/40" aria-hidden="true" />
+        <div className="fixed inset-0 flex items-center justify-center p-4">
+          <DialogPanel className="bg-background border border-surface rounded-lg max-w-md w-full p-5 space-y-4">
+            <DialogTitle className="text-lg font-semibold flex items-center gap-2 text-surface-contrast">
+              <ExclamationTriangleIcon className="w-5 h-5 text-amber-500" />
+              Different Lightdash project in this folder
+            </DialogTitle>
+            <p className="text-sm text-surface-contrast">
+              <code>{currentPath || defaultPath}</code> already contains{' '}
+              <strong>
+                {localFileCount} file{localFileCount === 1 ? '' : 's'}
+              </strong>{' '}
+              from a different project
+              {conflictProject ? (
+                <>
+                  {' '}
+                  (<code>{conflictProject}</code>)
+                </>
+              ) : null}
+              . Replace deletes those files first, then downloads the new
+              project so the folder holds only one project.
+            </p>
+            <p className="text-xs text-surface-contrast opacity-70">
+              To keep both, cancel and change <strong>Save to Path</strong> to a
+              different folder before downloading.
+            </p>
+            <div className="flex flex-col gap-2">
+              <Button
+                variant="error"
+                label="Replace and download"
+                icon={<TrashIcon className="w-4 h-4" />}
+                onClick={() => void onConfirmReplace()}
+                fullWidth
+              />
+              <Button
+                variant="secondary"
+                label="Cancel"
+                onClick={() => setShowReplaceConfirm(false)}
                 fullWidth
               />
             </div>

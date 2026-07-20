@@ -88,6 +88,13 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
     null,
   );
 
+  // CTE awareness: when a select item is `*_from_cte` we resolve columns
+  // from the analysis API rather than the manifest, since CTE columns
+  // aren't materialized into manifest.json until the model syncs.
+  const cteAnalysisColumns = useModelStore(
+    (state) => state.cteAnalysis.columns,
+  );
+
   // NEW: Check enum state instead of boolean flag (for Play Tutorial)
   const isAddColumnModalOpen =
     currentComponentState === TutorialComponentState.ADD_COLUMN_MODAL_OPEN ||
@@ -224,23 +231,70 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
           continue;
         }
 
-        // Type guard: only process model/source selection items (not expr-based columns)
-        if (!('model' in selectItem || 'source' in selectItem)) {
+        // Type guard: only process model/source/cte selection items (not expr-based columns)
+        if (
+          !(
+            'model' in selectItem ||
+            'source' in selectItem ||
+            'cte' in selectItem
+          )
+        ) {
+          continue;
+        }
+
+        const selectionType =
+          'type' in selectItem ? selectItem.type : undefined;
+
+        // CTE bulk-select branch (`all_from_cte` / `dims_from_cte` /
+        // `fcts_from_cte`). Pull the upstream CTE's columns from the
+        // analysis API and apply the same type filter + include/exclude
+        // logic as the model branch below.
+        if ('cte' in selectItem && typeof selectItem.cte === 'string') {
+          const cteName = selectItem.cte;
+          const include: string[] =
+            'include' in selectItem && selectItem.include
+              ? (selectItem.include as string[])
+              : [];
+          const exclude: string[] =
+            'exclude' in selectItem && selectItem.exclude
+              ? (selectItem.exclude as string[])
+              : [];
+          const cteCols = cteAnalysisColumns[cteName] ?? [];
+          let cteColumns: Column[] = cteCols.map((c) => ({
+            name: c.name,
+            dataType: c.dataType ?? 'string',
+            type: c.type === 'fct' ? 'fact' : 'dimension',
+            description: c.description ?? '',
+            modelName: cteName,
+          }));
+          // selectionType isn't narrowed to the CTE bulk variants in the
+          // SchemaSelect union because `cte` items live in a separate
+          // schema-level branch -- compare via string to bridge the gap.
+          const selTypeStr = (selectionType as string | undefined) ?? '';
+          if (selTypeStr === 'dims_from_cte') {
+            cteColumns = cteColumns.filter((c) => c.type === 'dimension');
+          } else if (selTypeStr === 'fcts_from_cte') {
+            cteColumns = cteColumns.filter((c) => c.type === 'fact');
+          }
+          if (include.length > 0) {
+            cteColumns = cteColumns.filter((c) => include.includes(c.name));
+          } else if (exclude.length > 0) {
+            cteColumns = cteColumns.filter((c) => !exclude.includes(c.name));
+          }
+          allColumns.push(...cteColumns);
           continue;
         }
 
         const modelName =
           ('model' in selectItem ? selectItem.model : undefined) ||
           ('source' in selectItem ? selectItem.source : undefined);
-        const selectionType =
-          'type' in selectItem ? selectItem.type : undefined;
         const include: string[] =
           'include' in selectItem && selectItem.include
-            ? (selectItem.include as string[])
+            ? selectItem.include
             : [];
         const exclude: string[] =
           'exclude' in selectItem && selectItem.exclude
-            ? (selectItem.exclude as string[])
+            ? selectItem.exclude
             : [];
 
         if (!modelName) continue;
@@ -401,7 +455,7 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
                 : 'dimension',
             description:
               ('description' in selectItem
-                ? (selectItem.description as string)
+                ? selectItem.description
                 : undefined) || 'NA',
             modelName: 'Derived Column', // Indicate it's manually added (model-reference)
           };
@@ -427,7 +481,7 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
                 : 'dimension',
             description:
               ('description' in selectItem
-                ? (selectItem.description as string)
+                ? selectItem.description
                 : undefined) || 'NA',
             modelName: 'Derived Column', // Indicate it's manually added
           };
@@ -487,7 +541,7 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
     } finally {
       setLoading(false);
     }
-  }, [currentProject, modelingState.select]);
+  }, [currentProject, modelingState.select, cteAnalysisColumns]);
 
   // Fetch columns when modelingState.select changes
   useEffect(() => {
@@ -856,10 +910,10 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
           Column Selection
         </h3>
 
-        <div className="bg-[#E5F3FF] rounded-lg p-3">
+        <div className="bg-message-info rounded-lg p-3">
           <div className="flex items-start gap-2">
-            <InformationCircleIcon className="w-5 h-5 text-[#004B9C] flex-shrink-0 mt-0.5" />
-            <p className="text-sm text-[#004B9C] leading-relaxed">
+            <InformationCircleIcon className="w-5 h-5 text-message-info-contrast flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-message-info-contrast leading-relaxed">
               This view shows the columns that will be in your final output
               based on the selection in previous steps of the data pipeline. You
               can add and configure columns manually and choose which columns to
@@ -969,9 +1023,7 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
                     ref={(el) => {
                       provided.innerRef(el);
                       if (columnsContainerRef.current !== el) {
-                        (
-                          columnsContainerRef as React.MutableRefObject<HTMLDivElement | null>
-                        ).current = el;
+                        columnsContainerRef.current = el;
                       }
                     }}
                     {...provided.droppableProps}
@@ -1105,8 +1157,8 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
                                         <span
                                           className={`px-2 py-1 text-xs font-medium rounded-full ${
                                             column.type === 'fact'
-                                              ? 'bg-green-100 text-green-800'
-                                              : 'bg-blue-100 text-blue-800'
+                                              ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                                              : 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
                                           }`}
                                         >
                                           {column.type === 'fact'
@@ -1238,7 +1290,7 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
                                                 <TrashIcon className="h-4 w-4" />
                                               }
                                               variant="iconButton"
-                                              className="w-full px-4 py-2 text-left text-sm text-red-600 hover:text-red-600 hover:bg-red-50 flex items-center gap-2 justify-start"
+                                              className="w-full px-4 py-2 text-left text-sm text-red-600 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 flex items-center gap-2 justify-start"
                                               onClick={(e) => {
                                                 e.stopPropagation();
                                                 handleRequestColumnDeletion(
@@ -1359,7 +1411,7 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
       )}
 
       {!shouldShowAddColumnBasic && !editingColumn && isAddColumnAllowed && (
-        <div className="border-t border-neutral p-4 text-center flex justify-center bg-[#F5F5F5]">
+        <div className="border-t border-neutral p-4 text-center flex justify-center bg-surface">
           <Button
             className="text-lg font-semibold text-foreground"
             icon={<PlusIcon className="h-4 w-4" />}

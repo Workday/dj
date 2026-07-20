@@ -1,20 +1,23 @@
 import {
-  ArrowLeftIcon,
   ArrowPathIcon,
   ArrowsPointingInIcon,
   ArrowsPointingOutIcon,
   ArrowTopRightOnSquareIcon,
   CodeBracketIcon,
   CogIcon,
+  CubeIcon,
+  DocumentChartBarIcon,
   ExclamationCircleIcon,
+  HomeIcon,
   PlayIcon,
+  PlusIcon,
   PresentationChartLineIcon,
   TableCellsIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline';
 import { useApp } from '@web/context';
 import { useEnvironment } from '@web/context';
-import { CodeBlock, Spinner, Switch } from '@web/elements';
+import { Banner, Button, CodeBlock, Spinner, Switch } from '@web/elements';
 import { ColumnSelectionPanel } from '@web/features/Lineage';
 import { ReactFlowProvider } from '@xyflow/react';
 import { useEffect, useState } from 'react';
@@ -24,12 +27,15 @@ import { useDataExplorerStore } from '../../stores/dataExplorerStore';
 import CompilationLogs from '../DataExplorer/CompilationLogs';
 import QueryResults from '../DataExplorer/QueryResults';
 import LineageGraph from './LineageGraph';
-import ProjectOverview from './ProjectOverview';
 
 type RightPanelTab = 'query' | 'columns';
 type QueryViewMode = 'data' | 'sql';
 
-export default function ModelLineage() {
+interface ModelLineageProps {
+  onShowAdhocQuery?: () => void;
+}
+
+export default function ModelLineage({ onShowAdhocQuery }: ModelLineageProps) {
   const { api } = useApp();
   const { vscode } = useEnvironment();
   const {
@@ -46,9 +52,9 @@ export default function ModelLineage() {
     clearResults,
     clearError,
     notifyReady,
-    detectActiveModel,
     setApiHandler,
     setActiveModel,
+    setActiveView,
     // Compilation state
     compilationLogs,
     isCompiling,
@@ -81,6 +87,7 @@ export default function ModelLineage() {
     setLightdashEnabled,
     openDashboardsAsCode,
     openLightdashYaml,
+    openReverseLineage,
     isLightdashRefreshing,
   } = useDataExplorerStore();
 
@@ -427,15 +434,6 @@ export default function ModelLineage() {
     }
   };
 
-  const handleBackToOverview = () => {
-    setActiveModel(null);
-    setShowResults(false);
-    setShowCompilationLogs(false);
-    setShowColumns(false);
-    setSelectedNodeName(null);
-    setSelectedNodeType(null);
-  };
-
   const handleRefresh = () => {
     if (activeModel) {
       void fetchLineage(activeModel.modelName, activeModel.projectName);
@@ -558,16 +556,35 @@ export default function ModelLineage() {
       return;
     }
 
-    if (vscode) {
-      vscode.postMessage({
+    if (selectedNodeType === 'source') {
+      // Source nodes need source tables fetched by the extension. Route
+      // through the existing `open-column-lineage` handler which calls
+      // postSourceInit — the unified shell will switch to the Column view
+      // when it receives column-lineage-source-init.
+      vscode?.postMessage({
         type: 'open-column-lineage',
         filePath: selectedModelFilePath,
         modelName: selectedModelForColumns,
-        columnName: columnName,
+        columnName,
         columns: modelColumns,
-        nodeType: selectedNodeType || 'model',
+        nodeType: 'source',
       });
+      return;
     }
+
+    // For model/seed nodes, initialize the in-shell Column Lineage view
+    // directly — no extension round trip needed.
+    window.postMessage(
+      {
+        type: 'column-lineage-init',
+        filePath: selectedModelFilePath,
+        modelName: selectedModelForColumns,
+        columns: modelColumns,
+        selectedColumn: columnName,
+      },
+      '*',
+    );
+    setActiveView('column');
   };
 
   // Determine if right panel should be shown
@@ -623,17 +640,29 @@ export default function ModelLineage() {
     );
   }
 
-  // No active model state - show project overview
+  // No active model state - prompt the user to pick one from Home.
   if (!activeModel || !lineageData) {
     return (
-      <ProjectOverview
-        onSelectModel={(modelName, projectName) => {
-          void fetchLineage(modelName, projectName);
-        }}
-        onDetectActiveModel={() => {
-          void detectActiveModel();
-        }}
-      />
+      <div className="h-screen flex items-center justify-center bg-background">
+        <div className="text-center max-w-sm px-4">
+          <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-card border border-neutral flex items-center justify-center">
+            <CubeIcon className="w-6 h-6 text-surface-contrast" />
+          </div>
+          <h3 className="text-base font-semibold text-foreground mb-2">
+            No Model Selected
+          </h3>
+          <p className="text-sm text-surface-contrast mb-4">
+            Choose a model from the project overview to view its lineage.
+          </p>
+          <button
+            onClick={() => setActiveView('home')}
+            className="px-4 py-2 bg-primary text-primary-contrast rounded hover:opacity-90 transition-opacity text-sm font-medium inline-flex items-center gap-2"
+          >
+            <HomeIcon className="w-4 h-4" />
+            Go to Home
+          </button>
+        </div>
+      </div>
     );
   }
 
@@ -643,13 +672,6 @@ export default function ModelLineage() {
       <div className="flex-shrink-0 px-3 py-2 border-b border-neutral bg-card">
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0 flex-1">
-            <button
-              onClick={handleBackToOverview}
-              className="p-1 rounded hover:bg-surface transition-colors flex-shrink-0"
-              title="Back to overview"
-            >
-              <ArrowLeftIcon className="w-4 h-4 text-surface-contrast" />
-            </button>
             <span className="font-mono font-semibold text-sm text-foreground truncate">
               {activeModel.modelName}
             </span>
@@ -672,6 +694,31 @@ export default function ModelLineage() {
             </div>
           </div>
           <div className="flex items-center gap-1">
+            {/* New Query Button */}
+            <button
+              onClick={() =>
+                vscode?.postMessage({
+                  type: 'execute-command',
+                  command: 'dj.command.queryDraftCreate',
+                })
+              }
+              className="flex items-center gap-1 px-2 py-1 rounded hover:bg-surface transition-colors text-xs text-surface-contrast"
+              title="Create a new query draft file"
+            >
+              <PlusIcon className="w-3.5 h-3.5" />
+              New Query
+            </button>
+            {/* Adhoc Query View */}
+            {onShowAdhocQuery && (
+              <button
+                onClick={onShowAdhocQuery}
+                className="p-1.5 rounded hover:bg-surface transition-colors"
+                title="Open Adhoc Query view"
+              >
+                <DocumentChartBarIcon className="w-4 h-4 text-surface-contrast" />
+              </button>
+            )}
+
             {/* Split Mode Toggle */}
             <button
               onClick={handleToggleSplitMode}
@@ -747,37 +794,41 @@ export default function ModelLineage() {
             was found in the configured directory. */}
         {lineageData.lightdashEnabled === true &&
           lineageData.lightdashAvailable === false && (
-            <div className="mt-2 px-3 py-2 rounded border border-purple-600/40 bg-purple-600/10 flex items-center justify-between gap-3 text-xs">
-              <div className="flex items-center gap-2 min-w-0">
-                <PresentationChartLineIcon className="w-4 h-4 text-purple-500 flex-shrink-0" />
-                <div className="text-foreground min-w-0">
-                  No Lightdash content at{' '}
-                  <code className="font-mono text-foreground bg-card px-1 py-0.5 rounded">
-                    {lineageData.lightdashResolvedPath || 'lightdash'}
-                  </code>
-                  . Download charts and dashboards as code to populate
-                  downstream lineage.
-                </div>
-              </div>
-              <div className="flex items-center gap-1 flex-shrink-0">
-                <button
-                  onClick={() => void openDashboardsAsCode()}
-                  className="px-2 py-1 rounded bg-primary text-primary-contrast hover:opacity-90 transition-opacity inline-flex items-center gap-1"
-                  title="Open the Dashboards as Code panel to download YAML"
-                >
-                  <ArrowTopRightOnSquareIcon className="w-3.5 h-3.5" />
-                  Open Dashboards as Code
-                </button>
-                <button
-                  onClick={handleRefresh}
-                  className="px-2 py-1 rounded hover:bg-surface text-surface-contrast transition-colors inline-flex items-center gap-1"
-                  title="Re-run lineage detection"
-                >
-                  <ArrowPathIcon className="w-3.5 h-3.5" />
-                  Refresh
-                </button>
-              </div>
-            </div>
+            <Banner
+              layout="inline"
+              variant="warning"
+              className="mt-2"
+              icon={
+                <PresentationChartLineIcon className="w-4 h-4 flex-shrink-0" />
+              }
+              actions={
+                <>
+                  <Button
+                    variant="primary"
+                    className="gap-1 px-2 py-1 text-xs"
+                    icon={<ArrowTopRightOnSquareIcon className="w-3.5 h-3.5" />}
+                    label="Open Dashboards as Code"
+                    title="Open the Dashboards as Code panel to download YAML"
+                    onClick={() => void openDashboardsAsCode()}
+                  />
+                  <Button
+                    variant="iconButton"
+                    className="gap-1 px-2 py-1 text-xs"
+                    icon={<ArrowPathIcon className="w-3.5 h-3.5" />}
+                    label="Refresh"
+                    title="Re-run lineage detection"
+                    onClick={handleRefresh}
+                  />
+                </>
+              }
+            >
+              No Lightdash content at{' '}
+              <code className="font-mono text-foreground bg-card px-1 py-0.5 rounded">
+                {lineageData.lightdashResolvedPath || 'lightdash'}
+              </code>
+              . Download charts and dashboards as code to populate downstream
+              lineage.
+            </Banner>
           )}
       </div>
 
@@ -804,6 +855,9 @@ export default function ModelLineage() {
                 onOpenLightdash={(url) => void openLightdashUrl(url)}
                 onOpenLightdashYaml={(filePath) =>
                   void openLightdashYaml(filePath)
+                }
+                onOpenReverseLineage={(anchor) =>
+                  void openReverseLineage(anchor)
                 }
               />
             </ReactFlowProvider>

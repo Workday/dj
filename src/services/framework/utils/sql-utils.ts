@@ -8,12 +8,6 @@
  * - Table function SQL
  */
 
-import {
-  FRAMEWORK_PARTITIONS,
-  PARTITION_DAILY,
-  PARTITION_HOURLY,
-  PARTITION_MONTHLY,
-} from '@services/framework/constants';
 import { COLUMN_META_SQL_INTERNAL_RESERVED_KEYS } from '@services/framework/utils/meta-lint';
 import { lightdashConvertDimensionType } from '@services/lightdash/utils';
 import type { DJ } from '@shared';
@@ -43,8 +37,12 @@ import {
   BULK_CTE_TYPES,
   BULK_MODEL_TYPES,
   DEFAULT_INCREMENTAL_STRATEGY,
+  FRAMEWORK_PARTITIONS,
   JOIN_ON_DIMS,
   normalizeGroupBy,
+  PARTITION_DAILY,
+  PARTITION_HOURLY,
+  PARTITION_MONTHLY,
 } from '@shared/framework/constants';
 import type {
   FrameworkColumn,
@@ -58,6 +56,7 @@ import type {
   FrameworkSource,
   FrameworkSourceMeta,
 } from '@shared/framework/types';
+import type { LightdashDimension } from '@shared/lightdash/types';
 import type { SchemaModelFromJoinModels } from '@shared/schema/types/model.from.join.models.schema';
 import type {
   SchemaModelTypeIntJoinColumn,
@@ -110,6 +109,69 @@ import {
   frameworkGetSourceRef,
   frameworkMakeSourceName,
 } from './source-utils';
+
+// ========================================================================
+// Lightdash Dimension Helpers
+// ========================================================================
+
+/**
+ * Normalize a `time_intervals` value coming from a Lightdash dimension meta.
+ *
+ * Per the schema, valid inputs are the literal string "OFF" or an array of
+ * interval strings. In practice we have to be defensive here because:
+ *
+ *   1. The framework writes YAML which dbt then loads with PyYAML (YAML 1.1).
+ *      Older YAML files on disk may contain an unquoted `time_intervals: OFF`
+ *      that PyYAML parses as the boolean `false`. When the manifest is then
+ *      consumed back into the framework, the column's `time_intervals` is
+ *      `false` rather than `"OFF"`. The emit-side fix in `yamlStringify`
+ *      prevents new YAML from being written this way, but existing manifests
+ *      on disk in user projects can still carry the corrupted value.
+ *   2. A handcrafted JSON model could put any value here. Without coercion
+ *      the spread operator below crashes generation for the entire model
+ *      (and any descendant whose parent meta we needed).
+ *
+ * Behaviour:
+ *   - undefined / null            -> `[]`
+ *   - "OFF"                       -> "OFF" (passed through)
+ *   - boolean false               -> "OFF" (preserve original user intent)
+ *   - boolean true                -> `[]`  (treat as a default / unset signal)
+ *   - array                       -> sorted, de-duplicated copy
+ *   - any other type              -> `[]`, with a console warning that names
+ *     the model + column so the source of the bad value is debuggable
+ */
+export function normalizeTimeIntervals(
+  value: unknown,
+  context: { modelName: string; columnName: string },
+): LightdashDimension['time_intervals'] {
+  type TimeIntervals = NonNullable<LightdashDimension['time_intervals']>;
+  if (value === undefined || value === null) {
+    return [] as TimeIntervals;
+  }
+  if (value === 'OFF' || value === false) {
+    // YAML 1.1 turns the string "OFF" into a boolean false during dbt's
+    // manifest load, so accept either form as the user-intended "OFF".
+    return 'OFF';
+  }
+  if (value === true) {
+    // `true` is not a valid time_intervals value but is the symmetric
+    // YAML 1.1 token for "ON" -- fall back to the empty default rather
+    // than crashing.
+    return [] as TimeIntervals;
+  }
+  if (Array.isArray(value)) {
+    return _.chain([...value])
+      .sort()
+      .uniq()
+      .value() as TimeIntervals;
+  }
+
+  console.warn(
+    `[dj] Ignoring unsupported time_intervals value on ${context.modelName}.${context.columnName}: ` +
+      `expected "OFF" or an array of strings, got ${typeof value} (${JSON.stringify(value)}).`,
+  );
+  return [] as TimeIntervals;
+}
 
 // ========================================================================
 // SQL Clause Generators
@@ -352,10 +414,7 @@ export function frameworkModelFrom({
     'cte' in modelJson.from
   ) {
     // CTE as the base table with model or CTE joins (e.g. from.cte + from.join)
-    const cteFrom = modelJson.from as {
-      cte: string;
-      join?: SchemaModelFromJoinModels;
-    };
+    const cteFrom = modelJson.from;
     const baseCte = cteFrom.cte;
     appendSql('from');
     appendSql(`${baseCte} ${baseCte}`);
@@ -487,7 +546,7 @@ export function frameworkModelFrom({
     );
     const fromCte =
       'from' in modelJson && 'cte' in modelJson.from
-        ? (modelJson.from as { cte: string }).cte
+        ? modelJson.from.cte
         : null;
     const alreadyJoined = new Set<string | null>([fromCte]);
     if ('from' in modelJson && 'join' in modelJson.from) {
@@ -788,10 +847,7 @@ export function frameworkModelWhere({
     'ctes' in modelJson &&
     modelJson.ctes?.length
   ) {
-    const rootFrom = resolveCteRootFrom(
-      (modelJson.from as { cte: string }).cte,
-      modelJson.ctes,
-    );
+    const rootFrom = resolveCteRootFrom(modelJson.from.cte, modelJson.ctes);
     if (rootFrom) {
       sqlAndFramework.push(
         ...frameworkBuildFilters({
@@ -1924,6 +1980,34 @@ function getMaterializationProp(
 }
 
 /**
+ * Normalize the `materialization.bucket` field into a flat list of
+ * `{ column, count }` specs. The schema accepts either a single bucket spec
+ * or an array of them; this collapses both shapes and drops malformed entries
+ * so callers can treat bucketing uniformly.
+ */
+function normalizeBuckets(raw: unknown): { column: string; count: number }[] {
+  if (!raw) {
+    return [];
+  }
+  const entries = Array.isArray(raw) ? raw : [raw];
+  const buckets: { column: string; count: number }[] = [];
+  for (const entry of entries) {
+    if (
+      entry &&
+      typeof entry === 'object' &&
+      typeof (entry as { column?: unknown }).column === 'string' &&
+      typeof (entry as { count?: unknown }).count === 'number'
+    ) {
+      buckets.push({
+        column: (entry as { column: string }).column,
+        count: (entry as { count: number }).count,
+      });
+    }
+  }
+  return buckets;
+}
+
+/**
  * Pick the appropriate partition column(s) to use as the incremental `unique_key`.
  * The unique_key tells dbt which column(s) define "row identity" for the delete
  * step in delete+insert strategy -- rows matching these values are deleted before
@@ -2098,15 +2182,20 @@ export function frameworkGenerateModelOutput({
         // Strategy resolution: check materialization.strategy (newer nested format),
         // then top-level incremental_strategy (older flat format), then fall back to
         // a storage-type-aware default.
-        const strategy = (getMaterializationProp(modelJson, 'strategy') ||
-          ('incremental_strategy' in modelJson &&
-            modelJson.incremental_strategy) ||
-          null) as {
+        // Annotate the resolved strategy rather than asserting its shape:
+        // getMaterializationProp returns unknown and the incremental_strategy
+        // fallback is loosely typed, so an `as` reshape here is removed by the
+        // no-unnecessary-type-assertion autofix.
+        const strategy: {
           type?: string;
           unique_key?: string | string[];
           merge_update_columns?: string[];
           merge_exclude_columns?: string[];
-        } | null;
+        } | null =
+          getMaterializationProp(modelJson, 'strategy') ||
+          ('incremental_strategy' in modelJson &&
+            modelJson.incremental_strategy) ||
+          null;
 
         // Build the partition column list from columns that actually exist on
         // the model. Candidate partition columns can come from parent meta
@@ -2196,23 +2285,65 @@ export function frameworkGenerateModelOutput({
         modelConfig.pre_hook =
           "set session iterative_optimizer_timeout='60m'; set session query_max_planning_time='60m'";
 
-        if (partitions.length) {
-          // Resolve storage format: model-level format override > project-level storage_type > delta_lake default.
-          // Iceberg uses "partitioning" keyword; Delta Lake/Hive use "partitioned_by" in SQL properties.
-          const format =
-            getMaterializationProp(modelJson, 'format') ||
-            (storageType === 'iceberg' ? 'iceberg' : null);
-          switch (format) {
-            case 'iceberg':
-              modelConfig.properties = {
-                partitioning: `ARRAY['${partitions.join("', '")}']`,
-              };
-              break;
-            default:
-              modelConfig.properties = {
-                partitioned_by: `ARRAY['${partitions.join("', '")}']`,
-              };
+        // Resolve storage format (model `format` > project `storage_type`).
+        // Iceberg expresses bucketing as a `bucket(col,n)` transform inside
+        // `partitioning` with a standalone `sorted_by`; Hive/Glue use separate
+        // `bucketed_by` + `bucket_count`.
+        const resolvedFormat =
+          (getMaterializationProp(modelJson, 'format') as string | null) ||
+          storageType ||
+          null;
+
+        // Bucket and sort columns are physical-layout tuning. Filter both to
+        // columns the model actually produces, mirroring the partition filter
+        // above; missing columns are surfaced separately as diagnostics.
+        const buckets = normalizeBuckets(
+          getMaterializationProp(modelJson, 'bucket'),
+        ).filter((b) => columns.some((c) => c.name === b.column));
+        const sortedByRaw = getMaterializationProp(modelJson, 'sorted_by');
+        const sortedBy = (
+          Array.isArray(sortedByRaw) ? (sortedByRaw as unknown[]) : []
+        ).filter(
+          (s): s is string =>
+            typeof s === 'string' && columns.some((c) => c.name === s),
+        );
+
+        const properties: NonNullable<DbtModelConfig['properties']> = {};
+        if (resolvedFormat === 'iceberg') {
+          // Iceberg: bucket transforms live alongside plain partition columns in
+          // `partitioning`. Emit `bucket(col,n)` with no internal space so the
+          // DJ-shipped partition-overwrite macro's comma-space split stays intact.
+          const partitioningEntries = [
+            ...partitions,
+            ...buckets.map((b) => `bucket(${b.column},${b.count})`),
+          ];
+          if (partitioningEntries.length) {
+            properties.partitioning = `ARRAY['${partitioningEntries.join(
+              "', '",
+            )}']`;
           }
+          if (sortedBy.length) {
+            properties.sorted_by = `ARRAY['${sortedBy.join("', '")}']`;
+          }
+        } else {
+          // Hive/Glue (and unset/Delta default): partition columns and bucketing
+          // are independent table properties. Hive shares a single bucket_count
+          // across all bucket columns (validation enforces a uniform count).
+          if (partitions.length) {
+            properties.partitioned_by = `ARRAY['${partitions.join("', '")}']`;
+          }
+          if (buckets.length) {
+            properties.bucketed_by = `ARRAY['${buckets
+              .map((b) => b.column)
+              .join("', '")}']`;
+            properties.bucket_count = buckets[0].count;
+          }
+          if (sortedBy.length) {
+            properties.sorted_by = `ARRAY['${sortedBy.join("', '")}']`;
+          }
+        }
+        if (Object.keys(properties).length) {
+          modelConfig.properties = properties;
         }
         break;
       }
@@ -2414,10 +2545,7 @@ export function frameworkModelProperties({
     'ctes' in modelJson &&
     modelJson.ctes?.length
   ) {
-    const rootFrom = resolveCteRootFrom(
-      (modelJson.from as { cte: string }).cte,
-      modelJson.ctes,
-    );
+    const rootFrom = resolveCteRootFrom(modelJson.from.cte, modelJson.ctes);
     if (rootFrom) {
       if ('source' in rootFrom) {
         const sourceMeta = frameworkGetSourceMeta({
@@ -2473,9 +2601,7 @@ export function frameworkModelProperties({
     const tableMeta: Record<string, unknown> = {
       ...(modelJson.lightdash?.table ?? {}),
     };
-    const explicitSqlFilter = (
-      modelJson.lightdash?.table as { sql_filter?: string | null } | undefined
-    )?.sql_filter;
+    const explicitSqlFilter = modelJson.lightdash?.table?.sql_filter;
 
     if (explicitSqlFilter === null) {
       delete tableMeta.sql_filter;
@@ -2524,201 +2650,215 @@ export function frameworkModelProperties({
     project,
   });
 
-  // Persist columns on the model properties
+  // Persist columns on the model properties.
+  // Each column is built inside a try/catch so that an unexpected failure
+  // (e.g. malformed meta inherited from an upstream manifest) is reported
+  // with the offending column name. Without this context the parent log line
+  // only shows the model name, which makes diagnosing schema-shape regressions
+  // painful.
   const modelPropertiesColumns: DbtModelPropertiesColumn[] = [];
   for (const c of columns) {
-    // Control ordering of column properties
-    const column: DbtModelPropertiesColumn = {
-      name: frameworkColumnName({ column: c, modelJson }),
-      data_type: c.data_type || 'varchar',
-      description: c.description || textToStartCase(c.name),
-      tags: c.tags,
-      // Switch to data_tests on the yml once dbt is updated to >=1.8
-      // data_tests: c.data_tests,
-      tests: c.data_tests,
-      meta: c.meta,
-    };
-
-    const isIncrementalModel =
-      ('materialized' in modelJson &&
-        modelJson.materialized === 'incremental') ||
-      ('materialization' in modelJson &&
-        (modelJson.materialization === 'incremental' ||
-          (typeof modelJson.materialization === 'object' &&
-            modelJson.materialization?.type === 'incremental')));
-
-    if (isIncrementalModel) {
-      switch (column.name) {
-        case PARTITION_MONTHLY:
-        case PARTITION_DAILY:
-        case PARTITION_HOURLY: {
-          const dataTests = column.tests ?? [];
-          if (!dataTests.includes('not_null')) {
-            dataTests.push('not_null');
-          }
-          column.tests = dataTests;
-          break;
-        }
-      }
-    }
-
-    // Setting lightdash dimension meta
-    let dimension = { ...c.meta.dimension };
-    if (typeof dimension.time_intervals !== 'string') {
-      // If the time_intervals aren't a string, sort alphabetically
-      dimension.time_intervals = _.chain([...(dimension.time_intervals ?? [])])
-        .sort()
-        .uniq()
-        .value();
-    }
-    // Set defaults for column level properties at the mart layer
-    if (modelLayer === 'mart') {
-      if (dimension.hidden === undefined) {
-        dimension.hidden =
-          column.meta?.type === 'fct' ||
-          FRAMEWORK_PARTITIONS.includes(column.name as FrameworkPartitionName);
-      }
-      if (!dimension.label) {
-        dimension.label = textToStartCase(column.name);
-      }
-      if (!dimension.type) {
-        dimension.type = lightdashConvertDimensionType(column.data_type);
-      }
-
-      if (column.name === 'datetime') {
-        // Find a partitioned column to use for time intervals
-        const partitionedColumn =
-          columns.find((c) => c.name === PARTITION_HOURLY) ||
-          columns.find((c) => c.name === PARTITION_DAILY) ||
-          columns.find((c) => c.name === PARTITION_MONTHLY);
-        if (partitionedColumn) {
-          dimension.sql = partitionedColumn.name;
-        }
-      }
-    }
-
-    // If dimension has an ai_hint, automatically add an 'ai' tag
-    if (aiHintTags.length && dimension.ai_hint) {
-      dimension.tags = [..._.union(dimension.tags ?? [], aiHintTags)];
-    }
-    dimension.tags?.sort();
-
-    // Control ordering of lightdash dimension properties
-    dimension = orderKeys(dimension, [
-      'ai_hint',
-      'tags',
-      'type',
-      'label',
-      'group_label',
-      'groups',
-      'case_sensitive',
-    ]);
-
-    // Order lightdash metric keys and remove empty properties
-    const metrics = _.reduce(
-      column.meta?.metrics ?? {},
-      (m, metric, name) => {
-        return {
-          ...m,
-          [name]: removeEmpty(
-            orderKeys(metric, [
-              'ai_hint',
-              'tags',
-              'type',
-              'label',
-              'group_label',
-              'groups',
-            ]),
-          ),
-        };
-      },
-      {},
-    );
-
-    // Column meta emit strategy (free-form meta support):
-    //
-    // After the `FrameworkColumn` split, all SQL-generation state lives
-    // on `c.internal.*` and is never emitted. Values on `c.meta` fall
-    // into three buckets:
-    //   a. Populated-reserved keys (type / origin / dimension / metrics /
-    //      case_sensitive) -- framework-written, will be re-layered below.
-    //   b. SQL-internal reserved key names (agg / expr / prefix / ...) --
-    //      the user placed them under `meta` by mistake. They have no
-    //      effect on SQL (the framework reads SQL state from
-    //      `c.internal.*`, which is populated from top-level select-item
-    //      siblings). We strip them so they don't silently leak to the
-    //      emitted YAML; the reserved-key lint (meta-lint.ts) separately
-    //      surfaces the authoring mistake as a Warning diagnostic.
-    //   c. Free-form user keys -- passed through verbatim.
-    //
-    // Strategy:
-    //   1. Spread-destructure to drop (a) and (b) from the free-form bag.
-    //   2. Layer the framework-populated reserved keys back on top so the
-    //      framework silently wins on collision with any free-form key
-    //      of the same name.
-    //   3. Apply `case_sensitive` AFTER `removeEmpty` so a valid `false`
-    //      value isn't stripped.
-    const rawMeta = (c.meta ?? {}) as Record<string, unknown>;
-    const metaFreeForm: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(rawMeta)) {
-      // Skip populated-reserved keys -- they are re-layered below.
-      if (
-        key === 'type' ||
-        key === 'origin' ||
-        key === 'dimension' ||
-        key === 'metrics' ||
-        key === 'case_sensitive'
-      ) {
-        continue;
-      }
-      // Skip SQL-internal reserved key names -- never emitted.
-      if (
-        (COLUMN_META_SQL_INTERNAL_RESERVED_KEYS as readonly string[]).includes(
-          key,
-        )
-      ) {
-        continue;
-      }
-      metaFreeForm[key] = value;
-    }
-
-    // Preserve the explicit case_sensitive value before removeEmpty strips `false`.
-    const explicitCaseSensitive = dimension.case_sensitive;
-    const cleanedDimension = removeEmpty(dimension);
-
-    // Re-inject case_sensitive after removeEmpty. Explicit values from
-    // lightdash.dimension.case_sensitive take priority; otherwise auto-set
-    // true on partition columns to prevent Lightdash from wrapping them in
-    // UPPER(), which breaks Trino-Iceberg predicate pushdown.
-    if (explicitCaseSensitive !== undefined) {
-      cleanedDimension.case_sensitive = explicitCaseSensitive;
-    } else if (
-      dj.config.lightdashDefaultPartitionColumnCaseSensitive &&
-      partitionColumnNames.includes(column.name)
-    ) {
-      cleanedDimension.case_sensitive = true;
-    }
-
-    column.meta = removeEmpty({
-      ...metaFreeForm,
-      type: c.meta?.type,
-      origin: c.meta?.origin,
-      dimension: cleanedDimension,
-      metrics,
-    });
-
-    // Re-inject column-level case_sensitive AFTER removeEmpty so a valid
-    // `false` value (intentionally opting OUT of case sensitivity) isn't
-    // stripped along with other empty/falsy values.
-    if (c.meta.case_sensitive !== undefined) {
-      column.meta = {
-        ...column.meta,
-        case_sensitive: c.meta.case_sensitive,
+    const columnContextName = frameworkColumnName({ column: c, modelJson });
+    try {
+      // Control ordering of column properties
+      const column: DbtModelPropertiesColumn = {
+        name: columnContextName,
+        data_type: c.data_type || 'varchar',
+        description: c.description || textToStartCase(c.name),
+        tags: c.tags,
+        // Switch to data_tests on the yml once dbt is updated to >=1.8
+        // data_tests: c.data_tests,
+        tests: c.data_tests,
+        meta: c.meta,
       };
-    }
 
-    // Remove any remaining empty column properties
-    modelPropertiesColumns.push(removeEmpty(column));
+      const isIncrementalModel =
+        ('materialized' in modelJson &&
+          modelJson.materialized === 'incremental') ||
+        ('materialization' in modelJson &&
+          (modelJson.materialization === 'incremental' ||
+            (typeof modelJson.materialization === 'object' &&
+              modelJson.materialization?.type === 'incremental')));
+
+      if (isIncrementalModel) {
+        switch (column.name) {
+          case PARTITION_MONTHLY:
+          case PARTITION_DAILY:
+          case PARTITION_HOURLY: {
+            const dataTests = column.tests ?? [];
+            if (!dataTests.includes('not_null')) {
+              dataTests.push('not_null');
+            }
+            column.tests = dataTests;
+            break;
+          }
+        }
+      }
+
+      // Setting lightdash dimension meta. `normalizeTimeIntervals` defends
+      // against the YAML 1.1 boolean coercion of unquoted `OFF` -> `false`
+      // and other unexpected shapes coming back from the dbt manifest.
+      let dimension = { ...c.meta.dimension };
+      dimension.time_intervals = normalizeTimeIntervals(
+        dimension.time_intervals,
+        { modelName, columnName: column.name },
+      );
+      // Set defaults for column level properties at the mart layer
+      if (modelLayer === 'mart') {
+        if (dimension.hidden === undefined) {
+          dimension.hidden =
+            column.meta?.type === 'fct' ||
+            FRAMEWORK_PARTITIONS.includes(
+              column.name as FrameworkPartitionName,
+            );
+        }
+        if (!dimension.label) {
+          dimension.label = textToStartCase(column.name);
+        }
+        if (!dimension.type) {
+          dimension.type = lightdashConvertDimensionType(column.data_type);
+        }
+
+        if (column.name === 'datetime') {
+          // Find a partitioned column to use for time intervals
+          const partitionedColumn =
+            columns.find((c) => c.name === PARTITION_HOURLY) ||
+            columns.find((c) => c.name === PARTITION_DAILY) ||
+            columns.find((c) => c.name === PARTITION_MONTHLY);
+          if (partitionedColumn) {
+            dimension.sql = partitionedColumn.name;
+          }
+        }
+      }
+
+      // If dimension has an ai_hint, automatically add an 'ai' tag
+      if (aiHintTags.length && dimension.ai_hint) {
+        dimension.tags = [..._.union(dimension.tags ?? [], aiHintTags)];
+      }
+      dimension.tags?.sort();
+
+      // Control ordering of lightdash dimension properties
+      dimension = orderKeys(dimension, [
+        'ai_hint',
+        'tags',
+        'type',
+        'label',
+        'group_label',
+        'groups',
+        'case_sensitive',
+      ]);
+
+      // Order lightdash metric keys and remove empty properties
+      const metrics = _.reduce(
+        column.meta?.metrics ?? {},
+        (m, metric, name) => {
+          return {
+            ...m,
+            [name]: removeEmpty(
+              orderKeys(metric, [
+                'ai_hint',
+                'tags',
+                'type',
+                'label',
+                'group_label',
+                'groups',
+              ]),
+            ),
+          };
+        },
+        {},
+      );
+
+      // Column meta emit strategy (free-form meta support):
+      //
+      // After the `FrameworkColumn` split, all SQL-generation state lives
+      // on `c.internal.*` and is never emitted. Values on `c.meta` fall
+      // into three buckets:
+      //   a. Populated-reserved keys (type / origin / dimension / metrics /
+      //      case_sensitive) -- framework-written, will be re-layered below.
+      //   b. SQL-internal reserved key names (agg / expr / prefix / ...) --
+      //      the user placed them under `meta` by mistake. They have no
+      //      effect on SQL (the framework reads SQL state from
+      //      `c.internal.*`, which is populated from top-level select-item
+      //      siblings). We strip them so they don't silently leak to the
+      //      emitted YAML; the reserved-key lint (meta-lint.ts) separately
+      //      surfaces the authoring mistake as a Warning diagnostic.
+      //   c. Free-form user keys -- passed through verbatim.
+      //
+      // Strategy:
+      //   1. Spread-destructure to drop (a) and (b) from the free-form bag.
+      //   2. Layer the framework-populated reserved keys back on top so the
+      //      framework silently wins on collision with any free-form key
+      //      of the same name.
+      //   3. Apply `case_sensitive` AFTER `removeEmpty` so a valid `false`
+      //      value isn't stripped.
+      const rawMeta = (c.meta ?? {}) as Record<string, unknown>;
+      const metaFreeForm: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(rawMeta)) {
+        // Skip populated-reserved keys -- they are re-layered below.
+        if (
+          key === 'type' ||
+          key === 'origin' ||
+          key === 'dimension' ||
+          key === 'metrics' ||
+          key === 'case_sensitive'
+        ) {
+          continue;
+        }
+        // Skip SQL-internal reserved key names -- never emitted.
+        if (
+          (
+            COLUMN_META_SQL_INTERNAL_RESERVED_KEYS as readonly string[]
+          ).includes(key)
+        ) {
+          continue;
+        }
+        metaFreeForm[key] = value;
+      }
+
+      // Preserve the explicit case_sensitive value before removeEmpty strips `false`.
+      const explicitCaseSensitive = dimension.case_sensitive;
+      const cleanedDimension = removeEmpty(dimension);
+
+      // Re-inject case_sensitive after removeEmpty. Explicit values from
+      // lightdash.dimension.case_sensitive take priority; otherwise auto-set
+      // true on partition columns to prevent Lightdash from wrapping them in
+      // UPPER(), which breaks Trino-Iceberg predicate pushdown.
+      if (explicitCaseSensitive !== undefined) {
+        cleanedDimension.case_sensitive = explicitCaseSensitive;
+      } else if (
+        dj.config.lightdashDefaultPartitionColumnCaseSensitive &&
+        partitionColumnNames.includes(column.name)
+      ) {
+        cleanedDimension.case_sensitive = true;
+      }
+
+      column.meta = removeEmpty({
+        ...metaFreeForm,
+        type: c.meta?.type,
+        origin: c.meta?.origin,
+        dimension: cleanedDimension,
+        metrics,
+      });
+
+      // Re-inject column-level case_sensitive AFTER removeEmpty so a valid
+      // `false` value (intentionally opting OUT of case sensitivity) isn't
+      // stripped along with other empty/falsy values.
+      if (c.meta.case_sensitive !== undefined) {
+        column.meta = {
+          ...column.meta,
+          case_sensitive: c.meta.case_sensitive,
+        };
+      }
+
+      // Remove any remaining empty column properties
+      modelPropertiesColumns.push(removeEmpty(column));
+    } catch (err) {
+      const cause = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `Failed to build column "${columnContextName}" for model "${modelName}": ${cause}`,
+      );
+    }
   }
 
   // Set data_tests at model level
@@ -3070,6 +3210,7 @@ export function frameworkMakeModelTemplate(
     exclude_framework_artifacts,
     exclude_portal_partition_columns,
     exclude_portal_source_count,
+    ctes,
   }: Api<'framework-model-create'>['request'],
   autoGenerateTestsConfig: AutoGenerateTestsConfig = {
     tests: { equalRowCount: { enabled: true, applyTo: ['left'] } },
@@ -3120,7 +3261,27 @@ export function frameworkMakeModelTemplate(
     ...(exclude_portal_source_count !== undefined && {
       exclude_portal_source_count,
     }),
+
+    // Inline CTE definitions are an opaque pass-through here -- the
+    // sync-engine's per-CTE validators are the canonical authority. Without
+    // this, the preview RPC silently strips `ctes` from the round-trip JSON
+    // and the wizard's JSON tab shows an empty model. Cast to `any` because
+    // schema types require a non-empty tuple shape while the API request
+    // permits the broader `any[]` envelope.
+    ...(ctes &&
+      Array.isArray(ctes) &&
+      ctes.length > 0 && { ctes: ctes as any }),
   };
+
+  // Treat CTE-flavoured `from` shapes (`{ cte: ... }`, `{ union: { ctes: [...] } }`)
+  // as opaque pass-throughs so the preview RPC doesn't rewrite them to
+  // `{ model: '' }`. Per-type schemas allow these variants (e.g.
+  // `int_select_model.from.cte`); the wizard already builds them correctly.
+  const fromIsCteShape = !!(
+    from &&
+    typeof from === 'object' &&
+    ('cte' in from || 'union' in from)
+  );
 
   // Helper function to handle select with proper typing
   function getSelect<T>(modelSelect: T): T {
@@ -3213,6 +3374,25 @@ export function frameworkMakeModelTemplate(
     return where as any;
   }
 
+  // Preserve CTE-shaped `from` verbatim before the per-type reshape kicks
+  // in. The per-type branches below all assume a `{ model: ... }`-flavoured
+  // input and would clobber `{ cte: ... }` / `{ union: { ctes } }`. Letting
+  // them pass through unchanged is safe for the preview RPC because the
+  // sync engine validates `from` against the per-type schema downstream;
+  // here we only need a structural pass-through.
+  if (fromIsCteShape) {
+    const passthrough = {
+      ...base,
+      type,
+      from: from as any,
+      ...(select && select.length > 0 && { select: select as any }),
+      ...(group_by && group_by.length > 0 && { group_by: group_by as any }),
+      ...(where !== undefined && { where: where as any }),
+      ...(lightdash && { lightdash: lightdash as any }),
+    };
+    return passthrough as unknown as FrameworkModel;
+  }
+
   switch (type) {
     case 'int_join_column': {
       const fromWithJoin = from as unknown as {
@@ -3277,7 +3457,7 @@ export function frameworkMakeModelTemplate(
           model: from?.model ?? '',
           join: [] as unknown as SchemaModelFromJoinModels,
           ...(from?.rollup && { rollup: from.rollup }),
-        } as SchemaModelTypeIntJoinModels['from'],
+        },
         select: getSelect(
           [] as unknown as SchemaModelTypeIntJoinModels['select'],
         ),
@@ -3459,7 +3639,7 @@ export function frameworkMakeModelTemplate(
       const baseModel: SchemaModelTypeIntUnionModels = {
         ...base,
         type,
-        from: baseModelFrom as SchemaModelTypeIntUnionModels['from'],
+        from: baseModelFrom,
       };
 
       // If we have union models/ctes data, populate it
@@ -3469,21 +3649,17 @@ export function frameworkMakeModelTemplate(
         fromWithUnion.union.models.length > 0 &&
         'model' in baseModel.from
       ) {
-        (
-          baseModel.from as { model: string; union: { models: string[] } }
-        ).union.models = fromWithUnion.union.models;
+        baseModel.from.union.models = fromWithUnion.union.models;
       } else if (
         fromWithUnion?.union?.ctes &&
         Array.isArray(fromWithUnion.union.ctes) &&
         fromWithUnion.union.ctes.length > 0 &&
         'cte' in baseModel.from
       ) {
-        (
-          baseModel.from as {
-            cte: string;
-            union: { ctes: [string, ...string[]] };
-          }
-        ).union.ctes = fromWithUnion.union.ctes as [string, ...string[]];
+        baseModel.from.union.ctes = fromWithUnion.union.ctes as [
+          string,
+          ...string[],
+        ];
       }
 
       const selectLists = getSelect(
@@ -3520,7 +3696,7 @@ export function frameworkMakeModelTemplate(
         from: {
           model: from?.model ?? '',
           join: [] as unknown as SchemaModelFromJoinModels,
-        } as SchemaModelTypeMartJoinModels['from'],
+        },
         select: [] as unknown as SchemaModelTypeMartJoinModels['select'],
       };
 
@@ -3680,8 +3856,7 @@ export function frameworkMakeModelTemplate(
         from: {
           source: fromWithSourceUnion?.source ?? '',
           union: {
-            sources:
-              [] as unknown as SchemaModelTypeStgUnionSources['from']['union']['sources'],
+            sources: [],
           },
         },
       };
@@ -3691,8 +3866,7 @@ export function frameworkMakeModelTemplate(
         fromWithSourceUnion?.union?.sources &&
         Array.isArray(fromWithSourceUnion.union.sources)
       ) {
-        baseModel.from.union.sources = fromWithSourceUnion.union
-          .sources as unknown as SchemaModelTypeStgUnionSources['from']['union']['sources'];
+        baseModel.from.union.sources = fromWithSourceUnion.union.sources;
       }
 
       const selectLists = getSelect(

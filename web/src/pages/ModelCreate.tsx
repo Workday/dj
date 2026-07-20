@@ -4,7 +4,7 @@ import type { DbtProject } from '@shared/dbt/types';
 import { makeClassName } from '@web';
 import { useApp } from '@web/context';
 import { useEnvironment } from '@web/context';
-import { Button, DialogBox, Spinner } from '@web/elements';
+import { DialogBox, Spinner } from '@web/elements';
 import { ActionType } from '@web/features/DataModeling/types';
 import {
   AdditionalFields,
@@ -83,7 +83,6 @@ export function ModelCreate({ mode = 'create' }: ModelCreateProps) {
     showAddColumnModal,
     editingColumn,
     isActionActive,
-    ctes,
   } = useModelStore();
 
   // Simple local state
@@ -156,7 +155,7 @@ export function ModelCreate({ mode = 'create' }: ModelCreateProps) {
         setValue('source', data.source);
       }
       if (data.type !== undefined) {
-        setBasicField('type', data.type as any);
+        setBasicField('type', data.type);
         setValue('type', data.type as any);
       }
       if (data.group !== undefined) {
@@ -168,7 +167,7 @@ export function ModelCreate({ mode = 'create' }: ModelCreateProps) {
         setValue('topic', data.topic);
       }
       if (data.materialized !== undefined) {
-        setBasicField('materialized', data.materialized as any);
+        setBasicField('materialized', data.materialized);
         setValue('materialized', data.materialized as any);
       }
 
@@ -539,6 +538,13 @@ export function ModelCreate({ mode = 'create' }: ModelCreateProps) {
               'exclude_portal_source_count',
               dataToLoad.exclude_portal_source_count,
             );
+          if (dataToLoad.exclude_framework_artifacts !== undefined)
+            setValue(
+              'exclude_framework_artifacts',
+              dataToLoad.exclude_framework_artifacts,
+            );
+          if (dataToLoad.exclude_datetime !== undefined)
+            setValue('exclude_datetime', dataToLoad.exclude_datetime);
 
           // Mark as initialized after loading data
           useModelStore.getState().setIsInitialized(true);
@@ -631,6 +637,22 @@ export function ModelCreate({ mode = 'create' }: ModelCreateProps) {
       if (fileExists) {
         errors.push(
           'Model file already exists. Please choose a different name or topic.',
+        );
+      }
+    }
+
+    // CTE gating: block leaving the Data Modeling step (step 1) when the
+    // analysis API has flagged any error-level CTE diagnostics. We read
+    // store-cached results so this is a synchronous lookup -- no extra
+    // round-trip on click.
+    if (currentStep === 1) {
+      const cteAnalysis = useModelStore.getState().cteAnalysis;
+      const cteErrors = cteAnalysis.diagnostics.filter(
+        (d) => d.severity === 'error',
+      );
+      if (cteErrors.length > 0) {
+        errors.push(
+          `CTE validation failed (${cteErrors.length} error${cteErrors.length === 1 ? '' : 's'}). Open the affected CTE from the canvas to fix.`,
         );
       }
     }
@@ -888,36 +910,6 @@ export function ModelCreate({ mode = 'create' }: ModelCreateProps) {
       <div className="flex flex-col items-center justify-center min-h-[400px] p-8">
         <Spinner size={48} label={loadingLabel} />
         <p className="text-gray-600 mt-4 text-center">{loadingDescription}</p>
-      </div>
-    );
-  }
-
-  if ((isEditMode || isCloningModel) && ctes.length > 0) {
-    const handleCteClose = () => {
-      if (!isEditMode) {
-        void stateSync.clearState('model-create');
-        resetStore();
-      }
-      onClose();
-    };
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] p-8 text-center">
-        <div className="rounded-lg border border-surface bg-card p-8 max-w-lg">
-          <InformationCircleIcon className="h-12 w-12 text-primary mx-auto mb-4" />
-          <h2 className="text-lg font-semibold text-foreground mb-2">
-            Visual editing is not yet supported for CTE models
-          </h2>
-          <p className="text-sm text-muted-foreground mb-6">
-            This model contains Common Table Expressions (CTEs). Visual editor
-            support for CTEs is coming in a future release. In the meantime,
-            please edit the{' '}
-            <code className="font-mono bg-surface px-1 rounded text-foreground">
-              .model.json
-            </code>{' '}
-            file directly.
-          </p>
-          <Button label="Close" variant="neutral" onClick={handleCteClose} />
-        </div>
       </div>
     );
   }

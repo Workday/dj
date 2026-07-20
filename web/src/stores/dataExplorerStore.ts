@@ -1,5 +1,14 @@
 import { create } from 'zustand';
 
+// Sidebar drawer dimensions (in px)
+export const SIDEBAR_MIN_WIDTH = 48;
+export const SIDEBAR_MAX_WIDTH = 70;
+export const SIDEBAR_DEFAULT_WIDTH = 70;
+// Below this width, render icon-only (no label under the icon).
+export const SIDEBAR_LABEL_THRESHOLD = 60;
+
+export type ActiveView = 'home' | 'model' | 'column' | 'sql' | 'lightdash';
+
 export type MaterializationType =
   | 'ephemeral'
   | 'incremental'
@@ -156,6 +165,10 @@ interface DataExplorerStore {
   projectOverview: ProjectOverviewData | null;
   isLoadingOverview: boolean;
 
+  // Sidebar / nav state (in-memory only — resets on reload)
+  activeView: ActiveView;
+  sidebarWidth: number;
+
   // Actions
   setActiveModel: (
     model: { modelName: string; projectName: string } | null,
@@ -238,6 +251,15 @@ interface DataExplorerStore {
   setLightdashEnabled: (enabled: boolean) => Promise<void>;
   openDashboardsAsCode: () => Promise<void>;
   openLightdashYaml: (filePath: string) => Promise<void>;
+  openReverseLineage: (anchor: {
+    kind: 'dashboard' | 'chart';
+    slug: string;
+  }) => Promise<void>;
+
+  // Sidebar / nav actions
+  setActiveView: (view: ActiveView) => void;
+  setSidebarWidth: (width: number) => void;
+  toggleSidebar: () => void;
 
   // Store the API handler
 
@@ -290,6 +312,10 @@ export const useDataExplorerStore = create<DataExplorerStore>((set, get) => ({
   // Project overview state
   projectOverview: null,
   isLoadingOverview: false,
+
+  // Sidebar / nav state - default to icon-only rail
+  activeView: 'home',
+  sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
 
   // Actions
 
@@ -1017,6 +1043,28 @@ export const useDataExplorerStore = create<DataExplorerStore>((set, get) => ({
     }
   },
 
+  // Sidebar / nav actions
+  setActiveView: (view) => {
+    set({ activeView: view });
+  },
+
+  setSidebarWidth: (width) => {
+    const clamped = Math.min(
+      SIDEBAR_MAX_WIDTH,
+      Math.max(SIDEBAR_MIN_WIDTH, width),
+    );
+    set({ sidebarWidth: clamped });
+  },
+
+  toggleSidebar: () => {
+    const { sidebarWidth } = get();
+    const midpoint = (SIDEBAR_MIN_WIDTH + SIDEBAR_MAX_WIDTH) / 2;
+    set({
+      sidebarWidth:
+        sidebarWidth > midpoint ? SIDEBAR_MIN_WIDTH : SIDEBAR_MAX_WIDTH,
+    });
+  },
+
   // Lightdash lineage actions
   openLightdashUrl: async (url: string) => {
     const { _apiHandler } = get();
@@ -1104,6 +1152,27 @@ export const useDataExplorerStore = create<DataExplorerStore>((set, get) => ({
     } catch (error) {
       console.error(
         '[DataExplorerStore] Error opening Lightdash YAML file:',
+        error,
+      );
+    }
+  },
+
+  openReverseLineage: async (anchor: {
+    kind: 'dashboard' | 'chart';
+    slug: string;
+  }) => {
+    const { _apiHandler } = get();
+    if (!_apiHandler || !anchor?.slug) {
+      return;
+    }
+    try {
+      await _apiHandler({
+        type: 'data-explorer-open-reverse-lineage',
+        request: anchor,
+      });
+    } catch (error) {
+      console.error(
+        '[DataExplorerStore] Error opening reverse lineage:',
         error,
       );
     }

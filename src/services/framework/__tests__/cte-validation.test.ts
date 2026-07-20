@@ -1,6 +1,8 @@
 import { describe, expect, test } from '@jest/globals';
 import { frameworkBuildCteColumnRegistry } from '@services/framework/utils';
 import {
+  validateBucketAndSortedBy,
+  validateBulkExcludeFrameworkColumns,
   validateCteColumnReferences,
   validateCteGroupBy,
   validateCteLightdashMetrics,
@@ -1148,6 +1150,172 @@ describe('validateMainModelAggregation (Gap 2)', () => {
     expect(errors[0].message).toContain('pre_agg');
     expect(errors[0].instancePath).toBe('/select/1');
   });
+
+  // Pre-aggregate-in-CTE + re-aggregate-in-main-model is a legitimate
+  // pattern: the CTE settles at a fine grain, the main model rolls up
+  // with its own group_by. When the user wires that with an explicit
+  // `{ name: X, expr: "sum(X)" }` BEFORE an `all_from_cte` directive,
+  // the framework's first-wins dedupe keeps the aggregated row and the
+  // bulk's bare emission of `X` is skipped. The validator must not flag
+  // those columns.
+  test('no error when earlier explicit aggregated entries cover bulk fct columns', () => {
+    const project = createTestProject();
+    const registry = frameworkBuildCteColumnRegistry({
+      ctes: [
+        {
+          name: 'pre_agg',
+          from: { model: 'model_a' },
+          select: [
+            { name: 'col_a', type: 'dim' },
+            { name: 'revenue_sum', type: 'fct', expr: 'sum(revenue)' },
+            { name: 'units_sum', type: 'fct', expr: 'sum(units)' },
+          ],
+          group_by: 'dims',
+        },
+      ] as any,
+      project,
+    });
+
+    const errors = validateMainModelAggregation(
+      {
+        group_by: 'dims',
+        from: { cte: 'pre_agg' },
+        select: [
+          {
+            name: 'revenue_sum',
+            type: 'fct',
+            expr: 'sum(revenue_sum)',
+          },
+          {
+            name: 'units_sum',
+            type: 'fct',
+            expr: 'sum(units_sum)',
+          },
+          { cte: 'pre_agg', type: 'all_from_cte' },
+        ],
+      },
+      registry,
+    );
+    expect(errors).toHaveLength(0);
+  });
+
+  // `exclude_from_group_by: true` on a scalar entry is the explicit
+  // opt-out and should also cover the bulk's same-named emission when
+  // it appears earlier in the select.
+  test('no error when earlier exclude_from_group_by scalar covers bulk fct column', () => {
+    const project = createTestProject();
+    const registry = frameworkBuildCteColumnRegistry({
+      ctes: [
+        {
+          name: 'pre_agg',
+          from: { model: 'model_a' },
+          select: [
+            { name: 'col_a', type: 'dim' },
+            { name: 'flagged_sum', type: 'fct', expr: 'sum(flagged)' },
+          ],
+          group_by: 'dims',
+        },
+      ] as any,
+      project,
+    });
+
+    const errors = validateMainModelAggregation(
+      {
+        group_by: 'dims',
+        from: { cte: 'pre_agg' },
+        select: [
+          {
+            name: 'flagged_sum',
+            type: 'fct',
+            exclude_from_group_by: true,
+          },
+          { cte: 'pre_agg', type: 'all_from_cte' },
+        ],
+      },
+      registry,
+    );
+    expect(errors).toHaveLength(0);
+  });
+
+  // Ordering matters: when the bulk directive precedes the explicit
+  // re-aggregation, the framework's dedupe keeps the bulk's bare
+  // emission and silently drops the later explicit row. The validator
+  // should still flag those columns because the generated SQL has the
+  // un-aggregated form.
+  test('errors when explicit aggregated entries appear AFTER the bulk (later entries are dropped)', () => {
+    const project = createTestProject();
+    const registry = frameworkBuildCteColumnRegistry({
+      ctes: [
+        {
+          name: 'pre_agg',
+          from: { model: 'model_a' },
+          select: [
+            { name: 'col_a', type: 'dim' },
+            { name: 'revenue_sum', type: 'fct', expr: 'sum(revenue)' },
+          ],
+          group_by: 'dims',
+        },
+      ] as any,
+      project,
+    });
+
+    const errors = validateMainModelAggregation(
+      {
+        group_by: 'dims',
+        from: { cte: 'pre_agg' },
+        select: [
+          { cte: 'pre_agg', type: 'all_from_cte' },
+          {
+            name: 'revenue_sum',
+            type: 'fct',
+            expr: 'sum(revenue_sum)',
+          },
+        ],
+      },
+      registry,
+    );
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toContain('revenue_sum');
+    expect(errors[0].instancePath).toBe('/select/0');
+  });
+
+  // `agg` / `aggs` suffix the resulting column name (col + sum ->
+  // col_sum), so they don't override a bulk's bare emission of `col`.
+  // The bulk's bare `revenue_sum` is still a leftover even when the
+  // user has authored `{ name: revenue_sum, agg: sum }` earlier (which
+  // produces `revenue_sum_sum`, not `revenue_sum`).
+  test('errors when earlier scalar uses agg suffix (different output name)', () => {
+    const project = createTestProject();
+    const registry = frameworkBuildCteColumnRegistry({
+      ctes: [
+        {
+          name: 'pre_agg',
+          from: { model: 'model_a' },
+          select: [
+            { name: 'col_a', type: 'dim' },
+            { name: 'revenue_sum', type: 'fct', expr: 'sum(revenue)' },
+          ],
+          group_by: 'dims',
+        },
+      ] as any,
+      project,
+    });
+
+    const errors = validateMainModelAggregation(
+      {
+        group_by: 'dims',
+        from: { cte: 'pre_agg' },
+        select: [
+          { name: 'revenue_sum', type: 'fct', agg: 'sum' },
+          { cte: 'pre_agg', type: 'all_from_cte' },
+        ],
+      },
+      registry,
+    );
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toContain('revenue_sum');
+    expect(errors[0].instancePath).toBe('/select/1');
+  });
 });
 
 /**
@@ -1333,6 +1501,295 @@ describe('validateDjIcebergPartitionOverwrite', () => {
   });
 });
 
+// validateBucketAndSortedBy: enforces the storage-format constraints the SQL
+// generator relies on when translating `materialization.bucket` /
+// `materialization.sorted_by` into Trino table properties (Iceberg bucket
+// transforms + standalone sorted_by vs Hive bucketed_by + shared bucket_count).
+describe('validateBucketAndSortedBy', () => {
+  test('Iceberg: bucket + sorted_by with present columns produce no diagnostics', () => {
+    const details = validateBucketAndSortedBy(
+      {
+        type: 'int_select_model',
+        materialization: {
+          type: 'incremental',
+          format: 'iceberg',
+          bucket: { column: 'tenant_name', count: 32 },
+          sorted_by: ['tenant_name', 'product_area'],
+        },
+        select: [
+          { name: 'tenant_name', type: 'dim' },
+          { name: 'product_area', type: 'dim' },
+        ],
+      },
+      undefined,
+    );
+    expect(details).toHaveLength(0);
+  });
+
+  test('Iceberg: per-column bucket counts are allowed', () => {
+    const details = validateBucketAndSortedBy(
+      {
+        type: 'int_select_model',
+        materialization: {
+          type: 'incremental',
+          format: 'iceberg',
+          bucket: [
+            { column: 'a', count: 8 },
+            { column: 'b', count: 16 },
+          ],
+        },
+        select: [
+          { name: 'a', type: 'dim' },
+          { name: 'b', type: 'dim' },
+        ],
+      },
+      undefined,
+    );
+    expect(details).toHaveLength(0);
+  });
+
+  test('Iceberg: standalone sorted_by without bucket is allowed', () => {
+    const details = validateBucketAndSortedBy(
+      {
+        type: 'int_select_model',
+        materialization: {
+          type: 'incremental',
+          format: 'iceberg',
+          sorted_by: ['tenant_name'],
+        },
+        select: [{ name: 'tenant_name', type: 'dim' }],
+      },
+      undefined,
+    );
+    expect(details).toHaveLength(0);
+  });
+
+  test('warns when no storage format resolves (neither model format nor storage_type)', () => {
+    const details = validateBucketAndSortedBy(
+      {
+        type: 'int_select_model',
+        materialization: {
+          type: 'incremental',
+          bucket: { column: 'tenant_name', count: 32 },
+        },
+        select: [{ name: 'tenant_name', type: 'dim' }],
+      },
+      undefined,
+    );
+    expect(details.filter((d) => d.severity === 'error')).toHaveLength(0);
+    const warnings = details.filter((d) => d.severity !== 'error');
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].instancePath).toBe('/materialization/bucket');
+    expect(warnings[0].message).toContain('storage format');
+  });
+
+  test('no unresolved-format warning once storage_type is set', () => {
+    const details = validateBucketAndSortedBy(
+      {
+        type: 'int_select_model',
+        materialization: {
+          type: 'incremental',
+          bucket: { column: 'tenant_name', count: 32 },
+        },
+        select: [{ name: 'tenant_name', type: 'dim' }],
+      },
+      'iceberg',
+    );
+    expect(details).toHaveLength(0);
+  });
+
+  test('Delta Lake: bucket and sorted_by each emit an error', () => {
+    const details = validateBucketAndSortedBy(
+      {
+        type: 'int_select_model',
+        materialization: {
+          type: 'incremental',
+          format: 'delta_lake',
+          bucket: { column: 'tenant_name', count: 32 },
+          sorted_by: ['tenant_name'],
+        },
+        select: [{ name: 'tenant_name', type: 'dim' }],
+      },
+      undefined,
+    );
+    const errors = details.filter((d) => d.severity === 'error');
+    expect(errors).toHaveLength(2);
+    expect(errors.map((e) => e.instancePath).sort()).toEqual([
+      '/materialization/bucket',
+      '/materialization/sorted_by',
+    ]);
+  });
+
+  test('Delta Lake via project storage_type also errors', () => {
+    const details = validateBucketAndSortedBy(
+      {
+        type: 'int_select_model',
+        materialization: {
+          type: 'incremental',
+          bucket: { column: 'tenant_name', count: 32 },
+        },
+        select: [{ name: 'tenant_name', type: 'dim' }],
+      },
+      'delta_lake',
+    );
+    expect(details.some((d) => d.severity === 'error')).toBe(true);
+  });
+
+  test('Hive: differing bucket counts error (single shared bucket_count)', () => {
+    const details = validateBucketAndSortedBy(
+      {
+        type: 'int_select_model',
+        materialization: {
+          type: 'incremental',
+          format: 'hive',
+          bucket: [
+            { column: 'a', count: 8 },
+            { column: 'b', count: 16 },
+          ],
+        },
+        select: [
+          { name: 'a', type: 'dim' },
+          { name: 'b', type: 'dim' },
+        ],
+      },
+      undefined,
+    );
+    const errors = details.filter((d) => d.severity === 'error');
+    expect(errors).toHaveLength(1);
+    expect(errors[0].instancePath).toBe('/materialization/bucket');
+  });
+
+  test('Hive: uniform bucket counts are accepted', () => {
+    const details = validateBucketAndSortedBy(
+      {
+        type: 'int_select_model',
+        materialization: {
+          type: 'incremental',
+          format: 'hive',
+          bucket: [
+            { column: 'a', count: 16 },
+            { column: 'b', count: 16 },
+          ],
+        },
+        select: [
+          { name: 'a', type: 'dim' },
+          { name: 'b', type: 'dim' },
+        ],
+      },
+      undefined,
+    );
+    expect(details.filter((d) => d.severity === 'error')).toHaveLength(0);
+  });
+
+  test('Hive: sorted_by without bucket errors', () => {
+    const details = validateBucketAndSortedBy(
+      {
+        type: 'int_select_model',
+        materialization: {
+          type: 'incremental',
+          format: 'hive',
+          sorted_by: ['tenant_name'],
+        },
+        select: [{ name: 'tenant_name', type: 'dim' }],
+      },
+      undefined,
+    );
+    const errors = details.filter((d) => d.severity === 'error');
+    expect(errors).toHaveLength(1);
+    expect(errors[0].instancePath).toBe('/materialization/sorted_by');
+  });
+
+  test('warns when bucket / sorted_by columns are not in the scalar select', () => {
+    const details = validateBucketAndSortedBy(
+      {
+        type: 'int_select_model',
+        materialization: {
+          type: 'incremental',
+          format: 'iceberg',
+          bucket: { column: 'missing_bucket', count: 8 },
+          sorted_by: ['missing_sort'],
+        },
+        select: [{ name: 'present', type: 'dim' }],
+      },
+      undefined,
+    );
+    const warnings = details.filter((d) => d.severity !== 'error');
+    expect(warnings).toHaveLength(2);
+    expect(warnings.map((w) => w.instancePath).sort()).toEqual([
+      '/materialization/bucket/column',
+      '/materialization/sorted_by/0',
+    ]);
+  });
+
+  test('uses an indexed bucket path when bucket is an array', () => {
+    const details = validateBucketAndSortedBy(
+      {
+        type: 'int_select_model',
+        materialization: {
+          type: 'incremental',
+          format: 'iceberg',
+          bucket: [{ column: 'missing', count: 8 }],
+        },
+        select: [{ name: 'present', type: 'dim' }],
+      },
+      undefined,
+    );
+    expect(details).toHaveLength(1);
+    expect(details[0].instancePath).toBe('/materialization/bucket/0/column');
+  });
+
+  test('skips column-existence checks when a bulk select is present', () => {
+    const details = validateBucketAndSortedBy(
+      {
+        type: 'int_select_model',
+        materialization: {
+          type: 'incremental',
+          format: 'iceberg',
+          bucket: { column: 'maybe_expanded', count: 8 },
+        },
+        select: [{ type: 'all_from_model' }],
+      },
+      undefined,
+    );
+    expect(details).toHaveLength(0);
+  });
+
+  // A model with no `select` derives its columns (including the sort column)
+  // from upstream, so the column-existence check must skip rather than flag a
+  // column that is present in the output.
+  test('skips column-existence checks when the model has no scalar select (rollup)', () => {
+    const details = validateBucketAndSortedBy(
+      {
+        type: 'int_rollup_model',
+        materialization: {
+          type: 'incremental',
+          strategy: { type: 'dj_iceberg_partition_overwrite' },
+          partitions: ['portal_partition_monthly', 'wd_env_type'],
+          sorted_by: ['tenant_name'],
+        },
+        from: { model: 'oms_detail_daily', rollup: { interval: 'month' } },
+      },
+      'iceberg',
+    );
+    expect(details).toHaveLength(0);
+  });
+
+  test('returns nothing when bucket/sorted_by are absent or materialization is shorthand', () => {
+    expect(
+      validateBucketAndSortedBy(
+        { type: 'int_select_model', materialization: 'incremental' },
+        undefined,
+      ),
+    ).toHaveLength(0);
+    expect(
+      validateBucketAndSortedBy(
+        { type: 'int_select_model', materialization: { type: 'incremental' } },
+        'iceberg',
+      ),
+    ).toHaveLength(0);
+  });
+});
+
 // `validatePartitionStrategyWithoutPartitions` warns when an incremental
 // model uses a partition-based strategy (`overwrite_existing_partitions` or
 // `dj_iceberg_partition_overwrite`) but the resolved column shape carries
@@ -1374,6 +1831,44 @@ describe('validatePartitionStrategyWithoutPartitions', () => {
     );
     expect(warnings).toHaveLength(1);
     expect(warnings[0].instancePath).toBe('/materialization');
+  });
+
+  test('suppresses: partial `exclude_portal_partition_columns` array still leaves partitions present', () => {
+    const modelJson = {
+      type: 'int_select_model',
+      materialization: { type: 'incremental' },
+      from: { model: 'stg_events' },
+      select: [{ name: 'region', type: 'dim' }],
+      // Drops only hourly; monthly + daily still flow through, so a
+      // partition-based strategy has columns to drive its work scope.
+      exclude_portal_partition_columns: ['portal_partition_hourly'],
+    };
+    expect(
+      validatePartitionStrategyWithoutPartitions(
+        modelJson,
+        'overwrite_existing_partitions',
+      ),
+    ).toHaveLength(0);
+  });
+
+  test('warns: `exclude_portal_partition_columns` array covering all three drops every partition', () => {
+    const modelJson = {
+      type: 'int_select_model',
+      materialization: { type: 'incremental' },
+      from: { model: 'stg_events' },
+      select: [{ name: 'region', type: 'dim' }],
+      exclude_portal_partition_columns: [
+        'portal_partition_monthly',
+        'portal_partition_daily',
+        'portal_partition_hourly',
+      ],
+    };
+    expect(
+      validatePartitionStrategyWithoutPartitions(
+        modelJson,
+        'overwrite_existing_partitions',
+      ),
+    ).toHaveLength(1);
   });
 
   test('warns: explicit `dj_iceberg_partition_overwrite` strategy via `materialization.strategy`', () => {
@@ -1837,5 +2332,187 @@ describe('validateMaterializationPartitionsExist', () => {
       ],
     });
     expect(errors).toEqual([]);
+  });
+
+  // A model with no `select` (rollup / `from: { model }` passthrough) derives
+  // its columns from upstream, so partition columns are not listed locally and
+  // must not be flagged.
+  test('skips when the model has no scalar select (rollup / upstream-derived)', () => {
+    const errors = validateMaterializationPartitionsExist({
+      type: 'int_rollup_model',
+      materialization: {
+        type: 'incremental',
+        strategy: { type: 'dj_iceberg_partition_overwrite' },
+        partitions: ['portal_partition_monthly', 'wd_env_type'],
+      },
+      from: { model: 'oms_detail_daily', rollup: { interval: 'month' } },
+    });
+    expect(errors).toEqual([]);
+  });
+});
+
+/**
+ * A bulk-select `exclude` cannot drop a framework-managed column -- the
+ * framework re-injects `datetime`, `portal_partition_*`, and
+ * `portal_source_count` after bulk expansion. The validator surfaces that as a
+ * warning pointing at the dedicated exclude flag.
+ */
+describe('validateBulkExcludeFrameworkColumns', () => {
+  test('warns and names the partition flag for a partition grain in a bulk exclude', () => {
+    const warnings = validateBulkExcludeFrameworkColumns({
+      type: 'int_union_models',
+      from: {
+        model: 'stg_events',
+        union: { type: 'all', models: ['stg_events'] },
+      },
+      select: [
+        {
+          type: 'all_from_model',
+          model: 'stg_events',
+          exclude: ['portal_partition_hourly'],
+        },
+      ],
+    });
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].message).toContain('portal_partition_hourly');
+    expect(warnings[0].message).toContain(
+      'exclude_portal_partition_columns: ["portal_partition_hourly"]',
+    );
+    expect(warnings[0].instancePath).toBe('/select/0/exclude/0');
+  });
+
+  test('names exclude_datetime and exclude_portal_source_count for those columns', () => {
+    const warnings = validateBulkExcludeFrameworkColumns({
+      type: 'int_select_model',
+      from: { model: 'stg_events' },
+      select: [
+        {
+          type: 'all_from_model',
+          model: 'stg_events',
+          exclude: ['datetime', 'portal_source_count'],
+        },
+      ],
+    });
+    expect(warnings).toHaveLength(2);
+    expect(warnings[0].message).toContain('`exclude_datetime: true`');
+    expect(warnings[0].instancePath).toBe('/select/0/exclude/0');
+    expect(warnings[1].message).toContain(
+      '`exclude_portal_source_count: true`',
+    );
+    expect(warnings[1].instancePath).toBe('/select/0/exclude/1');
+  });
+
+  test('warns for a bulk exclude inside a CTE select, anchored at the CTE path', () => {
+    const warnings = validateBulkExcludeFrameworkColumns({
+      type: 'int_select_model',
+      from: { cte: 'pre_agg' },
+      ctes: [
+        {
+          name: 'pre_agg',
+          from: { model: 'stg_events' },
+          select: [
+            {
+              type: 'dims_from_model',
+              model: 'stg_events',
+              exclude: ['portal_partition_daily'],
+            },
+          ],
+        },
+      ],
+    });
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].instancePath).toBe('/ctes/0/select/0/exclude/0');
+  });
+
+  test('does not warn for a regular column in a bulk exclude', () => {
+    const warnings = validateBulkExcludeFrameworkColumns({
+      type: 'int_select_model',
+      from: { model: 'stg_events' },
+      select: [
+        { type: 'all_from_model', model: 'stg_events', exclude: ['region'] },
+      ],
+    });
+    expect(warnings).toEqual([]);
+  });
+
+  test('does not warn when a framework column is in a bulk include (a meaningful keep)', () => {
+    const warnings = validateBulkExcludeFrameworkColumns({
+      type: 'int_select_model',
+      from: { model: 'stg_events' },
+      select: [
+        {
+          type: 'dims_from_model',
+          model: 'stg_events',
+          include: ['portal_partition_hourly'],
+        },
+      ],
+    });
+    expect(warnings).toEqual([]);
+  });
+
+  test('does not warn for a source-sourced bulk select (generation, not re-injection)', () => {
+    const warnings = validateBulkExcludeFrameworkColumns({
+      type: 'stg_select_source',
+      from: { source: 'raw.events' },
+      select: [
+        {
+          type: 'all_from_source',
+          source: 'raw.events',
+          exclude: ['portal_partition_hourly'],
+        },
+      ],
+    });
+    expect(warnings).toEqual([]);
+  });
+
+  test('does not warn when the excluded datetime is re-added as a scalar (replace pattern)', () => {
+    const warnings = validateBulkExcludeFrameworkColumns({
+      type: 'int_select_model',
+      from: { model: 'stg_events' },
+      select: [
+        {
+          type: 'dims_from_model',
+          model: 'stg_events',
+          exclude: ['datetime'],
+        },
+        { type: 'dim', name: 'datetime', interval: 'day' },
+      ],
+    });
+    expect(warnings).toEqual([]);
+  });
+
+  test('suppression is scope-local: a CTE re-add silences only the CTE exclude, not a main-select one', () => {
+    const warnings = validateBulkExcludeFrameworkColumns({
+      type: 'int_select_model',
+      from: { model: 'stg_events' },
+      select: [
+        {
+          type: 'all_from_model',
+          model: 'stg_events',
+          exclude: ['datetime'],
+        },
+      ],
+      ctes: [
+        {
+          name: 'pre_agg',
+          from: { model: 'stg_events' },
+          select: [
+            {
+              type: 'dims_from_model',
+              model: 'stg_events',
+              exclude: ['datetime'],
+            },
+            { type: 'dim', name: 'datetime', interval: 'day' },
+          ],
+        },
+      ],
+    });
+    // The CTE excludes and re-adds datetime -> suppressed (no CTE warning).
+    // The main select excludes without re-adding -> still warns. A single
+    // warning anchored at the main-select path proves the re-added names are
+    // computed per scope, not pooled across the model.
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].message).toContain('`exclude_datetime: true`');
+    expect(warnings[0].instancePath).toBe('/select/0/exclude/0');
   });
 });

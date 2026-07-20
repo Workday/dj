@@ -38,6 +38,16 @@ const getJoinModel = (
   join: SchemaModelFromJoinModels[0] | null | undefined,
 ): string | undefined => (join && 'model' in join ? join.model : undefined);
 
+// KNOWN GAP — CTE join targets are legal per `schemas/model.from.join.models.schema.json`
+// (the `{ cte, on }` and `{ cte }` variants), but JoinNode is currently
+// model-only: `getJoinModel` returns undefined for CTE joins, the
+// manifest lookups in `handleModelChange` only resolve dbt models, and the
+// column-directive default-value scan only matches `'model' in s`. The
+// `sourceKind` plumbing from SelectNode could be threaded through here in
+// a follow-up; until then, CTE joins authored via JSON are preserved by
+// the sync engine but can't be edited from the canvas. Tracking in the
+// CHANGELOG under "Known gaps".
+
 interface JoinNodeData {
   joinId?: string;
 }
@@ -236,7 +246,7 @@ export const JoinNode: React.FC<NodeProps> = ({ data, id }) => {
               'expr' in condition &&
               typeof (condition as { expr?: string }).expr === 'string'
             ) {
-              const expr = (condition as { expr: string }).expr;
+              const expr = condition.expr;
 
               // Trim whitespace from expression
               const trimmedExpr = expr.trim();
@@ -491,6 +501,17 @@ export const JoinNode: React.FC<NodeProps> = ({ data, id }) => {
     return filterAvailableModels(models, usedModels, currentSelections);
   }, [models, usedModels, selectedModel, currentJoinModel]);
 
+  // join[].cte target picker:
+  // The JoinNode's main model picker still only lists manifest-resolved
+  // models. Schema-level support for join[].cte exists -- a CTE join entry
+  // emits `{ cte: 'name', type: '...', on: ... }` -- but the column
+  // resolution + buildJoinUpdate path here writes `model: ...` and reads
+  // base/join columns from the manifest. Surfacing CTE targets here would
+  // require updating getJoinModel, buildJoinUpdate, and the column
+  // fetchers to branch on a `cte` discriminator. Tracked as a follow-up;
+  // CTE references inside join.on subqueries already work via
+  // `subqueryCteOptions` below.
+
   const ctes = useModelStore((state) => state.ctes);
 
   const subqueryModelOptions = useMemo(
@@ -573,7 +594,7 @@ export const JoinNode: React.FC<NodeProps> = ({ data, id }) => {
                 : 'dimension',
             description:
               ('description' in selectItem
-                ? (selectItem.description as string)
+                ? selectItem.description
                 : undefined) || '',
           });
         }
@@ -809,7 +830,7 @@ export const JoinNode: React.FC<NodeProps> = ({ data, id }) => {
     ): Record<string, unknown> => {
       const base: Record<string, unknown> = {
         model,
-        type: type as 'inner' | 'left' | 'right' | 'full' | 'cross',
+        type: type,
       };
       if (alias.trim()) {
         base.override_alias = alias.trim();
@@ -1318,7 +1339,7 @@ export const JoinNode: React.FC<NodeProps> = ({ data, id }) => {
       if (selectedModel?.value) {
         const base: Record<string, unknown> = {
           model: selectedModel.value,
-          type: joinType as 'inner' | 'left' | 'right' | 'full' | 'cross',
+          type: joinType,
         };
         const alias = overrideAliasRef.current;
         if (alias.trim()) {
@@ -1533,9 +1554,7 @@ export const JoinNode: React.FC<NodeProps> = ({ data, id }) => {
           subquerySourceOptions={subquerySourceOptions}
           subqueryCteOptions={subqueryCteOptions}
           subqueryColumnOptions={subqueryColumnOptions}
-          manifest={
-            (currentProject?.manifest as Record<string, unknown>) ?? null
-          }
+          manifest={currentProject?.manifest ?? null}
           ctes={ctes}
         />
       )}

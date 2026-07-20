@@ -33,6 +33,8 @@ One clarifying question if source vs existing model is unclear.
 
 **Path:** `models/<staging|intermediate|mart>/<group>/<topic>/<layer>__<group>__<topic>__<name>.model.json` (`stg_*`→`staging`, etc.).
 
+**Locate the project first:** the dbt project may be nested, not the workspace root — find its `dbt_project.yml` and treat `models/...` paths as relative to that directory. `.dj/schemas/` lives at the DJ/workspace root, which can differ from the dbt project dir. If more than one dbt project exists, use the one named in `dj.dbtProjectNames`.
+
 **Checklist:**
 
 - [ ] `type` from table; read **`.dj/schemas/model.type.<type>.schema.json`**; if CTE / subquery / **`from.model.rollup`** / hooks / **`agg`** / materialization, also **`model.cte`**, **`model.subquery`**, **`model.from.rollup`**, **`model.sql_hooks`**, **`model.materialization`**, **`model.select.*.with.agg`** as needed
@@ -43,7 +45,7 @@ One clarifying question if source vs existing model is unclear.
 ## Conventions & gotchas
 
 - **type**: Type of the model - mart, staging, intermediate, source, etc. Determined from the decision tree above.
-- **group**: Group of the model - analytics, finops, sales, marketing, etc.
+- **group**: Must be one of the groups defined in your project (e.g., `analytics`, `finops`, `marketing`, `engineering`, `sales`, `platform`).
 - **topic**: Topic of the model - aws_cur, gcp_billing, salesforce, etc.
 - **name**: Name of the model - accounts_billing_daily, opportunities_facts, etc.
 
@@ -65,7 +67,7 @@ The layer directory is derived from the type prefix: `stg_*` -> `staging`, `int_
 - [ ] Step 4: Refer to the AGENTS.md "Model Types" section for the example structure of the selected type
 - [ ] Step 5: Read upstream model/source files to verify available columns before writing `select`
 - [ ] Step 6: Create the `.model.json` file at the correct path using JSONC format (comments and trailing commas allowed)
-- [ ] Step 7: Verify the file is valid against the schema
+- [ ] Step 7: Verify validity via the editor's bound schema + DJ's on-save regeneration/diagnostics — do not assume standalone validators (`jsonschema`, `pyyaml`, `pip`) are installed (see [references/mart-lightdash-recipes.md](references/mart-lightdash-recipes.md) §4)
 
 ## Important Conventions
 
@@ -86,6 +88,7 @@ The layer directory is derived from the type prefix: `stg_*` -> `staging`, `int_
 - Source freshness can be disabled with `"freshness": null` at source or table level
 - Free-form `meta` keys are allowed at both model and column level on `.model.json` (e.g., `owner`, `pii`, `compliance`). See AGENTS.md "Custom Meta" section, `model.meta.schema.json`, `column.meta.schema.json`
 - For Lightdash column config, author `select[i].lightdash.dimension`, `.metrics`, `.metrics_merge`, `.case_sensitive` — not `meta.dimension` etc. The framework surfaces a Warning-severity diagnostic in the Problems tab if authored under `meta`
+- **Marts that back a Lightdash explore/dashboard** — for a default time window (`lightdash.table.required_filters`), a summable metric on a `mart_select_model` passthrough, the right framework-column exclude flag, and how validation works, see [references/mart-lightdash-recipes.md](references/mart-lightdash-recipes.md)
 
 ## Gotchas
 
@@ -111,3 +114,7 @@ The layer directory is derived from the type prefix: `stg_*` -> `staging`, `int_
 - `materialization` structured form allows `"format": "iceberg"` for Iceberg storage -- partitioning keyword changes automatically based on format
 - Both `materialized` (legacy) and `materialization` (preferred) are accepted; when both are present, `materialization` takes precedence
 - **`meta` is free-form but has a few reserved keys**. Column `type`, `dimension`, `metrics`, `case_sensitive`, `origin` and model `metrics`, `local_tags`, `case_sensitive`, and any key on `lightdash.table` are framework-owned — author via the structured sibling field (`type`, `lightdash.*`, `tags: [{ type: "local", tag }]`, etc.). Collisions trigger Warning diagnostics in the Problems tab
+
+## References
+
+- [references/mart-lightdash-recipes.md](references/mart-lightdash-recipes.md) — recipes for marts that back a Lightdash explore: default time window via `lightdash.table.required_filters`, a summable metric on a `mart_select_model` passthrough, the right framework-column exclude flag, and how validation works.

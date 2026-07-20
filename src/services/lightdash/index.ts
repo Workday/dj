@@ -2,7 +2,7 @@ import { getDjConfig } from '@services/config';
 import type { Dbt } from '@services/dbt';
 import type { DJLogger } from '@services/djLogger';
 import type { ApiEnabledService } from '@services/types';
-import { buildProcessEnv } from '@services/utils/process';
+import { buildProcessEnv, safeSpawn } from '@services/utils/process';
 import type { ApiPayload, ApiResponse } from '@shared/api/types';
 import { apiResponse } from '@shared/api/utils';
 
@@ -24,17 +24,25 @@ import {
   openYamlInEditor,
   promptInstallYamlExtension,
   readYamlFile,
+  resolveAbsoluteWorkingDir,
   syncYamlSchemasSetting,
 } from '@services/lightdash/dashboardsAsCode';
 import { getHtml } from '@services/webview/utils';
+import {
+  describeLightdashRestriction,
+  resolveLightdashUploadRestriction,
+} from '@shared/lightdash/restrictions';
 import type {
   LightdashModel,
   LightdashPreview,
   LightdashYamlLog,
 } from '@shared/lightdash/types';
+import type {
+  LightdashAssetListResult,
+  LightdashAssetSummary,
+} from '@shared/modellineage/types';
 import type { TreeItem } from 'admin';
 import { ThemeIcon, WORKSPACE_ROOT } from 'admin';
-import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -60,6 +68,15 @@ export class Lightdash implements ApiEnabledService<'lightdash'> {
 
   private currentWebviewPanel?: vscode.WebviewPanel;
   private dashboardsAsCodePanel?: vscode.WebviewPanel;
+  /** Set in `activate`; used to persist the per-folder project marker. */
+  private context?: vscode.ExtensionContext;
+  /**
+   * workspaceState key mapping a dashboards-as-code folder (absolute path) to
+   * the Lightdash project UUID last downloaded into it. Dashboards-as-Code
+   * YAML doesn't embed the project, so this lets the Download tab detect a
+   * different-project download into a folder that already holds one.
+   */
+  private static readonly PROJECT_BY_PATH_KEY = 'dj.lightdash.projectByPath';
 
   constructor(
     private readonly dbt: Dbt,
@@ -289,6 +306,15 @@ export class Lightdash implements ApiEnabledService<'lightdash'> {
           // (no-op if `path` matches the default and bindings exist).
           if (result.success) {
             await syncYamlSchemasSetting(this.log);
+            // Record which project now owns this folder so a later
+            // different-project download can prompt to replace.
+            await this.rememberProjectForPath(
+              result.absolutePath,
+              payload.request.project.trim(),
+            );
+            // Re-scan the reverse-lineage index so the Lightdash Lineage
+            // panel reflects the newly downloaded content on its next read.
+            await this.refreshReverseLineageIndex();
           }
           return apiResponse<typeof payload.type>({
             success: result.success,
@@ -319,8 +345,8 @@ export class Lightdash implements ApiEnabledService<'lightdash'> {
           );
           return apiResponse<typeof payload.type>({
             success: result.success,
-            uploadedFiles: result.uploadedFiles,
             error: result.error,
+            restriction: result.restriction,
           });
         } catch (err: unknown) {
           this.log.error('Error executing lightdash upload:', err);
@@ -329,6 +355,20 @@ export class Lightdash implements ApiEnabledService<'lightdash'> {
             error: err instanceof Error ? err.message : 'Unknown error',
           });
         }
+      }
+      case 'lightdash-yaml-check-upload-policy': {
+        const project = payload.request.project.trim();
+        const status = resolveLightdashUploadRestriction(
+          project,
+          getDjConfig().lightdashRestrictedProjects ?? [],
+        );
+        if (status.status === 'allow') {
+          return apiResponse<typeof payload.type>(status);
+        }
+        return apiResponse<typeof payload.type>({
+          ...status,
+          message: describeLightdashRestriction(status),
+        });
       }
       case 'lightdash-yaml-delete-files': {
         try {
@@ -346,6 +386,18 @@ export class Lightdash implements ApiEnabledService<'lightdash'> {
         return apiResponse<typeof payload.type>({
           path: getDashboardsAsCodeRelativePath(),
           absolutePath: getDashboardsAsCodeAbsolutePath(),
+        });
+      }
+      case 'lightdash-yaml-get-path-project': {
+        const absolutePath = resolveAbsoluteWorkingDir(payload.request.path);
+        return apiResponse<typeof payload.type>({
+          project: this.getProjectForPath(absolutePath),
+        });
+      }
+      case 'lightdash-yaml-get-download-defaults': {
+        return apiResponse<typeof payload.type>({
+          addPathToGitignore:
+            getDjConfig().lightdashDefaultAddPathToGitignore ?? true,
         });
       }
       case 'lightdash-yaml-set-default-path': {
@@ -548,9 +600,10 @@ export class Lightdash implements ApiEnabledService<'lightdash'> {
 
       this.log.info(`Executing: lightdash ${args.join(' ')}`);
 
-      const childProcess = spawn('lightdash', args, {
+      const childProcess = safeSpawn('lightdash', args, {
         cwd: WORKSPACE_ROOT,
         env,
+        shell: false,
       });
 
       let output = '';
@@ -639,9 +692,10 @@ export class Lightdash implements ApiEnabledService<'lightdash'> {
       this.log.info(`Executing: lightdash ${args.join(' ')}`);
 
       // Execute lightdash command
-      const childProcess = spawn('lightdash', args, {
+      const childProcess = safeSpawn('lightdash', args, {
         cwd: WORKSPACE_ROOT,
         env,
+        shell: false,
       });
 
       let output = '';
@@ -847,7 +901,55 @@ export class Lightdash implements ApiEnabledService<'lightdash'> {
     };
   }
 
+  /** The project UUID recorded for each dashboards-as-code folder. */
+  private getProjectByPath(): Record<string, string> {
+    return (
+      this.context?.workspaceState.get<Record<string, string>>(
+        Lightdash.PROJECT_BY_PATH_KEY,
+        {},
+      ) ?? {}
+    );
+  }
+
+  /** Read the project UUID last downloaded into `absolutePath`, if any. */
+  private getProjectForPath(absolutePath: string): string | undefined {
+    return this.getProjectByPath()[absolutePath];
+  }
+
+  /** Record `project` as the owner of `absolutePath` after a download. */
+  private async rememberProjectForPath(
+    absolutePath: string,
+    project: string,
+  ): Promise<void> {
+    if (!this.context) {
+      return;
+    }
+    const map = { ...this.getProjectByPath(), [absolutePath]: project };
+    await this.context.workspaceState.update(
+      Lightdash.PROJECT_BY_PATH_KEY,
+      map,
+    );
+  }
+
+  /**
+   * Force the reverse-lineage index to re-scan the content directory so the
+   * Lightdash Lineage panel reflects new/removed assets on its next read.
+   * Routed through the Api (force re-scan) to keep the Lightdash service
+   * decoupled from the ModelLineage / LightdashContent services.
+   */
+  private async refreshReverseLineageIndex(): Promise<void> {
+    try {
+      await this.apiCallback({
+        type: 'data-explorer-list-lightdash-assets',
+        request: { force: true },
+      });
+    } catch (err: unknown) {
+      this.log.error('Error refreshing reverse-lineage index:', err);
+    }
+  }
+
   activate(context: vscode.ExtensionContext): void {
+    this.context = context;
     this.registerCommands(context);
 
     // Sync schemas on activation. No-ops silently if the YAML extension
@@ -870,6 +972,52 @@ export class Lightdash implements ApiEnabledService<'lightdash'> {
         }
       }),
     );
+  }
+
+  /**
+   * Show a QuickPick of all Lightdash dashboards/charts (each annotated
+   * with the dbt models it references) and return the chosen anchor.
+   * Returns undefined when there is nothing to pick or the user cancels.
+   */
+  private async pickReverseLineageAsset(): Promise<
+    { kind: 'dashboard' | 'chart'; slug: string } | undefined
+  > {
+    const result = (await this.apiCallback({
+      type: 'data-explorer-list-lightdash-assets',
+      request: null,
+    })) as unknown as LightdashAssetListResult;
+    const assets = result?.assets ?? [];
+
+    if (assets.length === 0) {
+      vscode.window.showWarningMessage(
+        'No Lightdash dashboards or charts found. Run "DJ: Lightdash - Dashboards as Code" to download them first.',
+      );
+      return undefined;
+    }
+
+    type AssetQuickPickItem = vscode.QuickPickItem & {
+      asset: LightdashAssetSummary;
+    };
+    const items: AssetQuickPickItem[] = assets.map((asset) => ({
+      label: `$(${asset.kind === 'dashboard' ? 'dashboard' : 'graph'}) ${asset.name}`,
+      description: asset.kind,
+      detail:
+        asset.modelNames.length > 0
+          ? `Models: ${asset.modelNames.join(', ')}`
+          : 'No referenced models',
+      asset,
+    }));
+
+    const picked = await vscode.window.showQuickPick(items, {
+      title: 'Lightdash Reverse Lineage',
+      placeHolder: 'Select a dashboard or chart to see its upstream models',
+      matchOnDescription: true,
+      matchOnDetail: true,
+    });
+
+    return picked
+      ? { kind: picked.asset.kind, slug: picked.asset.slug }
+      : undefined;
   }
 
   /**
@@ -1044,6 +1192,47 @@ export class Lightdash implements ApiEnabledService<'lightdash'> {
             this.log.error('ERROR OPENING DASHBOARDS-AS-CODE PANEL: ', err);
             vscode.window.showErrorMessage(
               'Failed to open Lightdash Dashboards as Code',
+            );
+          }
+        },
+      ),
+    );
+
+    context.subscriptions.push(
+      vscode.commands.registerCommand(
+        COMMAND_ID.LIGHTDASH_REVERSE_LINEAGE,
+        async (arg?: { kind?: 'dashboard' | 'chart'; slug?: string }) => {
+          try {
+            let anchor:
+              | { kind: 'dashboard' | 'chart'; slug: string }
+              | undefined;
+
+            // Click-through / programmatic invocation passes the anchor;
+            // a bare palette invocation falls back to the asset picker.
+            if (
+              arg?.slug &&
+              (arg.kind === 'dashboard' || arg.kind === 'chart')
+            ) {
+              anchor = { kind: arg.kind, slug: arg.slug };
+            } else {
+              anchor = await this.pickReverseLineageAsset();
+            }
+
+            if (!anchor) {
+              return;
+            }
+
+            // Reverse lineage renders inside the Data Explorer panel; route
+            // through the Api so it focuses the panel and switches to the
+            // embedded Lightdash view with this anchor.
+            await this.apiCallback({
+              type: 'data-explorer-open-reverse-lineage',
+              request: anchor,
+            });
+          } catch (err: unknown) {
+            this.log.error('ERROR OPENING REVERSE LINEAGE: ', err);
+            vscode.window.showErrorMessage(
+              'Failed to open Lightdash reverse lineage',
             );
           }
         },

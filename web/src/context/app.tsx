@@ -7,7 +7,6 @@ import type { FrameworkModel } from '@shared/framework/types';
 import type { LightdashYamlNode } from '@shared/lightdash/types';
 import { TrinoProvider } from '@web/context/trino';
 import { useEnvironment } from '@web/context/useEnvironment';
-import { ColumnLineage } from '@web/pages/ColumnLineage';
 import DataExplorer from '@web/pages/DataExplorer';
 import { Home } from '@web/pages/Home';
 import { LightdashDashboardsAsCode } from '@web/pages/LightdashDashboardsAsCode';
@@ -15,7 +14,7 @@ import { LightdashPreviewManager } from '@web/pages/LightdashPreviewManager';
 import { ModelCreate } from '@web/pages/ModelCreate';
 import { ModelRun } from '@web/pages/ModelRun';
 import { ModelTest } from '@web/pages/ModelTest';
-import { QueryView } from '@web/pages/QueryView';
+import { QueryControlCenter } from '@web/pages/QueryControlCenter';
 import { SourceCreate } from '@web/pages/SourceCreate';
 import { DagCreate } from '@web/pages/DagCreate';
 import { PythonModelCreate } from '@web/pages/PythonModelCreate';
@@ -79,10 +78,10 @@ const routeConfigs: WebRoute[] = [
     regex: /^\/model\/lineage(\?.*)?$/,
   },
   {
-    element: <QueryView />,
-    label: 'Query View',
-    path: '/query/view/:queryId',
-    regex: /^\/query\/view\/([0-9]|[a-z]|_)+$/,
+    element: <QueryControlCenter />,
+    label: 'Query Control Center',
+    path: '/query/control-center',
+    regex: /^\/query\/control-center(\?.*)?$/,
   },
   {
     element: <SourceCreate />,
@@ -114,13 +113,9 @@ const routeConfigs: WebRoute[] = [
     path: '/lightdash/dashboards-as-code',
     regex: /^\/lightdash\/dashboards-as-code$/,
   },
-  {
-    element: <ColumnLineage />,
-    label: 'Column Lineage',
-    path: '/lineage/column',
-    regex: /^\/lineage\/column$/,
-  },
 ];
+
+const additionalRouteConfigs: WebRoute[] = [];
 
 const apiChannels: {
   [id: string]: {
@@ -526,11 +521,17 @@ export function AppProvider() {
                     resolve(
                       apiResponse<typeof payloadType>({
                         success: true,
-                        uploadedFiles: uploaded,
                       }),
                     ),
                   );
                   return;
+                }
+                case 'lightdash-yaml-check-upload-policy': {
+                  // No `dj.lightdash.restrictedProjects` setting in the
+                  // mocked browser/test environment, so always allow.
+                  return resolve(
+                    apiResponse<typeof payloadType>({ status: 'allow' }),
+                  );
                 }
                 case 'lightdash-yaml-delete-files': {
                   // Clear the mocked working directory so the next list-files
@@ -545,6 +546,20 @@ export function AppProvider() {
                     apiResponse<typeof payloadType>({
                       path: 'lightdash',
                       absolutePath: '/mock/workspace/lightdash',
+                    }),
+                  );
+                }
+                case 'lightdash-yaml-get-path-project': {
+                  // No recorded project in the mock, so the Download tab never
+                  // raises the cross-project replace prompt during dev.
+                  return resolve(
+                    apiResponse<typeof payloadType>({ project: undefined }),
+                  );
+                }
+                case 'lightdash-yaml-get-download-defaults': {
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      addPathToGitignore: true,
                     }),
                   );
                 }
@@ -770,6 +785,137 @@ export function AppProvider() {
                     apiResponse<typeof payloadType>({ success: true }),
                   );
                 }
+                case 'data-explorer-list-lightdash-assets': {
+                  // `request.force` (manual re-scan) is a no-op against the
+                  // static mock; it always returns the same fixture list.
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      assets: [
+                        {
+                          kind: 'dashboard',
+                          slug: 'exec-overview',
+                          name: 'Executive Overview',
+                          modelNames: ['mart_orders', 'mart_customers'],
+                          chartCount: 2,
+                        },
+                        {
+                          kind: 'chart',
+                          slug: 'orders-by-region',
+                          name: 'Orders by Region',
+                          modelNames: ['mart_orders'],
+                          dashboardNames: ['Executive Overview'],
+                        },
+                        {
+                          kind: 'chart',
+                          slug: 'standalone-revenue',
+                          name: 'Standalone Revenue',
+                          modelNames: ['mart_orders'],
+                          dashboardNames: [],
+                        },
+                      ],
+                      lightdashAvailable: true,
+                      lightdashResolvedPath: 'lightdash',
+                    }),
+                  );
+                }
+                case 'data-explorer-get-reverse-lineage': {
+                  const { kind, slug } = payload.request as {
+                    kind: 'dashboard' | 'chart';
+                    slug: string;
+                  };
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      anchor: {
+                        id: `lightdash::${kind}::${slug}`,
+                        slug,
+                        name:
+                          kind === 'dashboard'
+                            ? 'Executive Overview'
+                            : 'Orders by Region',
+                        kind,
+                        filePath: `lightdash/${kind}s/${slug}.yml`,
+                        charts:
+                          kind === 'dashboard'
+                            ? [
+                                {
+                                  slug: 'orders-by-region',
+                                  name: 'Orders by Region',
+                                  filePath: 'lightdash/charts/orders.yml',
+                                  modelName: 'mart_orders',
+                                },
+                              ]
+                            : undefined,
+                      },
+                      models: [
+                        {
+                          id: 'model.demo.mart_orders',
+                          name: 'mart_orders',
+                          type: 'model',
+                          path: 'models/mart/mart_orders.sql',
+                          materialized: 'table',
+                          hasOwnUpstream: true,
+                        },
+                      ],
+                      staleModels:
+                        kind === 'dashboard' ? ['mart_customers'] : [],
+                      projectName: 'demo',
+                      manifestAvailable: true,
+                      lightdashAvailable: true,
+                      lightdashResolvedPath: 'lightdash',
+                      parentDashboards:
+                        kind === 'chart'
+                          ? [
+                              {
+                                id: 'lightdash::dashboard::exec-overview',
+                                slug: 'exec-overview',
+                                name: 'Executive Overview',
+                                kind: 'dashboard',
+                                filePath:
+                                  'lightdash/dashboards/exec-overview.yml',
+                                charts: [
+                                  {
+                                    slug,
+                                    name: 'Orders by Region',
+                                    filePath: 'lightdash/charts/orders.yml',
+                                    modelName: 'mart_orders',
+                                  },
+                                ],
+                              },
+                            ]
+                          : [],
+                    }),
+                  );
+                }
+                case 'data-explorer-refresh-projects': {
+                  console.log('[Mock] Refreshing dbt projects');
+                  return resolve(
+                    apiResponse<typeof payloadType>({ success: true }),
+                  );
+                }
+                case 'data-explorer-open-reverse-lineage': {
+                  console.log(
+                    '[Mock] Opening reverse lineage for:',
+                    payload.request,
+                  );
+                  // Mirror the extension: push a `reverse-lineage-init` so the
+                  // Data Explorer shell switches to the embedded Lightdash view
+                  // and the reverse-lineage page loads the anchor.
+                  const anchor = payload.request as {
+                    kind: 'dashboard' | 'chart';
+                    slug: string;
+                  };
+                  window.postMessage(
+                    {
+                      type: 'reverse-lineage-init',
+                      kind: anchor.kind,
+                      slug: anchor.slug,
+                    },
+                    '*',
+                  );
+                  return resolve(
+                    apiResponse<typeof payloadType>({ success: true }),
+                  );
+                }
                 case 'lightdash-yaml-ensure-gitignore': {
                   const path = (payload.request as { path: string }).path;
                   console.log('[Mock] Ensuring .gitignore contains:', path);
@@ -935,6 +1081,18 @@ SELECT * FROM final`,
                     apiResponse<typeof payloadType>({ success: true }),
                   );
                 }
+                case 'data-explorer-compile-model':
+                case 'data-explorer-preview-model':
+                case 'data-explorer-open-column-lineage': {
+                  console.log(
+                    '[Mock] Reverse-lineage model action:',
+                    payloadType,
+                    payload.request,
+                  );
+                  return resolve(
+                    apiResponse<typeof payloadType>({ success: true }),
+                  );
+                }
                 case 'dbt-check-compiled-status': {
                   // Mock: randomly return compiled/not compiled for demonstration
                   const isCompiled = Math.random() > 0.5;
@@ -1007,9 +1165,6 @@ SELECT * FROM final`,
                     ]),
                   );
                 }
-                case 'trino-fetch-current-schema': {
-                  return resolve(apiResponse<typeof payloadType>('my_schema'));
-                }
                 case 'trino-fetch-etl-sources': {
                   return resolve(
                     apiResponse<typeof payloadType>([
@@ -1057,61 +1212,6 @@ SELECT * FROM final`,
                     ]),
                   );
                 }
-                case 'trino-fetch-system-queries': {
-                  return resolve(
-                    apiResponse<typeof payloadType>([
-                      {
-                        // analysis_time_ms: 0,
-                        created: '',
-                        end: '',
-                        // error_code: '',
-                        // error_type: '',
-                        // last_heartbeat: '',
-                        // planning_time_ms: 0,
-                        // queued_time_ms: 0,
-                        // query: '',
-                        query_id: '',
-                        // resource_group_id: [],
-                        source: '',
-                        started: '',
-                        state: 'FINISHED',
-                        // user: '',
-                      },
-                    ]),
-                  );
-                }
-                case 'trino-fetch-system-query-with-task': {
-                  return resolve(
-                    apiResponse<typeof payloadType>({
-                      // analysis_time_ms: 0,
-                      created: '2025-01-01T00:00:00Z',
-                      end: '2025-01-01T01:00:00Z',
-                      // error_code: '',
-                      // error_type: '',
-                      // last_heartbeat: '',
-                      // planning_time_ms: 0,
-                      // queued_time_ms: 0,
-                      // query: '',
-                      query_id: 'abc',
-                      // resource_group_id: [],
-                      source: '',
-                      started: '2025-01-01T00:01:00Z',
-                      state: 'FINISHED',
-                      // user: '',
-                    }),
-                  );
-                }
-                case 'trino-fetch-system-query-sql': {
-                  return resolve(
-                    apiResponse<typeof payloadType>(`
-/* {""app"": ""dbt"", ""dbt_version"": ""1.7.17"", ""profile_name"": ""profile"", ""target_name"": ""default"", ""node_id"": ""model.project.name""} */
-
-select a, b, c
-from table
-where a = 1      
-`),
-                  );
-                }
                 case 'trino-fetch-tables': {
                   return resolve(
                     apiResponse<typeof payloadType>([
@@ -1121,6 +1221,240 @@ where a = 1
                       'table_4',
                       'table_5',
                     ]),
+                  );
+                }
+                case 'trino-fetch-active-queries': {
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      source: 'cli',
+                      profileName: null,
+                      rows: [
+                        {
+                          queryId: '20250511_180000_00001_abc',
+                          state: 'RUNNING',
+                          user: 'mock_user',
+                          source: 'dbt-trino-1.7.17',
+                          catalog: 'hive',
+                          schema: 'analytics',
+                          created: new Date(Date.now() - 60_000).toISOString(),
+                          started: new Date(Date.now() - 55_000).toISOString(),
+                          wallTimeMs: 55_000,
+                          cpuTimeMs: 38_000,
+                          peakUserMemoryBytes: 1_200_000_000,
+                          totalSplits: 240,
+                          completedSplits: 142,
+                          runningSplits: 12,
+                          queuedSplits: 86,
+                        },
+                        {
+                          queryId: '20250511_175900_00000_xyz',
+                          state: 'FINISHED',
+                          user: 'mock_user',
+                          source: 'lightdash',
+                          catalog: 'hive',
+                          schema: 'analytics',
+                          created: new Date(Date.now() - 600_000).toISOString(),
+                          started: new Date(Date.now() - 595_000).toISOString(),
+                          ended: new Date(Date.now() - 540_000).toISOString(),
+                          wallTimeMs: 55_000,
+                          cpuTimeMs: 41_200,
+                          peakUserMemoryBytes: 850_000_000,
+                          totalSplits: 180,
+                          completedSplits: 180,
+                        },
+                      ],
+                    }),
+                  );
+                }
+                case 'trino-fetch-persisted-queries': {
+                  return resolve(
+                    apiResponse<typeof payloadType>([
+                      {
+                        queryId: '20250510_120000_00000_yesterday',
+                        persistedAt: new Date(
+                          Date.now() - 24 * 3600 * 1000,
+                        ).toISOString(),
+                        jsonPath:
+                          '/mock/workspace/.dj/diagnostics/20250510_120000_00000_yesterday.json',
+                        profileName: 'prod',
+                        coordinatorUrl: 'https://trino-prod.example.com:443',
+                        summary: {
+                          queryId: '20250510_120000_00000_yesterday',
+                          state: 'FAILED',
+                          user: 'mock_user',
+                          source: 'dbt-trino-1.7.17',
+                          wallTimeMs: 12_000,
+                          peakUserMemoryBytes: 950_000_000,
+                          errorCode: 'EXCEEDED_LOCAL_MEMORY_LIMIT',
+                          failureMessage:
+                            'Query exceeded per-node memory limit of 8GB',
+                        },
+                      },
+                      {
+                        // Legacy entry written before profile-stamping
+                        // landed — exercises the History tab's
+                        // "(none)" profile filter bucket and the
+                        // "no badge" QueryRow rendering path.
+                        queryId: '20250509_090000_00000_legacy',
+                        persistedAt: new Date(
+                          Date.now() - 48 * 3600 * 1000,
+                        ).toISOString(),
+                        jsonPath:
+                          '/mock/workspace/.dj/diagnostics/20250509_090000_00000_legacy.json',
+                        summary: {
+                          queryId: '20250509_090000_00000_legacy',
+                          state: 'FINISHED',
+                          user: 'other_user',
+                          source: 'lightdash',
+                          wallTimeMs: 3_500,
+                          peakUserMemoryBytes: 120_000_000,
+                        },
+                      },
+                    ]),
+                  );
+                }
+                case 'trino-delete-persisted-query': {
+                  const req = payload.request as { queryId: string };
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      queryId: req.queryId,
+                      deleted: true,
+                    }),
+                  );
+                }
+                case 'trino-fetch-query-info': {
+                  const req = payload.request as {
+                    queryId: string;
+                    prefer?: 'persisted' | 'rest';
+                  };
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      summary: {
+                        queryId: req.queryId,
+                        state: 'FINISHED',
+                        user: 'mock_user',
+                        source: 'dbt-trino-1.7.17',
+                        catalog: 'hive',
+                        schema: 'analytics',
+                        wallTimeMs: 55_000,
+                        cpuTimeMs: 41_200,
+                        peakUserMemoryBytes: 850_000_000,
+                        peakTotalMemoryBytes: 950_000_000,
+                        totalSplits: 180,
+                        completedSplits: 180,
+                        blockedTimeMs: 4_000,
+                        dataSkewScore: 1.2,
+                        largestOperator: 'LookupJoinOperator',
+                        connectorTypes: ['hive'],
+                      },
+                      query:
+                        '/* {"app": "dbt", "node_id": "model.mock_project.int__finance__billing__daily"} */\nselect * from analytics.daily',
+                      modelMatch: {
+                        project: 'mock_project',
+                        modelName: 'int__finance__billing__daily',
+                        modelJsonPath:
+                          '/mock/workspace/models/intermediate/finance/billing/int__finance__billing__daily.model.json',
+                        matchedBy: 'comment',
+                      },
+                      operatorSummary: [
+                        {
+                          operatorType: 'LookupJoinOperator',
+                          pipelineId: 1,
+                          inputPositions: 12_000_000,
+                          outputPositions: 11_800_000,
+                          cpuNanos: 18_000_000_000,
+                          peakMemoryReservation: 600_000_000,
+                        },
+                        {
+                          operatorType: 'TableScanOperator',
+                          pipelineId: 0,
+                          inputPositions: 12_000_000,
+                          outputPositions: 12_000_000,
+                          cpuNanos: 8_000_000_000,
+                          peakMemoryReservation: 120_000_000,
+                        },
+                      ],
+                      loadedFrom: req.prefer === 'rest' ? 'rest' : 'persisted',
+                      jsonPath: `/mock/workspace/.dj/diagnostics/${req.queryId}.json`,
+                    }),
+                  );
+                }
+                case 'trino-analyze-query': {
+                  const req = payload.request as { queryId: string };
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      queryId: req.queryId,
+                      jsonPath: `/mock/workspace/.dj/diagnostics/${req.queryId}.json`,
+                      fullJsonPath: `/mock/workspace/.dj/diagnostics/${req.queryId}.full.json`,
+                      modelMatch: {
+                        project: 'mock_project',
+                        modelName: 'int__finance__billing__daily',
+                        modelJsonPath:
+                          '/mock/workspace/models/intermediate/finance/billing/int__finance__billing__daily.model.json',
+                        matchedBy: 'comment',
+                      },
+                      promptSnippet: `Read .dj/diagnostics/${req.queryId}.json and apply the dj-trino-analyzer skill.`,
+                    }),
+                  );
+                }
+                case 'trino-list-profiles': {
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      active: 'dev',
+                      profiles: [
+                        {
+                          name: 'dev',
+                          coordinatorUrl: 'https://trino.dev.example.com',
+                          user: 'mock_user',
+                          authMethod: 'basic',
+                          authSource: 'secret-storage',
+                          verifyTls: true,
+                        },
+                        {
+                          name: 'prod',
+                          coordinatorUrl: 'https://trino.prod.example.com',
+                          user: 'mock_user',
+                          authMethod: 'bearer',
+                          authSource: 'env-var',
+                          secretEnvVar: 'TRINO_PROD_BEARER',
+                        },
+                      ],
+                    }),
+                  );
+                }
+                case 'trino-save-profile': {
+                  return resolve(apiResponse<typeof payloadType>({ ok: true }));
+                }
+                case 'trino-delete-profile': {
+                  return resolve(apiResponse<typeof payloadType>({ ok: true }));
+                }
+                case 'trino-set-active-profile': {
+                  return resolve(apiResponse<typeof payloadType>({ ok: true }));
+                }
+                case 'trino-set-credentials': {
+                  return resolve(apiResponse<typeof payloadType>({ ok: true }));
+                }
+                case 'trino-ping-coordinator': {
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      ok: true,
+                      version: '470',
+                      environment: 'mock',
+                    }),
+                  );
+                }
+                case 'trino-jump-to-model-from-query': {
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      matched: true,
+                      modelMatch: {
+                        project: 'mock_project',
+                        modelName: 'int__finance__billing__daily',
+                        modelJsonPath:
+                          '/mock/workspace/models/intermediate/finance/billing/int__finance__billing__daily.model.json',
+                        matchedBy: 'comment',
+                      },
+                    }),
                   );
                 }
                 case 'state-save': {
@@ -1453,6 +1787,19 @@ where a = 1
                   }
                   break;
                 }
+                case 'framework-model-cte-analysis': {
+                  // Web-only mock: echo back empty columns/diagnostics so the
+                  // panel renders with placeholder data without hitting the
+                  // backend handler. Real responses come from the extension
+                  // host's CteAnalysisHandlers in the VS Code environment.
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      columns: {},
+                      diagnostics: [],
+                      manifestTimestamp: null,
+                    }),
+                  );
+                }
                 case 'framework-check-model-exists': {
                   // Mock file existence check for web development
                   const request = payload.request as unknown as {
@@ -1500,9 +1847,7 @@ where a = 1
                 }
                 case 'framework-dag-create': {
                   return resolve(
-                    apiResponse<typeof payloadType>(
-                      'DAG created' as string,
-                    ),
+                    apiResponse<typeof payloadType>('DAG created' as string),
                   );
                 }
                 case 'framework-get-available-dags': {
@@ -1516,6 +1861,28 @@ where a = 1
                   return resolve(
                     apiResponse<typeof payloadType>({
                       groups: ['ml', 'etl', 'analytics', 'others'],
+                    }),
+                  );
+                }
+                case 'query-draft-create': {
+                  // Mock query draft creation for web development
+                  const filepath = `.dj/drafts/${Date.now()}.draft.sql`;
+                  return resolve(apiResponse<typeof payloadType>({ filepath }));
+                }
+                case 'query-draft-execute': {
+                  // Mock query execution for web development
+                  const mockColumns = ['id', 'name', 'value', 'created_at'];
+                  const mockRows = [
+                    [1, 'Alice', 100, '2025-01-01'],
+                    [2, 'Bob', 200, '2025-01-02'],
+                    [3, 'Charlie', 300, '2025-01-03'],
+                  ];
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      columns: mockColumns,
+                      rows: mockRows,
+                      rowCount: mockRows.length,
+                      executionTime: 150,
                     }),
                   );
                 }
@@ -1589,23 +1956,33 @@ where a = 1
 }
 
 function RenderRoute({ route }: { route: string | null }) {
+  // Combine all route configs
+  const allRouteConfigs = [...routeConfigs, ...additionalRouteConfigs];
+
   if (route) {
     // Running in extension at specific route
-    const routeConfig = routeConfigs.find((r) => r.regex.test(route));
+    const routeConfig = allRouteConfigs.find((r) => r.regex.test(route));
     if (!routeConfig) {
       return <div>404: Route not found</div>;
     }
+    // Split off the query string so react-router's `pathname` doesn't
+    // include `?queryId=…`. Treat everything after the first `?` as
+    // `search` verbatim — we never re-parse it here, so a malformed
+    // trailer can't break route matching.
+    const qIdx = route.indexOf('?');
+    const pathname = qIdx >= 0 ? route.slice(0, qIdx) : route;
+    const search = qIdx >= 0 ? route.slice(qIdx) : '';
     // Even though we're running in the extesion, wrap this like a browser route, so we can use react-router hooks
     return (
       <BrowserRouter basename="/">
-        <Routes location={{ pathname: route }}>
+        <Routes location={{ pathname, search }}>
           <Route path={routeConfig.path} element={routeConfig.element} />
         </Routes>
       </BrowserRouter>
     );
   } else {
     // Running in separate browser
-    const router = createBrowserRouter(routeConfigs);
+    const router = createBrowserRouter(allRouteConfigs);
     return <RouterProvider router={router} />;
   }
 }

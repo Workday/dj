@@ -1,6 +1,6 @@
 import { WORKSPACE_ROOT } from 'admin';
-import { spawn } from 'child_process';
 
+import { safeSpawn } from './safeSpawn';
 import { buildProcessEnv } from './venv';
 
 export interface RunProcessOptions {
@@ -56,19 +56,23 @@ export function runProcess(options: RunProcessOptions): Promise<string> {
     let stdout = '';
     let stderr = '';
 
-    const childProcess = spawn(command, args, {
+    // safeSpawn resolves the executable on every platform (PATHEXT / .cmd
+    // shims on Windows) without a shell, so shell: false keeps argv boundaries
+    // intact and repository-controlled arguments (e.g. model selectors) are
+    // never re-parsed by a shell.
+    const childProcess = safeSpawn(command, args, {
       cwd,
       env,
-      shell: true,
+      shell: false,
     });
 
-    childProcess.stdout.on('data', (data) => {
+    childProcess.stdout?.on('data', (data) => {
       const output = data.toString();
       logger?.info?.(output);
       stdout += output;
     });
 
-    childProcess.stderr.on('data', (data) => {
+    childProcess.stderr?.on('data', (data) => {
       const error = data.toString();
       logger?.error?.(error);
       stderr += error;

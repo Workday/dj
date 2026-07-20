@@ -1,42 +1,47 @@
-name: Publish Extension to VS Code Marketplace
-run-name: Publish v${{ inputs.version }}
+name: Publish DJ to GH PreRelease
+
+run-name: Prerelease ${{ inputs.tag }}
 
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: "Version to publish (e.g. 0.1.0) - do NOT include 'v' prefix"
+      tag:
+        description: "PreRelease Version to publish (e.g. 0.1.0) - do NOT include 'v' prefix"
         required: true
         type: string
 
 concurrency:
-  group: publish
+  group: prerelease
   cancel-in-progress: false
 
 permissions: {}
 
 jobs:
-  publish:
-    name: Publish v${{ inputs.version }}
+  prerelease:
+    name: Prerelease ${{ inputs.tag }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: write
     steps:
-      - name: Validate version input format
+      - name: Normalize and validate tag
+        id: normalize
         env:
-          VERSION: ${{ inputs.version }}
+          TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
+          VERSION="$TAG"
           if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([-+].+)?$'; then
-            echo "::error::Invalid version format '$VERSION'. Expected 'X.Y.Z' (no 'v' prefix)."
+            echo "::error::Invalid version '$VERSION'. Expected 'X.Y.Z' (do NOT include 'v' prefix)."
             exit 1
           fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "version_tag=v${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout tag
         uses: actions/checkout@v4
         with:
-          ref: refs/tags/v${{ inputs.version }}
+          ref: refs/tags/${{ steps.normalize.outputs.version_tag }}
           fetch-depth: 0
 
       - name: Setup Node.js
@@ -51,11 +56,11 @@ jobs:
       - name: Resolve package metadata
         id: pkg
         env:
-          VERSION: ${{ inputs.version }}
+          TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
           if [ ! -f package.json ]; then
-            echo "::error::package.json not found at tag v${VERSION}"
+            echo "::error::package.json not found at tag $TAG"
             exit 1
           fi
           PACKAGE_NAME=$(node -p "require('./package.json').name || ''" 2>/dev/null || true)
@@ -71,23 +76,39 @@ jobs:
           echo "extension_id=${PUBLISHER}.${PACKAGE_NAME}" >> "$GITHUB_OUTPUT"
           echo "vsix=${PACKAGE_NAME}-${PACKAGE_VERSION}.vsix" >> "$GITHUB_OUTPUT"
 
-      - name: Verify version matches package.json
+      - name: Verify tag matches package.json version
         env:
-          INPUT_VERSION: ${{ inputs.version }}
+          TAG_VERSION: ${{ steps.normalize.outputs.version }}
           PKG_VERSION: ${{ steps.pkg.outputs.version }}
         run: |
           set -euo pipefail
-          if [ "$INPUT_VERSION" != "$PKG_VERSION" ]; then
-            echo "::error::Input version '$INPUT_VERSION' does not match package.json version '$PKG_VERSION'"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Tag version '$TAG_VERSION' does not match package.json version '$PKG_VERSION'"
             exit 1
           fi
 
-      - name: Check VS Code Marketplace for existing version
+      - name: Check for existing GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.normalize.outputs.version_tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::A GitHub Release for tag $TAG already exists. Refusing to create a duplicate."
+            exit 1
+          fi
+          echo "No existing release for $TAG. Proceeding."
+
+      - name: Check marketplace for existing version
         env:
           EXTENSION_ID: ${{ steps.pkg.outputs.extension_id }}
           PACKAGE_VERSION: ${{ steps.pkg.outputs.version }}
         run: |
           set -euo pipefail
+          # Read-only duplicate backstop. Pre-releases are NEVER published to the
+          # Marketplace (only stable is); this just fails if the version already
+          # exists on the Marketplace.
+
           TMP_OUT=$(mktemp)
           TMP_ERR=$(mktemp)
           set +e
@@ -100,7 +121,7 @@ jobs:
 
           if [ $RC -ne 0 ] || [ -z "$RAW" ]; then
             if echo "$ERR" | grep -qiE "not found|could not be found|no extension"; then
-              echo "Extension '$EXTENSION_ID' not on marketplace yet (first publish)."
+              echo "Extension '$EXTENSION_ID' not on marketplace yet. Proceeding."
               exit 0
             fi
             echo "::error::vsce show failed for '$EXTENSION_ID': $ERR"
@@ -117,6 +138,7 @@ jobs:
             echo "::error::Version $PACKAGE_VERSION already published to marketplace for $EXTENSION_ID"
             exit 1
           fi
+          echo "Version $PACKAGE_VERSION is not a duplicate on marketplace for $EXTENSION_ID."
 
       - name: Install dependencies
         run: |
@@ -148,18 +170,6 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish to VS Code Marketplace
-        env:
-          VSCE_PAT: ${{ secrets.VSCODE_MARKETPLACE_PAT }}
-          VSIX: ${{ steps.pkg.outputs.vsix }}
-        run: |
-          set -euo pipefail
-          if [ -z "${VSCE_PAT:-}" ]; then
-            echo "::error::Marketplace PAT secret is missing"
-            exit 1
-          fi
-          vsce publish --no-dependencies --packagePath "./${VSIX}"
-
       - name: Read changelog entry
         id: changelog
         continue-on-error: true
@@ -172,26 +182,27 @@ jobs:
         id: body
         env:
           CHANGES: ${{ steps.changelog.outputs.changes }}
-          TAG: v${{ inputs.version }}
+          TAG: ${{ steps.normalize.outputs.version_tag }}
+          VERSION: ${{ steps.normalize.outputs.version }}
         run: |
           set -euo pipefail
+          if [ -z "${CHANGES//[[:space:]]/}" ]; then
+            echo "::error::No CHANGELOG.md entry found for version ${VERSION}. Add a '## ${VERSION}' section to CHANGELOG.md before creating the prerelease ${TAG}."
+            exit 1
+          fi
           {
             echo "body<<EOF"
-            if [ -n "${CHANGES:-}" ]; then
-              echo "$CHANGES"
-            else
-              echo "Release $TAG"
-            fi
+            echo "$CHANGES"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Create GitHub Release
+      - name: Create GitHub Prerelease
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65  # v2.6.2
         with:
-          tag_name: v${{ inputs.version }}
-          name: v${{ inputs.version }}
+          tag_name: ${{ steps.normalize.outputs.version_tag }}
+          name: ${{ steps.normalize.outputs.version_tag }}
           body: ${{ steps.body.outputs.body }}
           draft: false
-          prerelease: false
+          prerelease: true
           fail_on_unmatched_files: true
           files: ./${{ steps.pkg.outputs.vsix }}

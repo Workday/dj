@@ -17,7 +17,6 @@ import {
   VIEW_ID,
 } from '@services/constants';
 import type { DJLogger } from '@services/djLogger';
-import { PARTITION_DAILY } from '@services/framework/constants';
 import type { FrameworkState } from '@services/framework/FrameworkState';
 import {
   frameworkExtractModelName,
@@ -33,6 +32,7 @@ import {
   buildProcessEnv,
   getVenvEnvironment,
   runProcess,
+  safeSpawn,
 } from '@services/utils/process';
 import { sqlFormat } from '@services/utils/sql';
 import { getHtml } from '@services/webview/utils';
@@ -52,10 +52,10 @@ import {
   getDbtModelId,
   getDbtProjectProperties,
 } from '@shared/dbt/utils';
+import { PARTITION_DAILY } from '@shared/framework/constants';
 import type { FrameworkSchemaBase } from '@shared/framework/types';
 import type { TreeData, TreeItem } from 'admin';
 import { DJ_SCHEMAS_PATH, TreeDataInstance, WORKSPACE_ROOT } from 'admin';
-import { spawn } from 'child_process';
 import * as fs from 'fs';
 import { applyEdits, modify } from 'jsonc-parser';
 import * as _ from 'lodash';
@@ -152,6 +152,14 @@ export class Dbt implements ApiEnabledService<'dbt'> {
     },
     iconPath: new vscode.ThemeIcon('add'),
     label: 'Create DAG',
+  };
+  treeItemQueryCreate: TreeItem = {
+    command: {
+      command: COMMAND_ID.QUERY_DRAFT_CREATE,
+      title: 'Create New Query',
+    },
+    iconPath: new vscode.ThemeIcon('file-add'),
+    label: 'Create New Query',
   };
 
   // Webview panels
@@ -1889,6 +1897,8 @@ ${macro.macro_sql}`;
         vscode.Uri.file(BASE_SKILLS_PATH),
       );
 
+      await this.removeLegacySkillDirectories();
+
       const writePromises = skillEntries
         .filter(([, type]) => type === vscode.FileType.Directory)
         .map(async ([skillDirName]) => {
@@ -1931,6 +1941,67 @@ ${macro.macro_sql}`;
       await Promise.all(writePromises);
     } catch (err: unknown) {
       this.log.error('Error writing skill files:', err);
+    }
+  }
+
+  /**
+   * Delete deployed skill directories whose skills were renamed in a later
+   * release. Deployment only ever copies, so without this a renamed skill
+   * would leave agents seeing two copies under different names.
+   */
+  private async removeLegacySkillDirectories(): Promise<void> {
+    // Directory names that shipped in earlier releases and no longer match a
+    // template (e.g. `convert-sql-to-model` -> `dj-convert-sql-to-model`).
+    const legacySkillDirNames = ['convert-sql-to-model'];
+
+    for (const legacyDirName of legacySkillDirNames) {
+      const legacyDir = vscode.Uri.file(
+        path.join(WORKSPACE_ROOT, '.agents', 'skills', legacyDirName),
+      );
+      try {
+        await vscode.workspace.fs.delete(legacyDir, { recursive: true });
+        this.log.info(`Removed legacy skill directory: ${legacyDirName}`);
+      } catch {
+        // Directory not present — nothing to clean up.
+      }
+    }
+  }
+
+  /**
+   * Recursively copy a skill directory (files + subdirectories) into the
+   * workspace target. Subdirectories like `references/`, `scripts/`, `assets/`
+   * are part of the Agent Skills open standard (https://agentskills.io) for
+   * progressive disclosure of skill content.
+   *
+   * Leading underscores on template filenames are stripped (e.g. `_SKILL.md`
+   * → `SKILL.md`) so they aren't picked up as skills inside this repo's own
+   * `templates/skills` directory. Subdirectory names are preserved verbatim.
+   */
+  private async copySkillDirectoryRecursive(
+    sourceDir: string,
+    targetDir: string,
+  ): Promise<void> {
+    const entries = await vscode.workspace.fs.readDirectory(
+      vscode.Uri.file(sourceDir),
+    );
+
+    for (const [entryName, entryType] of entries) {
+      const sourceEntryPath = path.join(sourceDir, entryName);
+      if (entryType === vscode.FileType.File) {
+        const targetFileName = entryName.startsWith('_')
+          ? entryName.slice(1)
+          : entryName;
+        const targetPath = vscode.Uri.file(
+          path.join(targetDir, targetFileName),
+        );
+        const content = await vscode.workspace.fs.readFile(
+          vscode.Uri.file(sourceEntryPath),
+        );
+        await vscode.workspace.fs.writeFile(targetPath, content);
+      } else if (entryType === vscode.FileType.Directory) {
+        const targetSubDir = path.join(targetDir, entryName);
+        await this.copySkillDirectoryRecursive(sourceEntryPath, targetSubDir);
+      }
     }
   }
 
@@ -2236,6 +2307,7 @@ ${macro.macro_sql}`;
       this.treeItemSourceCreate,
       this.treeItemPythonModelCreate,
       this.treeItemDagCreate,
+      this.treeItemQueryCreate,
       this.coder.lightdash.treeItemLightdashPreview,
       this.treeItemModelRun,
       this.treeItemModelTest,
@@ -2514,9 +2586,13 @@ ${macro.macro_sql}`;
       // Build environment with Python venv support
       const env = buildProcessEnv();
 
-      const childProcess = spawn('dbt', args, {
+      // safeSpawn locates dbt across platforms without a shell; shell: false
+      // keeps the selector a literal argument so a repository-controlled model
+      // name cannot inject shell commands.
+      const childProcess = safeSpawn('dbt', args, {
         cwd: project.pathSystem,
         env,
+        shell: false,
       });
 
       let errorOutput = '';
@@ -3094,39 +3170,36 @@ ${macro.macro_sql}`;
 
     // Python model Create Command
     context.subscriptions.push(
-      vscode.commands.registerCommand(
-        'dj.command.pythonModelCreate',
-        () => {
-          if (this.coder.framework.webviewPanelPythonModelCreate) {
-            this.coder.framework.webviewPanelPythonModelCreate.reveal();
-          } else {
-            const panel = vscode.window.createWebviewPanel(
-              'dj.view.pythonModelCreate',
-              'Create Python Model',
-              vscode.ViewColumn.One,
-              { enableScripts: true },
-            );
-            panel.onDidDispose(() => {
-              this.coder.framework.webviewPanelPythonModelCreate = undefined;
-            });
-            this.coder.framework.webviewPanelPythonModelCreate = panel;
-            const html = getHtml({
-              extensionUri: this.context.extensionUri,
-              route: '/python-model/create',
-              webview: panel.webview,
-            });
-            panel.webview.html = html;
+      vscode.commands.registerCommand('dj.command.pythonModelCreate', () => {
+        if (this.coder.framework.webviewPanelPythonModelCreate) {
+          this.coder.framework.webviewPanelPythonModelCreate.reveal();
+        } else {
+          const panel = vscode.window.createWebviewPanel(
+            'dj.view.pythonModelCreate',
+            'Create Python Model',
+            vscode.ViewColumn.One,
+            { enableScripts: true },
+          );
+          panel.onDidDispose(() => {
+            this.coder.framework.webviewPanelPythonModelCreate = undefined;
+          });
+          this.coder.framework.webviewPanelPythonModelCreate = panel;
+          const html = getHtml({
+            extensionUri: this.context.extensionUri,
+            route: '/python-model/create',
+            webview: panel.webview,
+          });
+          panel.webview.html = html;
 
-            // Handle webview messages including state management
-            panel.webview.onDidReceiveMessage(
-              this.coder.createWebviewMessageHandler(
-                panel,
-                'python-model-create',
-              ),
-            );
-          }
-        },
-      ),
+          // Handle webview messages including state management
+          panel.webview.onDidReceiveMessage(
+            this.coder.createWebviewMessageHandler(
+              panel,
+              'python-model-create',
+            ),
+          );
+        }
+      }),
     );
 
     // DAG Create Command
@@ -3475,10 +3548,13 @@ ${macro.macro_sql}`;
         ...getVenvEnvironment(),
       };
 
-      const childProcess = spawn('dbt', args, {
+      // safeSpawn locates dbt across platforms without a shell; shell: false
+      // keeps the selector a literal argument so a repository-controlled model
+      // name cannot inject shell commands.
+      const childProcess = safeSpawn('dbt', args, {
         cwd: project.pathSystem,
         env,
-        shell: true,
+        shell: false,
       });
 
       let hasErrors = false;

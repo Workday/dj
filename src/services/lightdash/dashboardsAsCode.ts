@@ -1,15 +1,20 @@
+import { getDjConfig } from '@services/config';
 import {
   LIGHTDASH_CHART_SCHEMA_URL,
   LIGHTDASH_DASHBOARD_SCHEMA_URL,
 } from '@services/constants';
 import type { DJLogger } from '@services/djLogger';
-import { buildProcessEnv } from '@services/utils/process';
+import { buildProcessEnv, safeSpawn } from '@services/utils/process';
+import type { LightdashRestrictionStatus } from '@shared/lightdash/restrictions';
+import {
+  describeLightdashRestriction,
+  resolveLightdashUploadRestriction,
+} from '@shared/lightdash/restrictions';
 import type {
   LightdashYamlLog,
   LightdashYamlNode,
 } from '@shared/lightdash/types';
 import { WORKSPACE_ROOT } from 'admin';
-import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -149,7 +154,7 @@ function runLightdash(
     });
 
     const env = buildProcessEnv({});
-    const child = spawn('lightdash', args, { cwd, env });
+    const child = safeSpawn('lightdash', args, { cwd, env, shell: false });
     let stdout = '';
     let stderr = '';
 
@@ -196,7 +201,12 @@ function runLightdash(
   });
 }
 
-function resolveAbsoluteWorkingDir(rawPath?: string): string {
+/**
+ * Resolve a raw (possibly relative / blank) dashboards-as-code path to an
+ * absolute filesystem path, matching how `download` / `upload` resolve their
+ * `-p` target. A blank value falls back to the configured default.
+ */
+export function resolveAbsoluteWorkingDir(rawPath?: string): string {
   const trimmed = rawPath?.trim();
   if (!trimmed) {
     return getDashboardsAsCodeAbsolutePath();
@@ -305,13 +315,15 @@ export async function executeLightdashUpload(
     force?: boolean;
     includeCharts?: boolean;
     project: string;
+    /** See `LightdashApi['lightdash-yaml-upload'].request`. */
+    acknowledgedWarning?: boolean;
   },
   log: DJLogger,
   onLog: StreamLogFn,
 ): Promise<{
   success: boolean;
-  uploadedFiles?: string[];
   error?: string;
+  restriction?: LightdashRestrictionStatus;
 }> {
   const absolutePath = resolveAbsoluteWorkingDir(request.path);
   const project = request.project.trim();
@@ -324,6 +336,45 @@ export async function executeLightdashUpload(
       timestamp: new Date().toISOString(),
     });
     return { success: false, error };
+  }
+
+  // Defense-in-depth: re-check the restricted-projects policy here even
+  // though the UI pre-flights via `lightdash-yaml-check-upload-policy`.
+  // The setting may have changed between the pre-flight and the actual
+  // upload, and direct API callers can bypass the UI entirely.
+  const restriction = resolveLightdashUploadRestriction(
+    project,
+    getDjConfig().lightdashRestrictedProjects ?? [],
+  );
+  if (restriction.status === 'block') {
+    const error =
+      describeLightdashRestriction(restriction) ??
+      `Upload blocked: project ${project} is on the DJ restricted list.`;
+    onLog({
+      level: 'error',
+      message: error,
+      timestamp: new Date().toISOString(),
+    });
+    return {
+      success: false,
+      error,
+      restriction: { ...restriction, message: error },
+    };
+  }
+  if (restriction.status === 'warn' && !request.acknowledgedWarning) {
+    const error =
+      describeLightdashRestriction(restriction) ??
+      `Upload requires confirmation: project ${project} is marked as warn.`;
+    onLog({
+      level: 'warning',
+      message: error,
+      timestamp: new Date().toISOString(),
+    });
+    return {
+      success: false,
+      error,
+      restriction: { ...restriction, message: error },
+    };
   }
 
   const args: string[] = ['upload', '-p', absolutePath, '--project', project];
@@ -352,14 +403,7 @@ export async function executeLightdashUpload(
         `lightdash upload exited with code ${result.code}`;
       return { success: false, error };
     }
-    const uploaded = [
-      ...(request.dashboardSlugs ?? []),
-      ...(request.chartSlugs ?? []),
-    ];
-    return {
-      success: true,
-      uploadedFiles: uploaded,
-    };
+    return { success: true };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     // Transport / unexpected exception path: nothing was streamed, emit once.

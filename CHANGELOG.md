@@ -1,18 +1,85 @@
 # Change Log
 
+## 1.10.1
+
+- **Fixed a command-injection vulnerability when opening a dbt project.** Trino CLI queries no longer run through a shell, the project name and `vars.etl_schema` read from `dbt_project.yml` are validated, and catalog/schema/table names are safely quoted, so a crafted project file can no longer execute arbitrary commands. The automatic source lookup on open is also skipped in Restricted Mode (untrusted) workspaces.
+- **Improved Windows compatibility.** dbt, Trino, Lightdash, and git commands now resolve without relying on a shell (including `.cmd` / `.bat` shims), and Python virtual environments set via `dj.pythonVenvPath` activate using the Windows `Scripts` layout.
+
+## 1.10.0
+
+- **Exclude specific portal partition columns.** `exclude_portal_partition_columns` now accepts an array of column names, not just the boolean, so a model or CTE can drop any subset of its monthly / daily / hourly partition grains instead of all-or-nothing. Set it in the `.model.json`, the model wizard's Exclude Partition Columns picker, or the CTE side-panel; an array overrides `exclude_framework_artifacts` at the same scope.
+- **Framework-artifact excludes now in the model wizard, with guidance.** The Additional Fields → Column Excludes step surfaces the full set of opt-outs — datetime, portal source count, partition columns, and the date / daily WHERE filters — each with a tooltip on when it's safe to drop and how it affects query cost. The CTE side-panel's exclude controls gain the same tooltips.
+- **Warns when a bulk `exclude` can't drop a framework column.** Naming `datetime`, a `portal_partition_*` grain, or `portal_source_count` in an `all_from_model` / `dims_from_model` (or CTE) `exclude` raises a Problems-tab warning pointing to the matching flag (`exclude_datetime`, `exclude_portal_partition_columns`, `exclude_portal_source_count`), since the framework re-injects those columns and the bulk exclude alone has no effect. Re-adding the column as a named select in the same list — the replace pattern for re-graining `datetime` — is recognized and does not warn.
+
 ## 1.9.0
 
-### Python models
+### Agent skills
 
-- **`_trino_io.py` overwrite restores on insert failure.** `overwrite` / `overwrite_partition` now back up matching rows before DELETE, then restore them if the subsequent INSERT fails. Callers can pass either a full `insert_sql=` statement or a `source_query=` (+ optional `columns=`) for the helper to assemble the INSERT.
-- **Refreshed shared python model helpers.** `_trino_io.py` now uses context-managed connections with `execute_sql` / `fetch_value` and ships DDL helpers (`create_schema`, `create_hive_csv_external_table`, `create_iceberg_table`, `set_extra_properties`, `flush_hive_metadata_cache`). `_config.py` resolves the catalog and namespace from Airflow Variables via `get_catalog_name()` / `get_namespace_name()`. A new shared `_model_tasks.py` provides topological batch ordering, and `etl_helper.py` gains topic-aware TaskGroups, schedule gating, and per-topic skip/backfill support. Generated model scaffolding now builds the target table FQN from the resolved catalog and namespace.
-- **Shared helper files always regenerate and are edit-protected.** `_config.py`, `_trino_io.py`, `_model_tasks.py`, and `etl_helper.py` are overwritten on activation and model creation so framework fixes propagate automatically, and manual edits to any of them are reverted with a notification (previously only `_trino_io.py` was protected).
-- **Destructive SQL is blocked in python model files.** `DROP`, `DELETE`, and `TRUNCATE` statements in user-authored `python_models/**` `.py` files now surface as errors in the Problems tab, steering users toward the safe DML helpers in `_trino_io.py`. DJ-generated shared files are exempt.
-- **`.python.py` is now the source of truth for python model code.** Opening the notebook always builds a fresh view from `.python.py` using jupytext-style `# %%` cell markers (a marker-less `.py` shows as a single cell). Saving the `.python.ipynb` persists the notebook cells into `.python.json` (dropping the derived, notebook-only header) — the `.python.py` is never rewritten from the notebook. This eliminates the positional cell-mapping corruption that could reorder, duplicate, or append function blocks when saving the notebook.
+- **Build and edit Lightdash charts and dashboards through your AI assistant.** With `dj.codingAgent` enabled, the new `dj-create-lightdash-yaml` skill scaffolds and uploads chart/dashboard YAML for a deployed explore — resolving exact field IDs, honoring required filters, and confirming which project to target so prod isn't changed by mistake. The companion `dj-edit-lightdash-yaml` skill clarifies which filter edits are safe in place versus which need a real field ID.
+- **Scaffold marts that back a Lightdash dashboard.** The `dj-create-new-model` skill now bundles mart-to-Lightdash recipes — default dashboard time windows (`lightdash.table.required_filters`), summable metrics on passthrough marts, and which framework-column exclude flag keeps your date dimension intact. All three skills treat the model's `.model.json` as the single source of truth for required filters.
 
-### Agent Skills
+### Materialization
 
-- **Review Python models for production readiness through your AI assistant.** When `dj.codingAgent` is enabled, a new skill at `.agents/skills/dj-review-python-model/SKILL.md` audits a `.python.json` + `.python.py` pair and produces a structured report covering framework compliance, lineage readiness (including end-to-end `python_model_upstream_sources` validation), downstream integration, and performance. The review cross-references SQL FROM/JOIN clauses against declared upstream sources to catch missing or stale lineage edges, verifies the full Iceberg table properties chain for lineage discoverability, and flags SQL-first violations, missing partition columns, and staging table leaks. Read-only — surfaces issues and recommendations without auto-fixing.
+- **Bucket and sort incremental tables.** Add `bucket` and `sorted_by` to a model's `materialization` to control how large incremental tables are bucketed and sorted on disk for faster reads. DJ generates the correct table properties for your storage format (Iceberg, Hive/Glue, or Delta Lake) and flags combinations a format can't support — such as bucketing on Delta Lake or uneven bucket counts on Hive — in the Problems tab.
+
+### Lightdash reverse lineage
+
+- **Trace a Lightdash dashboard or chart back to its dbt models.** The Data Explorer panel gains a **Lightdash** view — open it from the panel sidebar, the `DJ: Lightdash — Reverse Lineage` command, or a dashboard/chart node in the lineage graph — where you pick an asset, see the `mart_*` model(s) it depends on, and keep expanding upstream. Each model node can view columns, compile, or run a preview.
+- **An asset picker built for large projects.** Searchable and filterable (**All / Dashboards / Charts / Standalone**), and responsive across thousands of charts and dashboards. Each entry shows a kind badge and, for charts, the dashboard(s) it belongs to (or **Standalone**); selecting a chart also shows its parent dashboard(s) in the graph.
+- **Helpful states.** Flags referenced models missing from the project and shows a download banner when no Lightdash content is present. When the dbt manifest isn't parsed, it points you to run `dbt parse`, then **Refresh Projects** to re-read it. A toolbar label names the folder it reads from (`dj.lightdash.dashboardsAsCodePath`); **Refresh** re-reads that folder to pick up assets you've downloaded or removed.
+- **More reliable model resolution** for Lightdash charts that don't name an explore, fixing both the forward and reverse Lightdash lineage.
+
+### Dashboards as Code
+
+- **One project per download folder.** Downloading a different Lightdash project into a folder that already holds one prompts you to **Replace** the existing files or **Cancel** and pick another **Save to Path**, so a folder's YAML always reflects a single project.
+- **Visible progress in the post-upload prompt.** After an upload, the prompt streams the `lightdash download` output inline as it refreshes, and offers two clear choices: **Refresh from Lightdash** (pulls back exactly the charts and dashboards you just uploaded, or the whole project if you uploaded everything) or **Close** to keep your local files as-is.
+
+### Bug fixes
+
+- **`DJ: Jump to YAML` works again.** The command and its `Cmd+Shift+Y` shortcut now open the generated `.yml`; a command-ID mismatch had left both failing with "command not found".
+- **Removed dead Command Palette entries.** `DJ: Defer Run` and `DJ: Run Model Lineage` no longer appear — they were never wired up and errored when invoked. Deferred runs are configured via the Defer option inside `DJ: Run Model`.
+
+## 1.8.0
+
+- **Author CTEs visually in the Model Wizard.** Models that compile to `WITH ... SELECT ...` open with a draggable CTE list above the SELECT step. Click a CTE to edit its source, columns, filters, and framework artifact overrides in a side panel; the wizard validates the model as you type and surfaces any CTE errors before the Next step.
+
+### Dashboards as Code
+
+- **New `dj.lightdash.restrictedProjects` setting** — flag Lightdash project UUIDs as `block` (the Upload tab refuses with an inline error) or `warn` (upload proceeds only after a confirmation dialog).
+- **`Add path to .gitignore` now defaults to on**, overridable via the new `dj.lightdash.defaultAddPathToGitignore` setting (`false` keeps it opt-in). The written entry is now root-anchored (e.g. `/lightdash/`) so a same-named directory nested elsewhere isn't ignored.
+
+### Trino Query Control Center
+
+- **New Query Control Center (`DJ: Query Control Center`)** — a master-detail panel that replaces the Query View for inspecting and triaging Trino queries. A **Live** tab (queries from your active coordinator, or the local Trino CLI when no profile is set, with a "dbt runs only" filter) and a **History** tab both support search, state, and user/source filtering. Selecting a query shows its summary, stage tree, slowest operators, failure details, and SQL, plus **Jump to Model** (opens the matching `.model.json`) and **Analyze with AI**, which saves sanitized JSON under `.dj/diagnostics/` so analyzed queries reopen even after the coordinator evicts them (~15 min).
+- **Named Trino connection profiles.** `dj.trino.profiles` and `dj.trino.activeProfile` define coordinator profiles (dev / staging / prod) you switch from the panel or `DJ: Select Trino Connection Profile...`. Each profile resolves its secret at request time from VS Code SecretStorage (set via `DJ: Set Trino Credentials...`), an environment variable, a password file, or your `~/.dbt/profiles.yml` — never plain text in settings — and the panel shows a coordinator status indicator with one-click refresh for expired tokens.
+- **New `dj-trino-analyzer` agent skill** (`.agents/skills/dj-trino-analyzer/SKILL.md`, written when `dj.codingAgent` is on) gives a coding agent operator-level heuristics for diagnosing slow or failed Trino queries from the sanitized JSON, plus a bundled Trino QueryInfo field reference (`references/`, verified against the Trino 479 source) for deep dives into the raw `.dj/diagnostics/<id>.full.json` — schema tables, enum gotchas, and ready-to-paste jq recipes. The sanitizer doubles as a tool firewall: payloads containing row data are rejected before they reach disk, so customer data never reaches an LLM prompt.
+
+### Agent skills
+
+- **`convert-sql-to-model` skill renamed to `dj-convert-sql-to-model`** so every DJ skill shares the `dj-` prefix. The stale `.agents/skills/convert-sql-to-model/` folder from earlier releases is removed automatically the next time skills are deployed.
+- **Resolve git merge and rebase conflicts the DJ way through your AI assistant.** When `dj.codingAgent` is enabled, a new skill at `.agents/skills/dj-resolve-merge-conflicts/SKILL.md` teaches an IDE agent to merge only the `.model.json` / `.source.json` sources of truth and let the generated `.sql` / `.yml` regenerate instead of hand-merging them. When an incoming branch looks old or built on an older DJ schema, it flags the divergence and offers a guided port of just the models you need instead of a full merge.
+
+### Bug fixes
+
+- **YAML reserved tokens round-trip safely.** Values like `OFF`, `ON`, `YES`, `NO` (and lowercase variants) are now quoted on emit and tolerated on load, so `time_intervals: OFF` no longer turns into `false` in the manifest and crashes sync. Per-column meta failures also name the offending column.
+- **Sync errors surface the real cause.** SQL/YML generation failures now show the underlying message instead of always pointing at `expr` syntax.
+- **Removed the empty Column Lineage panel.** Column lineage lives in the Data Explorer's Column view; `DJ: Column Lineage` opens it as before.
+
+## 1.7.1
+
+### Iceberg write strategy update
+
+- **Write strategy** — Iceberg incremental writes now use an event-date literal directly instead of creating and querying a temporary table, improving write performance
+
+## 1.7.0
+
+### Adhoc SQL Editor / Query Draft
+
+- **Query Draft support** — Create ad-hoc SQL queries in `.dj/drafts/` for prototyping and testing without cluttering the project with temporary dbt models. Access via "Create New Query" in the Actions panel.
+- **Query Results panel** — New dedicated panel in the Data Explorer view container for executing draft SQL queries directly against Trino and viewing results. Shows query results, execution time, and errors.
+- **DJ: Run Query command** — Right-click on `.draft.sql` files and select "DJ: Run Query" to execute the SQL and view results in the Query Results panel. Only draft-specific commands (Run Query, Convert to DJ Model) appear in the context menu.
+- **AI-assisted model conversion** — Right-click on `.draft.sql` files to convert them to DJ models using your preferred AI assistant (Copilot, Cursor, or Claude). The extension detects available assistants and shows relevant options.
+- **New `convert-sql-to-model` skill** — AI skill file that guides assistants through the SQL-to-model conversion process, analyzing query patterns and creating properly structured `.model.json` files.
 
 ## 1.6.0
 

@@ -1,0 +1,1 @@
+export { LightdashReverseLineage } from './LightdashReverseLineage';

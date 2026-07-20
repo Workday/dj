@@ -7,7 +7,6 @@ import {
   frameworkGetSourceMeta,
 } from '@services/framework/utils';
 import type { DJService } from '@services/types';
-import { PanelViewProvider } from '@services/webview/PanelViewProvider';
 import { jsonParse } from '@shared';
 import type { DbtProject } from '@shared/dbt/types';
 import { getDbtModelId } from '@shared/dbt/utils';
@@ -85,7 +84,6 @@ interface ExpressionAnalysis {
 
 export class ColumnLineageService implements DJService {
   private coder: Coder;
-  private viewProvider?: PanelViewProvider;
   private autoRefreshEnabled: boolean;
   private lastContext?: {
     filePath: string;
@@ -177,53 +175,42 @@ export class ColumnLineageService implements DJService {
 
     // Register column lineage command
     context.subscriptions.push(
-      vscode.commands.registerCommand(COMMAND_ID.COLUMN_LINEAGE, async () => {
-        try {
-          this.coder.log.info('Column Lineage command triggered');
+      vscode.commands.registerCommand(
+        COMMAND_ID.COLUMN_LINEAGE,
+        async (uri?: vscode.Uri) => {
+          try {
+            this.coder.log.info('Column Lineage command triggered');
 
-          const currentPath = this.coder.getCurrentPath();
-          if (!currentPath) {
-            vscode.window.showWarningMessage('No file is currently open');
-            return;
+            const currentPath = uri?.fsPath ?? this.coder.getCurrentPath();
+            if (!currentPath) {
+              vscode.window.showWarningMessage('No file is currently open');
+              return;
+            }
+
+            await this.loadForFile(currentPath, {
+              focusPanel: true,
+              showErrors: true,
+            });
+
+            this.coder.log.info('Column lineage panel updated');
+          } catch (err: unknown) {
+            this.coder.log.error('ERROR OPENING COLUMN LINEAGE PANEL', err);
+            vscode.window.showErrorMessage(
+              'Failed to open column lineage panel',
+            );
           }
-
-          await this.loadForFile(currentPath, {
-            focusPanel: true,
-            showErrors: true,
-          });
-
-          this.coder.log.info('Column lineage panel updated');
-        } catch (err: unknown) {
-          this.coder.log.error('ERROR OPENING COLUMN LINEAGE PANEL', err);
-          vscode.window.showErrorMessage('Failed to open column lineage panel');
-        }
-      }),
+        },
+      ),
     );
   }
 
-  registerProviders(context: vscode.ExtensionContext): void {
-    // Initialize column lineage panel view provider
-    this.viewProvider = new PanelViewProvider(
-      context.extensionUri,
-      '/lineage/column',
-      { enableScripts: true },
-      (message, webview) => {
-        void this.coder.handleWebviewMessage({ message, webview });
-      },
-      // Note: We don't send data here because the React app isn't ready yet.
-      // The webview will send a 'webview-ready' message when it's initialized,
-      // which triggers onWebviewReady() to send the initial data.
+  registerProviders(_context: vscode.ExtensionContext): void {
+    // Column Lineage now renders inside the Data Explorer panel; no standalone
+    // webview provider is registered here. Messages are routed through
+    // `this.coder.dataExplorer.sendMessage(...)`.
+    this.coder.log.info(
+      'Column Lineage routes through Data Explorer panel (no standalone provider)',
     );
-
-    context.subscriptions.push(
-      vscode.window.registerWebviewViewProvider(
-        VIEW_ID.COLUMN_LINEAGE,
-        this.viewProvider,
-        { webviewOptions: { retainContextWhenHidden: true } },
-      ),
-    );
-
-    this.coder.log.info('Column Lineage providers registered');
   }
 
   registerEventHandlers(context: vscode.ExtensionContext): void {
@@ -246,14 +233,8 @@ export class ColumnLineageService implements DJService {
   }
 
   // Public methods for coder to interact with the view
-  public getViewProvider(): PanelViewProvider | undefined {
-    return this.viewProvider;
-  }
-
   public sendMessage(message: any): void {
-    if (this.viewProvider?.resolved) {
-      this.viewProvider.postMessage(message);
-    }
+    this.coder.dataExplorer.sendMessage(message);
   }
 
   public onWebviewReady(): void {
@@ -273,10 +254,7 @@ export class ColumnLineageService implements DJService {
   }
 
   public sendConfig(): void {
-    if (!this.viewProvider?.resolved) {
-      return;
-    }
-    this.viewProvider.postMessage({
+    this.coder.dataExplorer.sendMessage({
       type: 'column-lineage-config',
       autoRefresh: Boolean(this.autoRefreshEnabled),
     });
@@ -287,10 +265,7 @@ export class ColumnLineageService implements DJService {
     variant: 'info' | 'warning' | 'error' = 'info',
   ): void {
     this.lastStatus = message ? { message, variant } : undefined;
-    if (!this.viewProvider?.resolved) {
-      return;
-    }
-    this.viewProvider.postMessage({
+    this.coder.dataExplorer.sendMessage({
       type: 'column-lineage-status',
       message,
       variant,
@@ -305,10 +280,7 @@ export class ColumnLineageService implements DJService {
   }): void {
     this.lastContext = context;
     this.lastSourceContext = undefined; // Clear source context when model is loaded
-    if (!this.viewProvider?.resolved) {
-      return;
-    }
-    this.viewProvider.postMessage({
+    this.coder.dataExplorer.sendMessage({
       type: 'column-lineage-init',
       ...context,
     });
@@ -322,10 +294,7 @@ export class ColumnLineageService implements DJService {
   }): void {
     this.lastSourceContext = context;
     this.lastContext = undefined; // Clear model context when source is loaded
-    if (!this.viewProvider?.resolved) {
-      return;
-    }
-    this.viewProvider.postMessage({
+    this.coder.dataExplorer.sendMessage({
       type: 'column-lineage-source-init',
       ...Object.fromEntries(
         Object.entries(context).map(([key, value]) => [
@@ -345,10 +314,7 @@ export class ColumnLineageService implements DJService {
     dag: ColumnLineageDAG;
     isSource: boolean;
   }): void {
-    if (!this.viewProvider?.resolved) {
-      return;
-    }
-    this.viewProvider.postMessage({
+    this.coder.dataExplorer.sendMessage({
       type: 'column-lineage-result',
       ...result,
     });
@@ -596,9 +562,7 @@ export class ColumnLineageService implements DJService {
         }
 
         if (focusPanel) {
-          await vscode.commands.executeCommand(
-            VIEW_ID.COLUMN_LINEAGE_CONTAINER_FOCUS,
-          );
+          await vscode.commands.executeCommand(VIEW_ID.MODEL_LINEAGE_FOCUS);
         }
 
         // Send source init message with tables
@@ -637,9 +601,7 @@ export class ColumnLineageService implements DJService {
       const { modelName, columns } = columnsResult;
 
       if (focusPanel) {
-        await vscode.commands.executeCommand(
-          VIEW_ID.COLUMN_LINEAGE_CONTAINER_FOCUS,
-        );
+        await vscode.commands.executeCommand(VIEW_ID.MODEL_LINEAGE_FOCUS);
       }
 
       this.postInit({
@@ -669,8 +631,7 @@ export class ColumnLineageService implements DJService {
     if (!this.autoRefreshEnabled) {
       return;
     }
-    const viewProvider = this.getViewProvider();
-    if (!viewProvider?.resolved) {
+    if (!this.coder.dataExplorer.isViewReady()) {
       return;
     }
     const filePath = editor?.document.uri.fsPath;
@@ -1238,9 +1199,7 @@ export class ColumnLineageService implements DJService {
           ctes: ctes as Parameters<
             typeof frameworkBuildCteColumnRegistry
           >[0]['ctes'],
-          modelJson: modelJson as Parameters<
-            typeof frameworkBuildCteColumnRegistry
-          >[0]['modelJson'],
+          modelJson: modelJson,
           project,
         });
         const cteCols = registry.get(cteName) || [];
@@ -1792,12 +1751,8 @@ export class ColumnLineageService implements DJService {
       }
       try {
         const registry = frameworkBuildCteColumnRegistry({
-          ctes: modelJson.ctes as Parameters<
-            typeof frameworkBuildCteColumnRegistry
-          >[0]['ctes'],
-          modelJson: modelJson as Parameters<
-            typeof frameworkBuildCteColumnRegistry
-          >[0]['modelJson'],
+          ctes: modelJson.ctes,
+          modelJson: modelJson,
           project,
         });
         const cteCols = registry.get(selected.cte) || [];
@@ -1871,10 +1826,7 @@ export class ColumnLineageService implements DJService {
       cte?: string;
     };
     if (from.cte && 'ctes' in modelJson && modelJson.ctes) {
-      return this.resolveCteToExternalRef(
-        from.cte,
-        modelJson.ctes as CteDefinition[],
-      );
+      return this.resolveCteToExternalRef(from.cte, modelJson.ctes);
     }
     // source fallback is for main model from (staging types), not CTEs
     return from.model ?? from.source ?? null;

@@ -1,4 +1,5 @@
 import { PlusCircleIcon } from '@heroicons/react/24/outline';
+import { Button } from '@web/elements';
 import type { EdgeProps } from '@xyflow/react';
 import { BaseEdge, EdgeLabelRenderer, getBezierPath } from '@xyflow/react';
 import React from 'react';
@@ -61,14 +62,15 @@ export const JoinEdge: React.FC<EdgeProps> = ({
           className="nodrag nopan"
         >
           <div className="flex items-center gap-2 bg-background border border-border rounded-lg px-2 py-1 shadow-md">
-            <button
-              onClick={handleAddJoin}
-              className="flex items-center gap-1 px-2 py-1 text-xs text-primary-foreground hover:bg-primary/90 rounded-md transition-colors"
+            <Button
+              variant="iconButton"
               title="Add another join"
-            >
-              <PlusCircleIcon className="w-3 h-3" />
-              Add Join
-            </button>
+              aria-label="Add another join"
+              className="px-2 py-1 text-xs text-primary-foreground hover:bg-primary/90 rounded-md transition-colors"
+              icon={<PlusCircleIcon className="w-3 h-3" />}
+              label="Add Join"
+              onClick={handleAddJoin}
+            />
           </div>
         </div>
       </EdgeLabelRenderer>

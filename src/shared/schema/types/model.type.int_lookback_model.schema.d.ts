@@ -115,7 +115,7 @@ export type SchemaModelDataTests = (
     }
 )[];
 /**
- * Materialization Configuration
+ * Materialization Configuration. The incremental object form accepts `format` (delta_lake | hive | iceberg), `partitions`, `strategy`, `database`, and the physical-layout tuning fields `bucket` and `sorted_by`. DJ translates `bucket` / `sorted_by` into the correct Trino table properties per format: Iceberg emits bucket transforms inside `partitioning` plus a standalone `sorted_by`; Hive / Glue emits `bucketed_by` + `bucket_count` + `sorted_by`; Delta Lake supports neither and DJ flags it.
  */
 export type SchemaModelMaterialization =
   | 'incremental'
@@ -128,6 +128,8 @@ export type SchemaModelMaterialization =
       database?: SchemaModelDatabase;
       format?: SchemaModelFormat;
       partitions?: SchemaModelPartitions;
+      bucket?: SchemaModelBucket;
+      sorted_by?: SchemaModelSortedBy;
       strategy?: IncrementalStrategy;
     };
 /**
@@ -146,6 +148,16 @@ export type SchemaColumnName = string;
  * Override the default partitioneds configuration for this model
  */
 export type SchemaModelPartitions = SchemaColumnName[];
+/**
+ * Bucketing configuration for the materialized table. Accepts a single { column, count } object or an array of them. On Iceberg, each entry is emitted as a bucket(column, count) transform inside `partitioning`. On Hive / Glue, columns are emitted as `bucketed_by` with a single shared `bucket_count` (all entries must share the same count). Not supported on Delta Lake in dbt-trino.
+ */
+export type SchemaModelBucket = BucketSpec | [BucketSpec, ...BucketSpec[]];
+/**
+ * Columns to sort table data by within each written file (the `sorted_by` Trino table property). On Iceberg this is a standalone sort order. On Hive / Glue it determines the sort order within each bucket and requires `bucket` to also be set. Not supported on Delta Lake in dbt-trino. Column ordering is ascending; `col DESC` style ordering is not supported.
+ *
+ * @minItems 1
+ */
+export type SchemaModelSortedBy = [SchemaColumnName, ...SchemaColumnName[]];
 /**
  * Incremental Strategy for dbt-trino. Pick one of: 'append', 'delete+insert', 'merge', 'overwrite_existing_partitions', 'dj_iceberg_partition_overwrite'. NOTE: 'overwrite_existing_partitions' requires a custom dbt macro in your project and is not shipped by the DJ (Data JSON) Framework. 'merge' and 'dj_iceberg_partition_overwrite' require the target table to use Iceberg format in dbt-trino. When in doubt, use 'delete+insert' with a partition column as unique_key.
  */
@@ -223,9 +235,22 @@ export type ModelExcludeDailyFilterSchemaJson = boolean;
  */
 export type SchemaModelExcludeDateFilter = boolean;
 /**
- * Will prevent the automatic portal partition date columns from getting added
+ * Controls auto-injection of the portal partition date columns. `true` drops all of them (`portal_partition_monthly`, `portal_partition_daily`, `portal_partition_hourly`); `false` or omitted keeps all. Provide an array of partition column names (e.g. ["portal_partition_hourly"]) to drop only those while keeping the rest. An array overrides `exclude_framework_artifacts` at the same scope, narrowing its all-partitions exclusion to just the listed columns. Columns you list explicitly in `select` are always kept.
  */
-export type SchemaModelExcludePortalPartitionColumns = boolean;
+export type SchemaModelExcludePortalPartitionColumns =
+  | boolean
+  | [
+      (
+        | 'portal_partition_monthly'
+        | 'portal_partition_daily'
+        | 'portal_partition_hourly'
+      ),
+      ...(
+        | 'portal_partition_monthly'
+        | 'portal_partition_daily'
+        | 'portal_partition_hourly'
+      )[],
+    ];
 /**
  * Skips auto-injection of the `datetime` column from the upstream model. Independent of `exclude_portal_partition_columns` -- partition columns survive unless that flag is also set. Mutually exclusive with `from.rollup`, which exists to produce a `datetime` column. For pure-dimension or lookup models, set both `exclude_datetime` and `exclude_portal_partition_columns` to true.
  */
@@ -683,6 +708,16 @@ export interface SchemaLightdashMetric {
  */
 export interface SchemaModelMeta {
   [k: string]: unknown | undefined;
+}
+/**
+ * A single bucketing column and its bucket count.
+ */
+export interface BucketSpec {
+  column: SchemaColumnName;
+  /**
+   * Number of hash buckets to distribute the column's values across.
+   */
+  count: number;
 }
 /**
  * SQL statements to run before or after models

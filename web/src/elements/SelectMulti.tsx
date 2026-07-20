@@ -140,7 +140,10 @@ export const SelectMulti: React.FC<SelectMultiProps> = ({
 
       {isOpen &&
         ReactDOM.createPortal(
-          <>
+          // `data-portal-dropdown` marks this body-level portal so click-outside
+          // handlers (e.g. the CTE editor popover) treat clicks on the dropdown
+          // or its backdrop as inside, not as an outside-click that dismisses.
+          <div data-portal-dropdown="true">
             {/* Transparent backdrop rendered at body level — works regardless of React Flow canvas transforms */}
             <div
               style={{ position: 'fixed', inset: 0, zIndex: 9998 }}
@@ -207,7 +210,7 @@ export const SelectMulti: React.FC<SelectMultiProps> = ({
                 </div>
               </div>
             )}
-          </>,
+          </div>,
           document.body,
         )}
     </div>

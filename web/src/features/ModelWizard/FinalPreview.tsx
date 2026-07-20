@@ -350,7 +350,7 @@ export function FinalPreview() {
             <DiffView
               original={originalCode}
               modified={previewCode}
-              language={selectedPreviewType as 'sql' | 'yaml' | 'json'}
+              language={selectedPreviewType}
               theme={previewTheme}
               viewMode={diffMode}
               className="h-full min-h-40"

@@ -1,6 +1,9 @@
 import type { SchemaModelGroupBy } from '@shared/schema/types/model.group_by.schema';
 
-import type { DefaultIncrementalStrategy } from './types';
+import type {
+  DefaultIncrementalStrategy,
+  FrameworkPartitionName,
+} from './types';
 
 /**
  * Single source of truth for the default incremental strategy applied when
@@ -18,6 +21,24 @@ import type { DefaultIncrementalStrategy } from './types';
  */
 export const DEFAULT_INCREMENTAL_STRATEGY: DefaultIncrementalStrategy =
   'overwrite_existing_partitions';
+
+// Named constants for the framework-injected partition column names, used
+// throughout SQL generation, column building, and filter logic. They live in
+// the shared barrel so the extension backend and the webview resolve a single
+// source of truth, which reduces typo risk and makes future renames trivial.
+export const PARTITION_MONTHLY: FrameworkPartitionName =
+  'portal_partition_monthly';
+export const PARTITION_DAILY: FrameworkPartitionName = 'portal_partition_daily';
+export const PARTITION_HOURLY: FrameworkPartitionName =
+  'portal_partition_hourly';
+
+// Coarsest to finest. `exclude_portal_partition_columns` may list any subset of
+// these to drop only those partitions while keeping the rest.
+export const FRAMEWORK_PARTITIONS: FrameworkPartitionName[] = [
+  PARTITION_MONTHLY,
+  PARTITION_DAILY,
+  PARTITION_HOURLY,
+];
 
 export const BULK_SELECT_TYPES = {
   ALL_FROM_MODEL: 'all_from_model',

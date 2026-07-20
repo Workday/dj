@@ -27,7 +27,8 @@ export interface LightdashLineageNode {
   id: string;
   slug: string;
   name: string;
-  kind: 'dashboard' | 'standalone-charts';
+  // `chart` is used as the anchor (sink) of the reverse-lineage view.
+  kind: 'dashboard' | 'standalone-charts' | 'chart';
   url?: string;
   charts?: {
     slug: string;
@@ -36,6 +37,10 @@ export interface LightdashLineageNode {
     filePath: string;
     embeddedAsTile?: boolean;
     hasYaml?: boolean;
+    // dbt model this chart references; surfaced in the reverse-lineage
+    // popover so each row shows its upstream model. Undefined / ignored
+    // by the forward view.
+    modelName?: string | null;
   }[];
   filePath: string;
 }
@@ -48,6 +53,23 @@ export interface LightdashNodeData
     Record<string, unknown> {
   onOpen: (url: string) => void;
   onOpenYaml: (filePath: string) => void;
+  /**
+   * When provided, the dashboard/chart name (and per-chart popover rows)
+   * become click targets that open the reverse-lineage view for that
+   * asset. Wired by the forward model-lineage view as a convenience
+   * entry point; omitted for the reverse view's own anchor node.
+   */
+  onOpenReverseLineage?: (anchor: {
+    kind: 'dashboard' | 'chart';
+    slug: string;
+  }) => void;
+  /**
+   * Render a right-side source handle so edges can originate from this node.
+   * Set on the reverse-lineage chart anchor (which points at its parent
+   * dashboard nodes); omitted elsewhere so sink nodes keep only their left
+   * target handle.
+   */
+  showSourceHandle?: boolean;
 }
 
 export interface ModelNodeData extends Record<string, unknown> {
@@ -60,6 +82,12 @@ export interface ModelNodeData extends Record<string, unknown> {
   pathSystem?: string;
   isCurrent?: boolean;
   isSelected?: boolean;
+  /**
+   * Reverse-lineage only: the model is referenced by the Lightdash asset
+   * but was not found in the dbt manifest (stale reference). Rendered
+   * with a "not found in project" treatment instead of action buttons.
+   */
+  isStale?: boolean;
   projectName: string;
   isCompiled?: boolean;
   // Smart compile detection: whether model source has changed since last compile

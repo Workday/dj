@@ -5,6 +5,7 @@ import {
   GITIGNORE_MARKER_END,
   parseChartDoc,
   parseDashboardDoc,
+  resolveModelFromFieldId,
 } from '@services/lightdash/contentParser';
 
 describe('parseChartDoc', () => {
@@ -40,19 +41,20 @@ describe('parseChartDoc', () => {
     expect(out?.filePath).toBe('lightdash/charts/orders-by-region.yml');
   });
 
-  it('falls back to the model prefix from the first dimension when exploreName is missing', () => {
+  it('leaves modelName null when exploreName is missing (resolved later in rebuild)', () => {
+    // The pure parser intentionally does NOT guess the model from a field
+    // id: DJ model names contain `__` separators, so the longest-prefix
+    // match needs the set of known dbt model names, which only
+    // `LightdashContent.rebuild()` has. See `resolveModelFromFieldId`.
     const doc = {
       slug: 'top-customers',
       metricQuery: {
-        dimensions: ['mart_customers_id'],
-        metrics: ['mart_customers_total_orders'],
+        dimensions: ['mart__core__customers__top_customers_id'],
+        metrics: ['mart__core__customers__top_customers_total_orders'],
       },
     };
     const out = parseChartDoc(doc, 'lightdash/charts/top-customers.yml');
-    expect(out?.modelName).toBe('mart');
-    // The exact fallback is documented behaviour: prefix up to first
-    // underscore. This test pins it so future refactors notice if it
-    // changes (and can update the dashboard heuristic in lockstep).
+    expect(out?.modelName).toBeNull();
   });
 
   it('extracts column-level fields for future column lineage work', () => {
@@ -109,6 +111,27 @@ describe('parseChartDoc', () => {
     expect(out?.name).toBe('no-name');
   });
 
+  it('falls back to chartConfig.config.label, then slug, for a blank name', () => {
+    // Lightdash "copy of" exports carry `name: ' '` (whitespace only).
+    const labelled = parseChartDoc(
+      {
+        slug: 'copy-of-foo-123',
+        name: ' ',
+        chartConfig: { config: { label: 'GCP CP2 Dev Clusters' } },
+        metricQuery: { exploreName: 'mart_foo' },
+      },
+      'charts/copy.yml',
+    );
+    expect(labelled?.name).toBe('GCP CP2 Dev Clusters');
+
+    // No usable label -> slug.
+    const slugFallback = parseChartDoc(
+      { slug: 'copy-of-bar-456', name: '   ', metricQuery: {} },
+      'charts/copy2.yml',
+    );
+    expect(slugFallback?.name).toBe('copy-of-bar-456');
+  });
+
   it('captures dashboardSlug when the chart is saved within a dashboard', () => {
     // Lightdash exports charts saved inside a dashboard's space (drilled
     // views, detached tiles) with `dashboardSlug` set to the parent. The
@@ -135,9 +158,72 @@ describe('parseChartDoc', () => {
   });
 });
 
+describe('resolveModelFromFieldId', () => {
+  const knownModels = new Set([
+    'mart__core__customers__top_customers',
+    'mart__core__orders__orders',
+    'mart__core__orders__orders_status',
+  ]);
+
+  it('returns null for an empty/undefined field id', () => {
+    expect(resolveModelFromFieldId(undefined, knownModels)).toBeNull();
+    expect(resolveModelFromFieldId('', knownModels)).toBeNull();
+  });
+
+  it('returns null when no known model prefixes the field id', () => {
+    expect(
+      resolveModelFromFieldId('stg__core__orders__line_items_id', knownModels),
+    ).toBeNull();
+    // A `mart` prefix alone must NOT resolve (the old buggy behaviour).
+    expect(
+      resolveModelFromFieldId('mart_something_else', knownModels),
+    ).toBeNull();
+  });
+
+  it('matches a field id whose prefix is a known __-delimited model', () => {
+    expect(
+      resolveModelFromFieldId(
+        'mart__core__customers__top_customers_region',
+        knownModels,
+      ),
+    ).toBe('mart__core__customers__top_customers');
+  });
+
+  it('matches when the field id equals the model name exactly', () => {
+    expect(
+      resolveModelFromFieldId('mart__core__orders__orders', knownModels),
+    ).toBe('mart__core__orders__orders');
+  });
+
+  it('prefers the longest matching model name (disambiguates shared prefixes)', () => {
+    // `..._status_code` is prefixed by BOTH `..._orders` and
+    // `..._orders_status`; the longer model must win.
+    expect(
+      resolveModelFromFieldId(
+        'mart__core__orders__orders_status_code',
+        knownModels,
+      ),
+    ).toBe('mart__core__orders__orders_status');
+  });
+
+  it('returns null when the known-model set is empty', () => {
+    expect(
+      resolveModelFromFieldId('mart__core__orders__orders_x', new Set()),
+    ).toBeNull();
+  });
+});
+
 describe('parseDashboardDoc', () => {
   it('returns null when slug is missing', () => {
     expect(parseDashboardDoc({ name: 'No Slug' }, 'a.yml')).toBeNull();
+  });
+
+  it('falls back to slug for a blank name', () => {
+    const out = parseDashboardDoc(
+      { slug: 'd-1', name: ' ', tiles: [] },
+      'dashboards/d.yml',
+    );
+    expect(out?.name).toBe('d-1');
   });
 
   it('extracts saved-chart tile slugs and skips non-chart tiles', () => {
@@ -187,7 +273,10 @@ describe('applyGitignoreEntry', () => {
     // pair so future DJ-managed entries can land inside the same block.
     expect(updatedBody).toMatch(/^# dj$/m);
     expect(updatedBody).toMatch(/^# \/dj$/m);
-    expect(updatedBody).toContain('lightdash/\n');
+    // The entry is root-anchored with a leading slash so a directory of
+    // the same name nested elsewhere isn't accidentally ignored.
+    expect(updatedBody).toMatch(/^\/lightdash\/$/m);
+    expect(updatedBody).not.toMatch(/^lightdash\/$/m);
     expect(updatedBody.endsWith('\n')).toBe(true);
   });
 
@@ -197,10 +286,10 @@ describe('applyGitignoreEntry', () => {
     expect(alreadyPresent).toBe(false);
     expect(updatedBody.startsWith(existing)).toBe(true);
     expect(updatedBody).toContain(GITIGNORE_MARKER_BEGIN);
-    expect(updatedBody).toContain('lightdash/');
+    expect(updatedBody).toMatch(/^\/lightdash\/$/m);
   });
 
-  it('treats an entry already present outside the marker block as already-present (idempotent)', () => {
+  it('treats a legacy unanchored entry outside the marker block as already-present (idempotent)', () => {
     const existing = '# user-managed\nlightdash/\n';
     const { updatedBody, alreadyPresent } = applyGitignoreEntry(existing, PATH);
     expect(alreadyPresent).toBe(true);
@@ -208,10 +297,17 @@ describe('applyGitignoreEntry', () => {
     expect(updatedBody).not.toContain(GITIGNORE_MARKER_BEGIN);
   });
 
-  it('also matches when the existing entry is missing the trailing slash', () => {
+  it('matches a legacy entry missing the trailing slash', () => {
     const existing = 'lightdash\n';
     const { alreadyPresent } = applyGitignoreEntry(existing, PATH);
     expect(alreadyPresent).toBe(true);
+  });
+
+  it('matches an existing root-anchored entry (round-trip idempotent)', () => {
+    const existing = '/lightdash/\n';
+    const { updatedBody, alreadyPresent } = applyGitignoreEntry(existing, PATH);
+    expect(alreadyPresent).toBe(true);
+    expect(updatedBody).toBe(existing);
   });
 
   it('inserts inside an existing managed block instead of duplicating it', () => {
@@ -231,21 +327,21 @@ describe('applyGitignoreEntry', () => {
       (updatedBody.match(new RegExp(GITIGNORE_MARKER_END, 'g')) || []).length,
     ).toBe(1);
     expect(updatedBody).toContain('old-path/');
-    expect(updatedBody).toContain('lightdash/');
+    expect(updatedBody).toMatch(/^\/lightdash\/$/m);
     // New entry should land before the closing marker.
-    const newEntryIdx = updatedBody.indexOf('lightdash/');
+    const newEntryIdx = updatedBody.indexOf('/lightdash/');
     const endIdx = updatedBody.indexOf(GITIGNORE_MARKER_END);
     expect(newEntryIdx).toBeLessThan(endIdx);
   });
 
-  it('normalizes paths: strips ./ prefix and adds trailing slash', () => {
+  it('normalizes paths: strips ./ prefix and root-anchors with a trailing slash', () => {
     const { updatedBody } = applyGitignoreEntry('', './my-lightdash');
-    expect(updatedBody).toContain('my-lightdash/');
+    expect(updatedBody).toMatch(/^\/my-lightdash\/$/m);
     expect(updatedBody).not.toContain('./my-lightdash');
   });
 
-  it('falls back to lightdash/ when given an empty path', () => {
+  it('falls back to /lightdash/ when given an empty path', () => {
     const { updatedBody } = applyGitignoreEntry('', '   ');
-    expect(updatedBody).toContain('lightdash/');
+    expect(updatedBody).toMatch(/^\/lightdash\/$/m);
   });
 });
