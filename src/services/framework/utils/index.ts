@@ -33,6 +33,9 @@ export * from './meta-lint';
 // Python model utilities
 export * from './python-model-utils';
 
+// Destructive-SQL guard for python model files
+export * from './python-sql-guard';
+
 // Re-export types that utilities depend on
 export type { DbtProject } from '@shared/dbt/types';
 export type {

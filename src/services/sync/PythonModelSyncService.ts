@@ -1,25 +1,34 @@
 /**
- * Python Model Sync Service (v5 -- JSON is single source of truth)
+ * Python Model Sync Service (v7 -- .python.py is the source of truth for code)
  *
- * .python.json is the single source of truth. It contains both metadata
- * AND notebook-format `cells` (code + markdown).
+ * .python.py is the source of truth for all code. Cells are delimited with
+ * jupytext percent markers ("# %%", "# %% [markdown]"). A .py with no markers
+ * is treated as a single code cell.
+ *
+ * .python.json holds metadata plus a `cells` snapshot of the last notebook
+ * state. The snapshot is written when the notebook is saved; it is never used
+ * to regenerate the .py.
  *
  * Derived files:
- *   .python.py   -- concatenated code cells (lives next to .python.json)
- *   .python.ipynb -- ephemeral, stored in .dj/.python_temp/ and auto-deleted on close
+ *   .python.ipynb -- ephemeral view built from the .py, stored in
+ *                    .dj/.python_temp/ and auto-deleted on close.
  *
  * Sync directions:
- *   JSON  -> PY + IPYNB  (source of truth propagates out)
- *   PY    -> IPYNB        (code edits sync to notebook if open)
- *   IPYNB -> PY           (cell edits sync to .py)
+ *   PY    -> IPYNB   (rebuild the open notebook view fresh from the .py)
+ *   IPYNB -> JSON    (persist the edited cells into .python.json;
+ *                     the .python.py is NEVER rewritten from the notebook)
+ *   JSON  -> PY      (only scaffolds a fresh .py when none exists; otherwise
+ *                     just refreshes the open notebook header)
  *
- * PY and IPYNB NEVER write back to JSON.
+ * Every write is suppressed on its target path so the reverse sync does not
+ * retrigger the originating watcher (see suppress()/isSuppressed()).
  */
 
 import {
+  buildNotebookCells,
   cellsToNotebook,
-  cellsToPython,
-  generatePythonModelCells,
+  generatePythonModelScaffoldPy,
+  stripNotebookOnlyCells,
 } from '@services/framework/utils';
 import type {
   PythonModelCell,
@@ -122,8 +131,26 @@ export class PythonModelSyncService implements vscode.Disposable {
     this.disposables.push(tabDisposable);
 
     this.logger.info(
-      'PythonModelSyncService (cells-based, ephemeral notebooks) initialized',
+      'PythonModelSyncService (.py source of truth, ephemeral notebooks) initialized',
     );
+  }
+
+  /**
+   * Read the .python.py source of truth for a model. Falls back to a fresh
+   * scaffold (in memory) when the file does not exist yet.
+   */
+  private async readPythonSource(
+    pyPath: string,
+    config: PythonModelConfig,
+  ): Promise<string> {
+    try {
+      const content = await vscode.workspace.fs.readFile(
+        vscode.Uri.file(pyPath),
+      );
+      return Buffer.from(content).toString();
+    } catch {
+      return generatePythonModelScaffoldPy(config);
+    }
   }
 
   // ── Public API ─────────────────────────────────────────────────────
@@ -142,15 +169,15 @@ export class PythonModelSyncService implements vscode.Disposable {
         Buffer.from(jsonContent).toString(),
       ) as PythonModelConfig;
 
-      if (!config.cells || config.cells.length === 0) {
-        config.cells = generatePythonModelCells(config);
-      }
+      const pyPath = jsonPath.replace(/\.python\.json$/, '.python.py');
+      const pyCode = await this.readPythonSource(pyPath, config);
+      const cells = buildNotebookCells(pyCode, config);
 
       const ipynbPath = this.computeTempIpynbPath(jsonPath);
       const ipynbDir = path.dirname(ipynbPath);
       await vscode.workspace.fs.createDirectory(vscode.Uri.file(ipynbDir));
 
-      const nbContent = cellsToNotebook(config.cells);
+      const nbContent = cellsToNotebook(cells);
       this.suppress(ipynbPath);
       await vscode.workspace.fs.writeFile(
         vscode.Uri.file(ipynbPath),
@@ -403,105 +430,53 @@ export class PythonModelSyncService implements vscode.Disposable {
     }
   }
 
-  // ── Config cell refresh ────────────────────────────────────────────
-
-  private refreshConfigCells(config: PythonModelConfig): PythonModelCell[] {
-    const cells = config.cells ?? [];
-    if (cells.length === 0) {
-      return generatePythonModelCells(config);
-    }
-
-    const fresh = generatePythonModelCells(config);
-
-    const isConfigCell = (src: string) =>
-      src.includes('OUTPUT_CONFIG = PythonModelConfig(') ||
-      src.includes('MODEL_CONFIG = PythonModelConfig(') ||
-      src.includes('MODEL_CONFIG = PreDbtConfig(') ||
-      src.includes('INPUT_VARIABLES = {') ||
-      src.includes('MODEL_VARIABLES = {') ||
-      src.includes('# Python Model:') ||
-      src.includes('# Pre-dbt Model:') ||
-      src.includes('context = {');
-
-    return cells.map((cell) => {
-      const src = Array.isArray(cell.source)
-        ? cell.source.join('')
-        : cell.source;
-      if (!isConfigCell(src)) {
-        return cell;
-      }
-
-      const match = fresh.find((f) => {
-        const fSrc = Array.isArray(f.source) ? f.source.join('') : f.source;
-        if (
-          (src.includes('OUTPUT_CONFIG') || src.includes('MODEL_CONFIG')) &&
-          (fSrc.includes('OUTPUT_CONFIG') || fSrc.includes('MODEL_CONFIG'))
-        ) {
-          return true;
-        }
-        if (
-          (src.includes('INPUT_VARIABLES') ||
-            src.includes('MODEL_VARIABLES')) &&
-          (fSrc.includes('INPUT_VARIABLES') || fSrc.includes('MODEL_VARIABLES'))
-        ) {
-          return true;
-        }
-        if (
-          (src.includes('# Python Model:') ||
-            src.includes('# Pre-dbt Model:')) &&
-          (fSrc.includes('# Python Model:') ||
-            fSrc.includes('# Pre-dbt Model:'))
-        ) {
-          return true;
-        }
-        if (src.includes('context = {') && fSrc.includes('context = {')) {
-          return true;
-        }
-        return false;
-      });
-
-      return match ?? cell;
-    });
-  }
-
-  // ── JSON -> PY + IPYNB ──────────────────────────────────────────────
+  // ── JSON -> PY (scaffold only) ──────────────────────────────────────
 
   private async syncFromJson(fileSet: PythonModelFileSet): Promise<void> {
     const { config, pyPath, ipynbPath } = fileSet;
-    this.logger.info('Syncing from JSON -> PY + IPYNB');
+    this.logger.info('Syncing from JSON');
 
-    const refreshedCells = this.refreshConfigCells(config);
-    config.cells = refreshedCells;
+    // The .py is the source of truth for code. Only scaffold a fresh .py
+    // when none exists; never overwrite user-authored code from JSON.
+    let pyExists = true;
+    try {
+      await vscode.workspace.fs.stat(vscode.Uri.file(pyPath));
+    } catch {
+      pyExists = false;
+    }
 
-    const pyContent = cellsToPython(config.cells, config);
-    this.suppress(pyPath);
-    await vscode.workspace.fs.writeFile(
-      vscode.Uri.file(pyPath),
-      Buffer.from(pyContent),
-    );
+    if (!pyExists) {
+      const pyContent = generatePythonModelScaffoldPy(config);
+      this.suppress(pyPath);
+      await vscode.workspace.fs.writeFile(
+        vscode.Uri.file(pyPath),
+        Buffer.from(pyContent),
+      );
+      this.logger.info('Scaffolded fresh .python.py from JSON');
+    }
 
-    // Only update the ephemeral notebook if it is currently open
+    // Refresh only the derived header of the open notebook (metadata changed).
     if (this.isNotebookOpen(ipynbPath)) {
-      const nbContent = cellsToNotebook(config.cells);
+      const pyCode = await this.readPythonSource(pyPath, config);
+      const cells = buildNotebookCells(pyCode, config);
       this.suppress(ipynbPath);
       await vscode.workspace.fs.writeFile(
         vscode.Uri.file(ipynbPath),
-        Buffer.from(nbContent),
+        Buffer.from(cellsToNotebook(cells)),
       );
+      this.logger.info('Refreshed open notebook header from JSON metadata');
     }
-
-    this.logger.info(
-      `Synced JSON -> PY${this.isNotebookOpen(ipynbPath) ? ' + IPYNB' : ''}`,
-    );
   }
 
-  // ── PY -> IPYNB (JSON is never modified) ─────────────────────────────
+  // ── PY -> IPYNB ─────────────────────────────────────────────────────
 
   private async syncFromPython(fileSet: PythonModelFileSet): Promise<void> {
     const { pyPath, ipynbPath, config } = fileSet;
 
+    // The .py is the source of truth; nothing to persist elsewhere unless the
+    // notebook view is open and needs to mirror the new code.
     if (!this.isNotebookOpen(ipynbPath)) {
-      this.logger.info('PY changed but notebook not open -- nothing to sync');
+      this.logger.info('Synced PY (notebook not open, no-op)');
       return;
     }
 
@@ -512,66 +487,20 @@ export class PythonModelSyncService implements vscode.Disposable {
     );
     const pyCode = Buffer.from(pyContent).toString();
 
-    if (!config.cells || config.cells.length === 0) {
-      config.cells = generatePythonModelCells(config);
-    }
-
-    const blocks = pyCode.split('\n\n\n').slice(1);
-    const tempCells = [...config.cells];
-
-    const editableCells: PythonModelCell[] = [];
-    for (const cell of tempCells) {
-      if (cell.cell_type !== 'code') {
-        continue;
-      }
-      const src = Array.isArray(cell.source)
-        ? cell.source.join('')
-        : cell.source;
-      const trimmed = src.trim();
-      if (
-        trimmed.startsWith('context = {') ||
-        trimmed.startsWith("context = {'ds")
-      ) {
-        continue;
-      }
-      if (
-        trimmed === 'run_etl(context)' ||
-        trimmed === '# Run the ETL\nrun_etl(context)'
-      ) {
-        continue;
-      }
-      editableCells.push(cell);
-    }
-
-    const count = Math.min(blocks.length, editableCells.length);
-    for (let i = 0; i < count; i++) {
-      const blockContent = blocks[i].trim() + '\n';
-      const cell = editableCells[i];
-      cell.source = blockContent
-        .split('\n')
-        .map((line, j, arr) => (j < arr.length - 1 ? line + '\n' : line));
-      if (
-        Array.isArray(cell.source) &&
-        cell.source[cell.source.length - 1] === ''
-      ) {
-        cell.source.pop();
-      }
-    }
-
-    const nbContent = cellsToNotebook(tempCells);
+    const cells = buildNotebookCells(pyCode, config);
     this.suppress(ipynbPath);
     await vscode.workspace.fs.writeFile(
       vscode.Uri.file(ipynbPath),
-      Buffer.from(nbContent),
+      Buffer.from(cellsToNotebook(cells)),
     );
 
     this.logger.info('Synced PY -> IPYNB');
   }
 
-  // ── IPYNB -> PY (JSON is never modified) ─────────────────────────────
+  // ── IPYNB -> JSON ────────────────────────────────────────────────────
 
   private async syncFromNotebook(fileSet: PythonModelFileSet): Promise<void> {
-    const { ipynbPath, pyPath, config } = fileSet;
+    const { ipynbPath, jsonPath, config } = fileSet;
 
     try {
       await vscode.workspace.fs.stat(vscode.Uri.file(ipynbPath));
@@ -579,7 +508,7 @@ export class PythonModelSyncService implements vscode.Disposable {
       return;
     }
 
-    this.logger.info('Syncing from IPYNB -> PY');
+    this.logger.info('Syncing from IPYNB -> JSON');
 
     const notebookContent = await vscode.workspace.fs.readFile(
       vscode.Uri.file(ipynbPath),
@@ -588,30 +517,41 @@ export class PythonModelSyncService implements vscode.Disposable {
       Buffer.from(notebookContent).toString(),
     ) as Record<string, unknown>;
 
-    // Extract cells from notebook to generate the .py file
-    let cells: PythonModelCell[] = config.cells ?? [];
-    if (notebook.cells && Array.isArray(notebook.cells)) {
-      cells = notebook.cells.map(
-        (c: Record<string, unknown>): PythonModelCell => ({
-          cell_type: c.cell_type as PythonModelCell['cell_type'],
-          metadata: (c.metadata as Record<string, unknown>) ?? {},
-          source: c.source as string[] | string,
-          ...(c.cell_type === 'code' && {
-            execution_count: null,
-            outputs: [],
+    const cells: PythonModelCell[] = Array.isArray(notebook.cells)
+      ? notebook.cells.map(
+          (c: Record<string, unknown>): PythonModelCell => ({
+            cell_type: c.cell_type as PythonModelCell['cell_type'],
+            metadata: (c.metadata as Record<string, unknown>) ?? {},
+            source: c.source as string[] | string,
+            ...(c.cell_type === 'code' && {
+              execution_count: null,
+              outputs: [],
+            }),
           }),
-        }),
-      );
-    }
+        )
+      : [];
 
-    const pyContent = cellsToPython(cells, config);
-    this.suppress(pyPath);
+    // Persist the notebook snapshot into .python.json, dropping the derived
+    // header cell. The .python.py source of truth is NEVER rewritten here.
+    config.cells = stripNotebookOnlyCells(cells);
+    await this.writeJson(jsonPath, config);
+
+    this.logger.info('Synced IPYNB -> JSON');
+  }
+
+  /**
+   * Write the config back to .python.json. The target path is suppressed first
+   * so the JSON watcher ignores our own write and no sync loop occurs.
+   */
+  private async writeJson(
+    jsonPath: string,
+    config: PythonModelConfig,
+  ): Promise<void> {
+    this.suppress(jsonPath);
     await vscode.workspace.fs.writeFile(
-      vscode.Uri.file(pyPath),
-      Buffer.from(pyContent),
+      vscode.Uri.file(jsonPath),
+      Buffer.from(JSON.stringify(config, null, 4)),
     );
-
-    this.logger.info('Synced IPYNB -> PY');
   }
 
   // ── Dispose ────────────────────────────────────────────────────────

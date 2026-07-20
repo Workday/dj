@@ -1,5 +1,19 @@
 # Change Log
 
+## 1.9.0
+
+### Python models
+
+- **`_trino_io.py` overwrite restores on insert failure.** `overwrite` / `overwrite_partition` now back up matching rows before DELETE, then restore them if the subsequent INSERT fails. Callers can pass either a full `insert_sql=` statement or a `source_query=` (+ optional `columns=`) for the helper to assemble the INSERT.
+- **Refreshed shared python model helpers.** `_trino_io.py` now uses context-managed connections with `execute_sql` / `fetch_value` and ships DDL helpers (`create_schema`, `create_hive_csv_external_table`, `create_iceberg_table`, `set_extra_properties`, `flush_hive_metadata_cache`). `_config.py` resolves the catalog and namespace from Airflow Variables via `get_catalog_name()` / `get_namespace_name()`. A new shared `_model_tasks.py` provides topological batch ordering, and `etl_helper.py` gains topic-aware TaskGroups, schedule gating, and per-topic skip/backfill support. Generated model scaffolding now builds the target table FQN from the resolved catalog and namespace.
+- **Shared helper files always regenerate and are edit-protected.** `_config.py`, `_trino_io.py`, `_model_tasks.py`, and `etl_helper.py` are overwritten on activation and model creation so framework fixes propagate automatically, and manual edits to any of them are reverted with a notification (previously only `_trino_io.py` was protected).
+- **Destructive SQL is blocked in python model files.** `DROP`, `DELETE`, and `TRUNCATE` statements in user-authored `python_models/**` `.py` files now surface as errors in the Problems tab, steering users toward the safe DML helpers in `_trino_io.py`. DJ-generated shared files are exempt.
+- **`.python.py` is now the source of truth for python model code.** Opening the notebook always builds a fresh view from `.python.py` using jupytext-style `# %%` cell markers (a marker-less `.py` shows as a single cell). Saving the `.python.ipynb` persists the notebook cells into `.python.json` (dropping the derived, notebook-only header) — the `.python.py` is never rewritten from the notebook. This eliminates the positional cell-mapping corruption that could reorder, duplicate, or append function blocks when saving the notebook.
+
+### Agent Skills
+
+- **Review Python models for production readiness through your AI assistant.** When `dj.codingAgent` is enabled, a new skill at `.agents/skills/dj-review-python-model/SKILL.md` audits a `.python.json` + `.python.py` pair and produces a structured report covering framework compliance, lineage readiness (including end-to-end `python_model_upstream_sources` validation), downstream integration, and performance. The review cross-references SQL FROM/JOIN clauses against declared upstream sources to catch missing or stale lineage edges, verifies the full Iceberg table properties chain for lineage discoverability, and flags SQL-first violations, missing partition columns, and staging table leaks. Read-only — surfaces issues and recommendations without auto-fixing.
+
 ## 1.6.0
 
 ### Agent Skills

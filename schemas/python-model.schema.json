@@ -109,7 +109,7 @@
     },
     "cells": {
       "type": "array",
-      "description": "Notebook-format cells containing ETL code and documentation",
+      "description": "Notebook cells snapshot persisted from the .python.ipynb view (the .python.py file remains the source of truth for code)",
       "items": {
         "type": "object",
         "properties": {

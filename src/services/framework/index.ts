@@ -60,13 +60,15 @@ import { PreferencesHandler } from './handlers/preferences-handler';
 import { SourceHandler } from './handlers/source-handler';
 import { UIHandlers } from './handlers/ui-handlers';
 import {
+  findDangerousSqlStatements,
   frameworkGetModelId,
   frameworkGetSourceIds,
   frameworkMakeSourcePrefix,
   generateAutoTests,
-  generatePythonModel,
-  generatePythonModelCells,
   generatePythonModelConfigPy,
+  generatePythonModelScaffoldPy,
+  generatePythonModelTasksPy,
+  generateTrinoIoPy,
 } from './utils';
 
 /**
@@ -138,6 +140,12 @@ export class Framework implements ApiEnabledService<'framework'> {
   private jsonFileWatcher?: vscode.FileSystemWatcher;
   private sqlFileWatcher?: vscode.FileSystemWatcher;
   private ymlFileWatcher?: vscode.FileSystemWatcher;
+  /** Revert-on-edit guards for DJ-generated python model shared files */
+  private generatedFileWatchers: vscode.FileSystemWatcher[] = [];
+  /** Diagnostics for dangerous SQL statements in user python model files */
+  private pythonSqlGuardDiagnostics?: vscode.DiagnosticCollection;
+  private pythonSqlGuardWatcher?: vscode.FileSystemWatcher;
+  private pythonSqlGuardDisposables: vscode.Disposable[] = [];
 
   // Python model sync service for keeping .python.json, .py, and .ipynb in sync
   private pythonModelSyncService?: PythonModelSyncService;
@@ -378,16 +386,14 @@ export class Framework implements ApiEnabledService<'framework'> {
           variables: {},
         };
 
-        // Generate cells and include them in the JSON
-        pythonModelConfig.cells = generatePythonModelCells(pythonModelConfig);
-
+        // Write metadata-only JSON (the .python.py is the source of truth).
         await vscode.workspace.fs.writeFile(
           pythonJsonUri,
           Buffer.from(JSON.stringify(pythonModelConfig, null, '    ')),
         );
 
-        // Derive .python.py from cells
-        const modelContent = generatePythonModel(pythonModelConfig);
+        // Scaffold a clean, marker-delimited .python.py source of truth
+        const modelContent = generatePythonModelScaffoldPy(pythonModelConfig);
         const modelFileName = `${name}.python.py`;
         const modelUri = vscode.Uri.file(
           path.join(pythonModelDir, modelFileName),
@@ -397,8 +403,11 @@ export class Framework implements ApiEnabledService<'framework'> {
           Buffer.from(modelContent),
         );
 
-        // Ensure shared _config.py, etl_helper.py, and .airflowignore exist
+        // Ensure shared _config.py, _trino_io.py, _model_tasks.py, etl_helper.py,
+        // and .airflowignore exist
         await this.ensurePythonModelConfigPy();
+        await this.ensureTrinoIoPy();
+        await this.ensureModelTasksPy();
         await this.ensureEtlHelperFile();
         await this.ensureAirflowIgnoreFile();
 
@@ -1719,6 +1728,27 @@ export class Framework implements ApiEnabledService<'framework'> {
     });
     this.pythonModelSyncService.initialize();
 
+    // Ensure python model infrastructure files are up-to-date on activation
+    const pythonModelsDir = path.join(WORKSPACE_ROOT, 'dags', 'python_models');
+    vscode.workspace.fs.stat(vscode.Uri.file(pythonModelsDir)).then(
+      async () => {
+        await this.ensurePythonModelConfigPy();
+        await this.ensureTrinoIoPy();
+        await this.ensureModelTasksPy();
+        await this.ensureEtlHelperFile();
+        await this.ensureAirflowIgnoreFile();
+      },
+      () => {
+        /* dags/python_models/ doesn't exist yet -- nothing to do */
+      },
+    );
+
+    // Watch DJ-generated python model files for unauthorized edits and revert them
+    this.registerGeneratedFileGuards();
+
+    // Guard user python model files against destructive SQL (DROP/DELETE/TRUNCATE)
+    this.registerPythonSqlGuard();
+
     this.log.info('File watchers initialized for cache invalidation');
   }
 
@@ -2021,13 +2051,6 @@ export class Framework implements ApiEnabledService<'framework'> {
     const configPath = path.join(configDir, '_config.py');
 
     try {
-      await vscode.workspace.fs.stat(vscode.Uri.file(configPath));
-      return; // already exists
-    } catch {
-      // does not exist, create it
-    }
-
-    try {
       await vscode.workspace.fs.createDirectory(vscode.Uri.file(configDir));
 
       // Also create __init__.py so python_models is importable as a package
@@ -2055,9 +2078,248 @@ export class Framework implements ApiEnabledService<'framework'> {
   }
 
   /**
-   * Ensure etl_helper.py exists in the DAGs _ext_ directory.
-   * Copies from the extension's airflow template if missing.
-   * This runs independently of dj.airflowGenerateDags setting.
+   * Ensure python_models/_model_tasks.py exists and is up-to-date.
+   * Always overwrites to pick up framework fixes automatically.
+   */
+  private async ensureModelTasksPy(): Promise<void> {
+    const configDir = path.join(WORKSPACE_ROOT, 'dags', 'python_models');
+    const modelTasksPath = path.join(configDir, '_model_tasks.py');
+
+    try {
+      await vscode.workspace.fs.createDirectory(vscode.Uri.file(configDir));
+
+      const content = generatePythonModelTasksPy();
+      await vscode.workspace.fs.writeFile(
+        vscode.Uri.file(modelTasksPath),
+        Buffer.from(content),
+      );
+      this.log.info(
+        `Generated python_models/_model_tasks.py at: ${modelTasksPath}`,
+      );
+    } catch (err) {
+      this.log.warn(
+        `Could not generate python_models/_model_tasks.py: ${String(err)}`,
+      );
+    }
+  }
+
+  /**
+   * Read the etl_helper.py template for the configured Airflow version.
+   * Used both to seed the file and to revert unauthorized edits.
+   */
+  private async readEtlHelperTemplate(): Promise<string> {
+    const { airflowTargetVersion } = getDjConfig();
+    const versionFolder = airflowTargetVersion === '2.10' ? 'v2_10' : 'v2_7';
+    const templatePath = path.join(
+      BASE_AIRFLOW_PATH,
+      versionFolder,
+      'etl_helper.py',
+    );
+    const content = await vscode.workspace.fs.readFile(
+      vscode.Uri.file(templatePath),
+    );
+    return Buffer.from(content).toString();
+  }
+
+  /**
+   * Watch all DJ-generated python model shared files and revert unauthorized
+   * edits. These files are auto-generated and must not be hand-edited:
+   * _trino_io.py, _config.py, _model_tasks.py, and etl_helper.py.
+   */
+  private registerGeneratedFileGuards(): void {
+    const guards: {
+      glob: string;
+      generate: () => Promise<string> | string;
+      label: string;
+    }[] = [
+      {
+        glob: '**/python_models/_trino_io.py',
+        generate: () => generateTrinoIoPy(),
+        label: '_trino_io.py',
+      },
+      {
+        glob: '**/python_models/_config.py',
+        generate: () => generatePythonModelConfigPy(),
+        label: '_config.py',
+      },
+      {
+        glob: '**/python_models/_model_tasks.py',
+        generate: () => generatePythonModelTasksPy(),
+        label: '_model_tasks.py',
+      },
+      {
+        glob: '**/etl_helper.py',
+        generate: () => this.readEtlHelperTemplate(),
+        label: 'etl_helper.py',
+      },
+    ];
+
+    for (const guard of guards) {
+      const watcher = vscode.workspace.createFileSystemWatcher(guard.glob);
+      const revert = async (uri: vscode.Uri): Promise<void> => {
+        try {
+          const desired = await guard.generate();
+          const current = Buffer.from(
+            await vscode.workspace.fs.readFile(uri),
+          ).toString();
+          // Our own writes leave content === desired, so this is a no-op loop
+          // breaker: only revert when the file actually diverges.
+          if (current === desired) {
+            return;
+          }
+          await vscode.workspace.fs.writeFile(uri, Buffer.from(desired));
+          void vscode.window.showInformationMessage(
+            `DJ Framework: ${guard.label} is auto-generated and cannot be edited. Your changes have been reverted.`,
+          );
+        } catch (err) {
+          this.log.warn(`Could not revert ${guard.label}: ${String(err)}`);
+        }
+      };
+      watcher.onDidChange(revert);
+      this.generatedFileWatchers.push(watcher);
+    }
+  }
+
+  /** DJ-generated shared python files that are exempt from the SQL guard. */
+  private static readonly GENERATED_PYTHON_FILES = new Set([
+    '_config.py',
+    '_trino_io.py',
+    '_model_tasks.py',
+    '__init__.py',
+    'etl_helper.py',
+  ]);
+
+  /** Whether a path is a python model file that the SQL guard should scan. */
+  private isGuardedPythonModelFile(fsPath: string): boolean {
+    if (!fsPath.endsWith('.py')) {
+      return false;
+    }
+    if (!fsPath.split(path.sep).includes('python_models')) {
+      return false;
+    }
+    return !Framework.GENERATED_PYTHON_FILES.has(path.basename(fsPath));
+  }
+
+  /**
+   * Recompute destructive-SQL diagnostics for a python model file. Clears the
+   * entry when the file is generated/exempt or no longer contains violations.
+   */
+  private updatePythonSqlDiagnostics(uri: vscode.Uri, text: string): void {
+    if (!this.pythonSqlGuardDiagnostics) {
+      return;
+    }
+    if (!this.isGuardedPythonModelFile(uri.fsPath)) {
+      this.pythonSqlGuardDiagnostics.delete(uri);
+      return;
+    }
+
+    const matches = findDangerousSqlStatements(text);
+    if (matches.length === 0) {
+      this.pythonSqlGuardDiagnostics.delete(uri);
+      return;
+    }
+
+    const diagnostics = matches.map((match) => {
+      const range = new vscode.Range(
+        match.line,
+        match.startCol,
+        match.line,
+        match.endCol,
+      );
+      const diagnostic = new vscode.Diagnostic(
+        range,
+        `DJ Framework: ${match.statement} statements are not allowed in python model files. ` +
+          'Destructive SQL (DROP/DELETE/TRUNCATE) is blocked to protect your data — ' +
+          'use the safe helpers in python_models/_trino_io.py instead.',
+        vscode.DiagnosticSeverity.Error,
+      );
+      diagnostic.source = 'DJ Framework';
+      return diagnostic;
+    });
+
+    this.pythonSqlGuardDiagnostics.set(uri, diagnostics);
+  }
+
+  /**
+   * Set up the destructive-SQL guard: a diagnostics collection plus watchers
+   * and text-document listeners that flag DROP/DELETE/TRUNCATE in user python
+   * model files (DJ-generated shared files are exempt).
+   */
+  private registerPythonSqlGuard(): void {
+    this.pythonSqlGuardDiagnostics =
+      vscode.languages.createDiagnosticCollection('dj-python-sql-guard');
+
+    const scanUri = async (uri: vscode.Uri): Promise<void> => {
+      try {
+        const content = Buffer.from(
+          await vscode.workspace.fs.readFile(uri),
+        ).toString();
+        this.updatePythonSqlDiagnostics(uri, content);
+      } catch {
+        this.pythonSqlGuardDiagnostics?.delete(uri);
+      }
+    };
+
+    this.pythonSqlGuardWatcher = vscode.workspace.createFileSystemWatcher(
+      '**/python_models/**/*.py',
+    );
+    this.pythonSqlGuardWatcher.onDidChange(scanUri);
+    this.pythonSqlGuardWatcher.onDidCreate(scanUri);
+    this.pythonSqlGuardWatcher.onDidDelete((uri) =>
+      this.pythonSqlGuardDiagnostics?.delete(uri),
+    );
+
+    // Live updates as the user types / opens files
+    this.pythonSqlGuardDisposables.push(
+      vscode.workspace.onDidChangeTextDocument((e) => {
+        if (this.isGuardedPythonModelFile(e.document.uri.fsPath)) {
+          this.updatePythonSqlDiagnostics(e.document.uri, e.document.getText());
+        }
+      }),
+      vscode.workspace.onDidOpenTextDocument((doc) => {
+        if (this.isGuardedPythonModelFile(doc.uri.fsPath)) {
+          this.updatePythonSqlDiagnostics(doc.uri, doc.getText());
+        }
+      }),
+    );
+
+    // Scan already-open python model documents on activation
+    for (const doc of vscode.workspace.textDocuments) {
+      if (this.isGuardedPythonModelFile(doc.uri.fsPath)) {
+        this.updatePythonSqlDiagnostics(doc.uri, doc.getText());
+      }
+    }
+  }
+
+  /**
+   * Ensure python_models/_trino_io.py exists and is up-to-date.
+   * Always overwrites to pick up framework fixes automatically.
+   */
+  private async ensureTrinoIoPy(): Promise<void> {
+    const configDir = path.join(WORKSPACE_ROOT, 'dags', 'python_models');
+    const trinoIoPath = path.join(configDir, '_trino_io.py');
+
+    try {
+      await vscode.workspace.fs.createDirectory(vscode.Uri.file(configDir));
+
+      const content = generateTrinoIoPy();
+      await vscode.workspace.fs.writeFile(
+        vscode.Uri.file(trinoIoPath),
+        Buffer.from(content),
+      );
+      this.log.info(`Generated python_models/_trino_io.py at: ${trinoIoPath}`);
+    } catch (err) {
+      this.log.warn(
+        `Could not generate python_models/_trino_io.py: ${String(err)}`,
+      );
+    }
+  }
+
+  /**
+   * Ensure etl_helper.py exists in the DAGs _ext_ directory and is up-to-date.
+   * Always overwrites from the extension's airflow template so framework fixes
+   * are picked up automatically. This runs independently of the
+   * dj.airflowGenerateDags setting.
    */
   private async ensureEtlHelperFile(): Promise<void> {
     const { airflowDagsPath, airflowTargetVersion } = getDjConfig();
@@ -2074,12 +2336,14 @@ export class Framework implements ApiEnabledService<'framework'> {
       path.join(WORKSPACE_ROOT, 'dags', '_ext_', 'etl_helper.py'),
     );
 
-    // Check if etl_helper.py already exists in any location
+    // Determine best target: overwrite an existing file wherever it lives,
+    // otherwise prefer airflowDagsPath, then workspace dags/_ext_/.
+    let targetPath = possibleTargets[0];
     for (const target of possibleTargets) {
       try {
         await vscode.workspace.fs.stat(vscode.Uri.file(target));
-        this.log.info(`etl_helper.py already exists at: ${target}`);
-        return;
+        targetPath = target;
+        break;
       } catch {
         // Not found, continue
       }
@@ -2092,12 +2356,6 @@ export class Framework implements ApiEnabledService<'framework'> {
       versionFolder,
       'etl_helper.py',
     );
-
-    // Determine best target: prefer airflowDagsPath, then workspace dags/_ext_/
-    let targetPath = possibleTargets[0];
-    if (airflowDagsPath) {
-      targetPath = path.join(WORKSPACE_ROOT, airflowDagsPath, 'etl_helper.py');
-    }
 
     try {
       const content = await vscode.workspace.fs.readFile(
@@ -2169,6 +2427,8 @@ export class Framework implements ApiEnabledService<'framework'> {
       const requiredPatterns = [
         '.*\\.python\\.py$',
         'python_models/_config\\.py$',
+        'python_models/_trino_io\\.py$',
+        'python_models/_model_tasks\\.py$',
         'python_models/.*/_helpers\\.py$',
         'python_models/.*/__init__\\.py$',
       ];
@@ -2196,6 +2456,8 @@ export class Framework implements ApiEnabledService<'framework'> {
 
 .*\\.python\\.py$
 python_models/_config\\.py$
+python_models/_trino_io\\.py$
+python_models/_model_tasks\\.py$
 python_models/.*/_helpers\\.py$
 python_models/.*/__init__\\.py$
 `;
@@ -2738,6 +3000,16 @@ with DAG(
     this.jsonFileWatcher?.dispose();
     this.sqlFileWatcher?.dispose();
     this.ymlFileWatcher?.dispose();
+    for (const watcher of this.generatedFileWatchers) {
+      watcher.dispose();
+    }
+    this.generatedFileWatchers = [];
+    this.pythonSqlGuardWatcher?.dispose();
+    this.pythonSqlGuardDiagnostics?.dispose();
+    for (const disposable of this.pythonSqlGuardDisposables) {
+      disposable.dispose();
+    }
+    this.pythonSqlGuardDisposables = [];
     this.pythonModelSyncService?.dispose();
     this.syncQueue.dispose();
     this.statusBarItem.dispose();
