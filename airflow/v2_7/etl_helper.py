@@ -322,7 +322,6 @@ def register_python_model_mapped_tasks(dag_id: str, group_id: str | None = None)
             mapped_task = PythonOperator.partial(
                 task_id=task_name,
                 python_callable=_execute_model_with_context,
-                map_index_template="{{ model_id }}",
             ).expand(op_kwargs=[{"model": m, "model_id": m["model_id"]} for m in model_tasks])
 
             if prev_task is not None:
@@ -389,7 +388,6 @@ def register_python_model_mapped_tasks_by_topic(
                 mapped_task = PythonOperator.partial(
                     task_id=task_name,
                     python_callable=_execute_model_with_context,
-                    map_index_template="{{ model_id }}",
                 ).expand(op_kwargs=op_kwargs_list)
 
                 if prev_task is not None:
