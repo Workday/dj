@@ -10,11 +10,12 @@ const config = {
     '@web/(.*)': ['<rootDir>/web/src/$1'],
     '@web': ['<rootDir>/web/src'],
   },
-  // `isolatedModules: true` keeps ts-jest in transpile-only mode for imported
-  // files, so cross-package type resolution (e.g. the web tree's DOM globals
-  // and `@web/*` paths) does not need to be wired into the root tsconfig.
+  // Transpile-only mode lives in tsconfig.json (`isolatedModules: true`) so
+  // ts-jest picks it up without the deprecated transform option. That keeps
+  // cross-package type resolution (e.g. the web tree's DOM globals and
+  // `@web/*` paths) from needing to be wired into the root tsconfig.
   transform: {
-    '^.+\\.tsx?$': ['ts-jest', { isolatedModules: true }],
+    '^.+\\.tsx?$': 'ts-jest',
   },
   testPathIgnorePatterns: [
     '<rootDir>/out/',

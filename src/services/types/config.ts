@@ -22,12 +22,14 @@ export type CoderConfig = {
   dbtGenericTestsPath?: string;
   dbtMacroPath?: string;
   pythonVenvPath?: string;
+  pythonModelGroups: string[];
   trinoPath?: string;
   lightdashProjectPath?: string;
   lightdashProfilesPath?: string;
   lightdashDefaultSqlFilter?: string;
   lightdashDefaultSqlFilterRequiredColumns?: string[];
   lightdashDefaultPartitionColumnCaseSensitive?: boolean;
+  lightdashDefaultSortedByColumnCaseSensitive?: boolean;
   lightdashDefaultAddPathToGitignore?: boolean;
   lightdashRestrictedProjects?: LightdashRestrictedProject[];
   materializationDefaultIncrementalStrategy?: DefaultIncrementalStrategy;

@@ -1358,7 +1358,7 @@ describe('incremental unique_key defaulting', () => {
           meta: {
             portal_partition_columns: [
               'portal_partition_monthly',
-              'wd_env_type',
+              'env_type',
               'portal_partition_daily',
             ],
           },
@@ -1378,8 +1378,8 @@ describe('incremental unique_key defaulting', () => {
               data_type: 'date',
               meta: { type: 'dim' },
             },
-            wd_env_type: {
-              name: 'wd_env_type',
+            env_type: {
+              name: 'env_type',
               data_type: 'varchar',
               meta: { type: 'dim' },
             },
@@ -1387,7 +1387,7 @@ describe('incremental unique_key defaulting', () => {
         },
         ['model.project.parent_unpartitioned']: {
           // No meta.portal_partition_columns and no partition columns - mirrors
-          // the int__capeng__* case where there is no partition config at all.
+          // the int__analytics__* case where there is no partition config at all.
           columns: {
             dim_a: {
               name: 'dim_a',
@@ -1397,15 +1397,15 @@ describe('incremental unique_key defaulting', () => {
           },
         },
         ['model.project.parent_with_partial_meta']: {
-          // Mirrors `int__capeng__pca_metrics__oms_job`: inherits
-          // meta.portal_partition_columns including `wd_env_type` from upstream
-          // but does NOT itself produce a `wd_env_type` column. Downstream join
-          // models pick up `wd_env_type` from a different join target, so the
+          // Mirrors `int__analytics__metrics__daily_job`: inherits
+          // meta.portal_partition_columns including `env_type` from upstream
+          // but does NOT itself produce a `env_type` column. Downstream join
+          // models pick up `env_type` from a different join target, so the
           // meta must continue to advertise it for them.
           meta: {
             portal_partition_columns: [
               'portal_partition_monthly',
-              'wd_env_type',
+              'env_type',
               'portal_partition_daily',
             ],
           },
@@ -1428,16 +1428,16 @@ describe('incremental unique_key defaulting', () => {
           },
         },
         ['model.project.join_target_with_env']: {
-          // Mirrors `int__capeng__tenant__env_daily`: a sibling joined into the
-          // pca_metrics join models that supplies `wd_env_type`.
+          // Mirrors `int__analytics__tenant__env_daily`: a sibling joined into the
+          // metrics join models that supplies `env_type`.
           columns: {
             dim_a: {
               name: 'dim_a',
               data_type: 'varchar',
               meta: { type: 'dim' },
             },
-            wd_env_type: {
-              name: 'wd_env_type',
+            env_type: {
+              name: 'env_type',
               data_type: 'varchar',
               meta: { type: 'dim' },
             },
@@ -1495,7 +1495,7 @@ describe('incremental unique_key defaulting', () => {
     // that legitimately re-introduce these columns.
     expect(properties.meta?.portal_partition_columns).toEqual([
       'portal_partition_monthly',
-      'wd_env_type',
+      'env_type',
       'portal_partition_daily',
     ]);
   });
@@ -1508,7 +1508,7 @@ describe('incremental unique_key defaulting', () => {
     // so dbt raises its own clear "delete+insert requires unique_key" error.
     const modelJson: FrameworkModel = {
       type: 'int_select_model',
-      group: 'capeng',
+      group: 'analytics',
       topic: 'tenant',
       name: 'account',
       materialization: {
@@ -1564,7 +1564,7 @@ describe('incremental unique_key defaulting', () => {
     // existing behavior of the delete+insert branch.
     const modelJson: FrameworkModel = {
       type: 'int_select_model',
-      group: 'capeng',
+      group: 'analytics',
       topic: 'tenant',
       name: 'account_explicit',
       materialization: {
@@ -1588,16 +1588,16 @@ describe('incremental unique_key defaulting', () => {
 
   test('join model re-introducing a partition column inherits parent meta intact', () => {
     // Regression guard for the cascading-loss bug. The base parent
-    // `parent_with_partial_meta` advertises `wd_env_type` in its meta but does
-    // not itself have a `wd_env_type` column. The join model produces
-    // `wd_env_type` via the joined `join_target_with_env`. The child must
+    // `parent_with_partial_meta` advertises `env_type` in its meta but does
+    // not itself have a `env_type` column. The join model produces
+    // `env_type` via the joined `join_target_with_env`. The child must
     // inherit the FULL parent meta list so downstream consumers (and SQL
-    // ordering) continue to see `wd_env_type` as a partition column.
+    // ordering) continue to see `env_type` as a partition column.
     const modelJson: FrameworkModel = {
       type: 'int_join_models',
-      group: 'capeng',
-      topic: 'pca_metrics',
-      name: 'oms_join',
+      group: 'analytics',
+      topic: 'metrics',
+      name: 'daily_join',
       materialization: 'incremental',
       select: [
         { type: 'dims_from_model', model: 'parent_with_partial_meta' },
@@ -1622,7 +1622,7 @@ describe('incremental unique_key defaulting', () => {
 
     expect(properties.meta?.portal_partition_columns).toEqual([
       'portal_partition_monthly',
-      'wd_env_type',
+      'env_type',
       'portal_partition_daily',
     ]);
   });
@@ -1677,7 +1677,7 @@ describe('lightdash global sql_filter default', () => {
   };
 
   const GLOBAL_FILTER =
-    '(account_project_id in (select id from opus.finops.account_rollup))';
+    '(account_project_id in (select id from catalog.finops.account_rollup))';
 
   // Builds a DJ object with optional lightdash global-default config.
   function makeDj(opts?: {
@@ -1976,6 +1976,193 @@ describe('partition column case_sensitive', () => {
   });
 });
 
+describe('sorted_by column case_sensitive', () => {
+  const project: DbtProject = {
+    name: 'project',
+    macroPaths: ['macros'],
+    manifest: {
+      child_map: {},
+      disabled: {},
+      docs: {},
+      exposures: {},
+      group_map: {},
+      groups: {},
+      macros: {},
+      metadata: { project_name: 'project' },
+      metrics: {},
+      nodes: {
+        ['model.project.parent_daily']: {
+          meta: {
+            portal_partition_columns: ['portal_partition_daily'],
+          },
+          columns: {
+            dim_a: {
+              name: 'dim_a',
+              data_type: 'varchar',
+              meta: { type: 'dim' },
+            },
+            tenant_name: {
+              name: 'tenant_name',
+              data_type: 'varchar',
+              meta: { type: 'dim' },
+            },
+            product_area: {
+              name: 'product_area',
+              data_type: 'varchar',
+              meta: { type: 'dim' },
+            },
+            portal_partition_daily: {
+              name: 'portal_partition_daily',
+              data_type: 'date',
+              meta: { type: 'dim' },
+            },
+          },
+        },
+      },
+      parent_map: {},
+      saved_queries: {},
+      selectors: {},
+      semantic_models: {},
+      sources: {},
+    },
+    modelPaths: ['models'],
+    packagePath: '',
+    pathRelative: '',
+    pathSystem: '',
+    properties: { vars: { event_dates: '2024-07-01' } },
+    targetPath: 'target',
+    variables: {},
+  };
+
+  const baseModelJson = {
+    type: 'int_select_model',
+    group: 'sales',
+    topic: 'orders',
+    name: 'sorted_model',
+    materialization: {
+      type: 'incremental',
+      format: 'iceberg',
+      sorted_by: ['tenant_name', 'product_area'],
+    },
+    select: [
+      'portal_partition_daily',
+      { name: 'tenant_name', type: 'dim' },
+      { name: 'product_area', type: 'dim' },
+      { name: 'dim_a', type: 'dim' },
+    ],
+    from: { model: 'parent_daily' },
+  } as unknown as FrameworkModel;
+
+  test('sorted_by columns do NOT get case_sensitive when setting is disabled', () => {
+    const { properties } = frameworkGenerateModelOutput({
+      dj: createTestDJ(),
+      modelJson: baseModelJson,
+      project,
+    });
+
+    const sortedCol = properties.columns?.find((c) => c.name === 'tenant_name');
+    expect(sortedCol?.meta?.dimension?.case_sensitive).toBeUndefined();
+  });
+
+  test('sorted_by columns automatically get case_sensitive: true when setting enabled', () => {
+    const dj: DJ = {
+      config: {
+        ...createTestDJ().config,
+        lightdashDefaultSortedByColumnCaseSensitive: true,
+      },
+    };
+
+    const { properties } = frameworkGenerateModelOutput({
+      dj,
+      modelJson: baseModelJson,
+      project,
+    });
+
+    const tenantCol = properties.columns?.find((c) => c.name === 'tenant_name');
+    expect(tenantCol?.meta?.dimension?.case_sensitive).toBe(true);
+
+    const productCol = properties.columns?.find(
+      (c) => c.name === 'product_area',
+    );
+    expect(productCol?.meta?.dimension?.case_sensitive).toBe(true);
+
+    // Non-sorted-by columns should not get case_sensitive auto-set
+    const dimCol = properties.columns?.find((c) => c.name === 'dim_a');
+    expect(dimCol?.meta?.dimension?.case_sensitive).toBeUndefined();
+  });
+
+  test('explicit case_sensitive: false on sorted_by column is preserved', () => {
+    const modelJson: FrameworkModel = {
+      ...baseModelJson,
+      select: [
+        'portal_partition_daily',
+        {
+          name: 'tenant_name',
+          type: 'dim',
+          lightdash: { dimension: { case_sensitive: false } },
+        },
+        { name: 'product_area', type: 'dim' },
+        { name: 'dim_a', type: 'dim' },
+      ],
+    } as unknown as FrameworkModel;
+
+    const dj: DJ = {
+      config: {
+        ...createTestDJ().config,
+        lightdashDefaultSortedByColumnCaseSensitive: true,
+      },
+    };
+
+    const { properties } = frameworkGenerateModelOutput({
+      dj,
+      modelJson,
+      project,
+    });
+
+    const tenantCol = properties.columns?.find((c) => c.name === 'tenant_name');
+    expect(tenantCol?.meta?.dimension?.case_sensitive).toBe(false);
+
+    // Sibling sorted_by columns still receive the workspace default
+    const productCol = properties.columns?.find(
+      (c) => c.name === 'product_area',
+    );
+    expect(productCol?.meta?.dimension?.case_sensitive).toBe(true);
+  });
+
+  test('column that is both partition and sorted_by gets case_sensitive when either setting is on', () => {
+    const modelJson: FrameworkModel = {
+      ...baseModelJson,
+      materialization: {
+        type: 'incremental',
+        format: 'iceberg',
+        sorted_by: ['portal_partition_daily', 'tenant_name'],
+      },
+    } as unknown as FrameworkModel;
+
+    const dj: DJ = {
+      config: {
+        ...createTestDJ().config,
+        lightdashDefaultPartitionColumnCaseSensitive: true,
+        lightdashDefaultSortedByColumnCaseSensitive: true,
+      },
+    };
+
+    const { properties } = frameworkGenerateModelOutput({
+      dj,
+      modelJson,
+      project,
+    });
+
+    const partitionCol = properties.columns?.find(
+      (c) => c.name === 'portal_partition_daily',
+    );
+    expect(partitionCol?.meta?.dimension?.case_sensitive).toBe(true);
+
+    const sortedCol = properties.columns?.find((c) => c.name === 'tenant_name');
+    expect(sortedCol?.meta?.dimension?.case_sensitive).toBe(true);
+  });
+});
+
 describe('lightdash global sql_filter default', () => {
   // Reuse the same project fixture shape used by the other lightdash-adjacent
   // tests above. Columns on `model_a` are `dim_a` + `dim_b`, on `model_b` they
@@ -2025,7 +2212,7 @@ describe('lightdash global sql_filter default', () => {
   };
 
   const GLOBAL_FILTER =
-    '(account_project_id in (select id from opus.finops.account_rollup))';
+    '(account_project_id in (select id from catalog.finops.account_rollup))';
 
   // Builds a DJ object with optional lightdash global-default config.
   function makeDj(opts?: {

@@ -387,10 +387,12 @@ manifest. Use the standard exclude flags
 `exclude_portal_source_count`, or the combined `exclude_framework_artifacts`)
 on the CTE — or on the main model — to opt out. Naming one of these columns in a
 bulk-select `exclude` on its own does not drop it (the framework re-injects it)
-and raises a Problems-tab warning pointing at the matching flag. The exception is
-a deliberate replace: `exclude` the column in the bulk **and** re-add it as a
-named select in the same CTE (for example, to re-grain `datetime`) — the exclude
-then lets your copy win over the inherited one and does not warn.
+and raises a Problems-tab warning pointing at the matching flag. Two exceptions
+skip the warning because the exclude is genuinely effective: a finer partition
+grain that a coarsened `datetime` (via `from.rollup` or a re-grained `datetime`
+select) already drops, and a deliberate replace — `exclude` the column in the
+bulk **and** re-add it as a named select in the same CTE (for example, to
+re-grain `datetime`) so your copy wins over the inherited one.
 
 When the main model is materialized as `incremental` with a
 partition-overwrite strategy (`overwrite_existing_partitions`,

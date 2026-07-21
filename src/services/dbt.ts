@@ -137,6 +137,22 @@ export class Dbt implements ApiEnabledService<'dbt'> {
     iconPath: new vscode.ThemeIcon('add'),
     label: 'Create Source',
   };
+  treeItemPythonModelCreate: TreeItem = {
+    command: {
+      command: COMMAND_ID.PYTHON_MODEL_CREATE,
+      title: 'Create Python Model',
+    },
+    iconPath: new vscode.ThemeIcon('add'),
+    label: 'Create Python Model',
+  };
+  treeItemDagCreate: TreeItem = {
+    command: {
+      command: COMMAND_ID.DAG_CREATE,
+      title: 'Create DAG',
+    },
+    iconPath: new vscode.ThemeIcon('add'),
+    label: 'Create DAG',
+  };
   treeItemQueryCreate: TreeItem = {
     command: {
       command: COMMAND_ID.QUERY_DRAFT_CREATE,
@@ -2267,6 +2283,8 @@ ${macro.macro_sql}`;
       this.treeItemProjectClean,
       this.treeItemModelCreate,
       this.treeItemSourceCreate,
+      this.treeItemPythonModelCreate,
+      this.treeItemDagCreate,
       this.treeItemQueryCreate,
       this.coder.lightdash.treeItemLightdashPreview,
       this.coder.lightdash.treeItemLightdashDashboardsAsCode,
@@ -3124,6 +3142,70 @@ ${macro.macro_sql}`;
           // Handle webview messages including state management
           panel.webview.onDidReceiveMessage(
             this.coder.createWebviewMessageHandler(panel, 'source-create'),
+          );
+        }
+      }),
+    );
+
+    // Python model Create Command
+    context.subscriptions.push(
+      vscode.commands.registerCommand(COMMAND_ID.PYTHON_MODEL_CREATE, () => {
+        if (this.coder.framework.webviewPanelPythonModelCreate) {
+          this.coder.framework.webviewPanelPythonModelCreate.reveal();
+        } else {
+          const panel = vscode.window.createWebviewPanel(
+            'dj.view.pythonModelCreate',
+            'Create Python Model',
+            vscode.ViewColumn.One,
+            { enableScripts: true },
+          );
+          panel.onDidDispose(() => {
+            this.coder.framework.webviewPanelPythonModelCreate = undefined;
+          });
+          this.coder.framework.webviewPanelPythonModelCreate = panel;
+          const html = getHtml({
+            extensionUri: this.context.extensionUri,
+            route: '/python-model/create',
+            webview: panel.webview,
+          });
+          panel.webview.html = html;
+
+          // Handle webview messages including state management
+          panel.webview.onDidReceiveMessage(
+            this.coder.createWebviewMessageHandler(
+              panel,
+              'python-model-create',
+            ),
+          );
+        }
+      }),
+    );
+
+    // DAG Create Command
+    context.subscriptions.push(
+      vscode.commands.registerCommand(COMMAND_ID.DAG_CREATE, () => {
+        if (this.coder.framework.webviewPanelDagCreate) {
+          this.coder.framework.webviewPanelDagCreate.reveal();
+        } else {
+          const panel = vscode.window.createWebviewPanel(
+            'dj.view.dagCreate',
+            'Create DAG',
+            vscode.ViewColumn.One,
+            { enableScripts: true },
+          );
+          panel.onDidDispose(() => {
+            this.coder.framework.webviewPanelDagCreate = undefined;
+          });
+          this.coder.framework.webviewPanelDagCreate = panel;
+          const html = getHtml({
+            extensionUri: this.context.extensionUri,
+            route: '/dag/create',
+            webview: panel.webview,
+          });
+          panel.webview.html = html;
+
+          panel.webview.onDidReceiveMessage(
+            this.coder.createWebviewMessageHandler(panel, 'dag-create'),
           );
         }
       }),

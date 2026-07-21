@@ -16,6 +16,7 @@ export type TagInputProps = {
   placeholder?: string;
   predefinedTags?: string[];
   disabled?: boolean;
+  restrictToPredefined?: boolean;
 };
 
 export function TagInput({
@@ -29,15 +30,21 @@ export function TagInput({
   placeholder = 'Type and press Enter to add tags',
   predefinedTags = [],
   disabled = false,
+  restrictToPredefined = false,
 }: TagInputProps) {
   const [inputValue, setInputValue] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleAddTag = (tag: string) => {
-    if (!tag || tag.trim() === '') return;
+    if (!tag || tag.trim() === '') {
+      return;
+    }
 
     const trimmedTag = tag.trim();
+    if (restrictToPredefined && !predefinedTags.includes(trimmedTag)) {
+      return;
+    }
     if (trimmedTag && !value.includes(trimmedTag)) {
       onChange?.([...value, trimmedTag]);
     }
@@ -67,9 +74,9 @@ export function TagInput({
   );
 
   return (
-    <Field className="flex flex-col gap-2">
+    <Field className="flex flex-col gap-1">
       {label && (
-        <Label className="text-sm/6 font-semibold leading-6 text-background-contrast flex gap-1 items-center">
+        <Label className="text-sm/6 font-semibold leading-6 mt-2 text-background-contrast flex gap-1 items-center">
           {label}
           {tooltipText && <Tooltip content={tooltipText} />}
         </Label>

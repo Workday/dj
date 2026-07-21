@@ -19,6 +19,7 @@ Complete guide to configuring the DJ (Data JSON) Framework VS Code extension.
 | `lightdash.defaultSqlFilter`                    | Global default `sql_filter` for lightdash tables                 | Next sync 🔄    |
 | `lightdash.defaultSqlFilterRequiredColumns`     | Required columns guard for the global filter                     | Next sync 🔄    |
 | `lightdash.defaultPartitionColumnCaseSensitive` | Set default `case_sensitive` value for partition columns in YAML | Next sync 🔄    |
+| `lightdash.defaultSortedByColumnCaseSensitive`  | Set default `case_sensitive` value for sorted_by columns in YAML | Next sync 🔄    |
 | `lightdash.defaultAddPathToGitignore`           | Default state of the Download tab `.gitignore` checkbox          | Next panel ⚡   |
 | `lightdash.restrictedProjects`                  | Block/warn DJ Upload against Lightdash project UUIDs             | Next upload ⚡  |
 | `aiHintTag`                                     | Tag for AI-generated hints                                       | Next sync 🔄    |
@@ -128,7 +129,7 @@ Complete guide to configuring the DJ (Data JSON) Framework VS Code extension.
 
 ```json
 {
-  "dj.lightdash.defaultSqlFilter": "account_project_id in (select id from finops.account_rollup_hierarchy where proj_level_1_cd in (${lightdash.attributes.opus_purpose_level2}))",
+  "dj.lightdash.defaultSqlFilter": "account_project_id in (select id from finops.account_rollup_hierarchy where proj_level_1_cd in (${lightdash.attributes.purpose_level2}))",
   "dj.lightdash.defaultSqlFilterRequiredColumns": ["account_project_id"]
 }
 ```
@@ -151,6 +152,16 @@ Takes effect on next `DJ: Sync to SQL and YML`.
 
 - When `true`, every generated partition column in `.yml` files gets `meta.dimension.case_sensitive: true`. This stops Lightdash from wrapping the column in `UPPER()` in queries, preserving Trino predicate pushdown on partitioned tables.
 - When `false` (the default), partition columns are emitted without the auto-injected `case_sensitive` flag. Per-model and per-column `lightdash.case_sensitive` overrides in `.model.json` continue to work in either mode.
+- Takes effect on next `DJ: Sync to SQL and YML`.
+
+**`dj.lightdash.defaultSortedByColumnCaseSensitive`** - Auto-emit `case_sensitive: true` on `materialization.sorted_by` columns in generated YAML (default: `false`)
+
+```json
+{ "dj.lightdash.defaultSortedByColumnCaseSensitive": true }
+```
+
+- When `true`, every column listed in a model's `materialization.sorted_by` gets `meta.dimension.case_sensitive: true` in the generated YAML. This stops Lightdash from wrapping those columns in `UPPER()` in queries, preserving Trino predicate pushdown on sorted columns.
+- When `false` (the default), `sorted_by` columns are emitted without the auto-injected `case_sensitive` flag. Per-column `lightdash.case_sensitive` / `lightdash.dimension.case_sensitive` overrides in `.model.json` continue to work in either mode.
 - Takes effect on next `DJ: Sync to SQL and YML`.
 
 **`dj.lightdash.defaultAddPathToGitignore`** - Initial state of the Download tab `Add path to .gitignore` checkbox (default: `true`)
@@ -189,7 +200,7 @@ Takes effect on next `DJ: Sync to SQL and YML`.
 
 ```json
 {
-  "dj.lightdash.defaultSqlFilter": "account_project_id in (select id from finops.account_rollup_hierarchy where proj_level_1_cd in (${lightdash.attributes.opus_purpose_level2}))",
+  "dj.lightdash.defaultSqlFilter": "account_project_id in (select id from finops.account_rollup_hierarchy where proj_level_1_cd in (${lightdash.attributes.purpose_level2}))",
   "dj.lightdash.defaultSqlFilterRequiredColumns": ["account_project_id"]
 }
 ```
@@ -319,6 +330,7 @@ Run this command (`Cmd/Ctrl+Shift+P` → `DJ: Refresh Projects`) after changing:
 - `aiHintTag` - Recompiles models with updated tags
 - `lightdash.defaultSqlFilter` / `lightdash.defaultSqlFilterRequiredColumns` - Re-emits lightdash table meta on existing models
 - `lightdash.defaultPartitionColumnCaseSensitive` - Re-emits partition column YAML meta
+- `lightdash.defaultSortedByColumnCaseSensitive` - Re-emits sorted_by column YAML meta
 
 ---
 

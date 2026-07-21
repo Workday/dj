@@ -15,10 +15,18 @@ export type MaterializationType =
   | 'view'
   | 'table';
 
+export interface PythonModelNodeMetadata {
+  modelName: string;
+  modelType: string;
+  namespace?: string;
+  tableName?: string;
+  description?: string;
+}
+
 export interface LineageNode {
   id: string;
   name: string;
-  type: 'model' | 'source' | 'seed';
+  type: 'model' | 'source' | 'seed' | 'python';
   description?: string;
   tags?: string[];
   path: string;
@@ -27,6 +35,7 @@ export interface LineageNode {
   database?: string;
   materialized?: MaterializationType;
   testCount?: number;
+  pythonModelMetadata?: PythonModelNodeMetadata;
   // Whether this node has its own upstream/downstream models (for expand buttons)
   hasOwnUpstream?: boolean;
   hasOwnDownstream?: boolean;
@@ -49,6 +58,11 @@ export interface LightdashLineageNode {
   filePath: string;
 }
 
+export interface PythonModelEdge {
+  pythonModelNodeId: string;
+  sourceNodeId: string;
+}
+
 export interface LineageData {
   current: LineageNode;
   upstream: LineageNode[];
@@ -57,6 +71,7 @@ export interface LineageData {
   lightdashAvailable?: boolean;
   lightdashResolvedPath?: string;
   lightdashEnabled?: boolean;
+  pythonModelEdges?: PythonModelEdge[];
 }
 
 export interface QueryResults {
@@ -168,7 +183,7 @@ interface DataExplorerStore {
   openModelFile: (
     modelName: string,
     projectName: string,
-    type?: 'model' | 'source' | 'seed',
+    type?: 'model' | 'source' | 'seed' | 'python',
   ) => Promise<void>;
   clearResults: () => void;
   clearError: () => void;
@@ -218,7 +233,7 @@ interface DataExplorerStore {
   fetchModelColumns: (
     filePath: string,
     modelName: string,
-    nodeType?: 'model' | 'source' | 'seed',
+    nodeType?: 'model' | 'source' | 'seed' | 'python',
   ) => Promise<void>;
   clearModelColumns: () => void;
 
@@ -476,7 +491,7 @@ export const useDataExplorerStore = create<DataExplorerStore>((set, get) => ({
   openModelFile: async (
     modelName: string,
     projectName: string,
-    type: 'model' | 'source' | 'seed' = 'model',
+    type: 'model' | 'source' | 'seed' | 'python' = 'model',
   ) => {
     const { _apiHandler } = get();
     if (!_apiHandler) {
@@ -858,7 +873,7 @@ export const useDataExplorerStore = create<DataExplorerStore>((set, get) => ({
   fetchModelColumns: async (
     filePath: string,
     modelName: string,
-    nodeType: 'model' | 'source' | 'seed' = 'model',
+    nodeType: 'model' | 'source' | 'seed' | 'python' = 'model',
   ) => {
     const { _apiHandler } = get();
     if (!_apiHandler) {

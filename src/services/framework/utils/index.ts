@@ -30,6 +30,15 @@ export * from './sql-utils';
 // Reserved-key lint for model/column meta
 export * from './meta-lint';
 
+// Python model utilities
+export * from './python-model-utils';
+
+// Destructive-SQL guard for python model files
+export * from './python-sql-guard';
+
+// DAG injection helpers for Python model task wiring
+export * from './python-dag-inject';
+
 // Re-export types that utilities depend on
 export type { DbtProject } from '@shared/dbt/types';
 export type {

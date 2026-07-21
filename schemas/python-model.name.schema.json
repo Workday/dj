@@ -1,0 +1,7 @@
+{
+  "$id": "python-model.name.schema.json",
+  "title": "Schema Python Model Name",
+  "description": "Validate Python model name",
+  "type": "string",
+  "pattern": "^[a-z][a-z0-9_]*$"
+}

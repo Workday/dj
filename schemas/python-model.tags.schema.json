@@ -1,0 +1,11 @@
+{
+  "$id": "python-model.tags.schema.json",
+  "title": "Schema Python Model Tags",
+  "description": "Validate Python model tags array",
+  "type": "array",
+  "items": {
+    "type": "string",
+    "minLength": 1
+  },
+  "uniqueItems": true
+}

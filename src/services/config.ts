@@ -58,6 +58,12 @@ export function getDjConfig(): CoderConfig {
     dbtGenericTestsPath: config.get('dbtGenericTestsPath', undefined),
     dbtMacroPath: config.get('dbtMacroPath', undefined),
     pythonVenvPath: config.get('pythonVenvPath', undefined),
+    pythonModelGroups: config.get<string[]>('pythonModel.groups', [
+      'ml',
+      'etl',
+      'analytics',
+      'others',
+    ]),
     trinoPath: config.get('trinoPath', undefined),
     lightdashProjectPath: config.get('lightdashProjectPath', undefined),
     lightdashProfilesPath: config.get('lightdashProfilesPath', undefined),
@@ -68,6 +74,10 @@ export function getDjConfig(): CoderConfig {
     ),
     lightdashDefaultPartitionColumnCaseSensitive: config.get(
       'lightdash.defaultPartitionColumnCaseSensitive',
+      false,
+    ),
+    lightdashDefaultSortedByColumnCaseSensitive: config.get(
+      'lightdash.defaultSortedByColumnCaseSensitive',
       false,
     ),
     lightdashDefaultAddPathToGitignore: config.get(
@@ -313,6 +323,12 @@ export function getSettingReloadRequirement(
       description: "Requires 'DJ: Sync to SQL and YML' to take effect",
     },
     'lightdash.defaultPartitionColumnCaseSensitive': {
+      requiresAction: true,
+      action: 'compile',
+      actionCommand: 'dj.command.jsonSync',
+      description: "Requires 'DJ: Sync to SQL and YML' to take effect",
+    },
+    'lightdash.defaultSortedByColumnCaseSensitive': {
       requiresAction: true,
       action: 'compile',
       actionCommand: 'dj.command.jsonSync',
@@ -861,6 +877,18 @@ export function registerConfigurationChangeHandler(
       ) {
         void vscode.window.setStatusBarMessage(
           "DJ: Partition column case_sensitive updated - run 'DJ: Sync to SQL and YML' to apply",
+          5000,
+        );
+      }
+
+      // lightdash.defaultSortedByColumnCaseSensitive - notify about compile requirement
+      if (
+        event.affectsConfiguration(
+          'dj.lightdash.defaultSortedByColumnCaseSensitive',
+        )
+      ) {
+        void vscode.window.setStatusBarMessage(
+          "DJ: Sorted-by column case_sensitive updated - run 'DJ: Sync to SQL and YML' to apply",
           5000,
         );
       }

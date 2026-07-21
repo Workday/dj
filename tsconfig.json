@@ -39,7 +39,8 @@
     "skipLibCheck": true,
     "sourceMap": true,
     "strict": true,
-    "target": "ES2023"
+    "target": "ES2023",
+    "isolatedModules": true
   },
   "exclude": [
     "node_modules",
