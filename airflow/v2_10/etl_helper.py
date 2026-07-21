@@ -17,11 +17,9 @@ from airflow.utils.task_group import TaskGroup
 
 log = logging.getLogger(__name__)
 
-# Assumes this file lives at dags/_ext_/etl_helper.py so parent.parent is the
-# dags/ folder and python models are discovered under dags/python_models/.
 PYTHON_DIR = Path(__file__).parent.parent / "python_models"
 
-PYTHON_SOURCE_CONFIG_VAR = "python_source_config"
+PYTHON_SOURCE_CONFIG_VAR = "dj_python_source_config"
 
 
 def discover_models(dag_id: str | None = None) -> list[dict]:
@@ -285,9 +283,7 @@ def _execute_model_with_context(
                 "Skipping model %s (topic %s skip_model=%s)",
                 model["model_id"], topic, skip_models,
             )
-            raise AirflowSkipException(
-                f"topic {topic} skip_model includes {model['model_id']}"
-            )
+            return
 
         dates_in = topic_cfg.get("dates_in", "")
 
@@ -439,24 +435,20 @@ def register_python_model_mapped_tasks_by_topic(
 #     _shared_env = [
 #         k8s.V1EnvVar(name="PYMODEL_DS", value="{{ ds }}"),
 #         k8s.V1EnvVar(
-#             name="DJ_PYTHON_MODEL_TRINO_HOST",
-#             value="{{ var.value.dj_python_model_trino_host }}",
+#             name="OPUS-ETL-CLUSTER-HOST",
+#             value="{{ var.value.get('opus-etl-cluster-host') }}",
 #         ),
 #         k8s.V1EnvVar(
-#             name="DJ_PYTHON_MODEL_TRINO_PORT",
-#             value="{{ var.value.get('dj_python_model_trino_port', '443') }}",
+#             name="OPUS-ETL-USER-NAME",
+#             value="{{ var.value.get('opus-etl-user-name') }}",
 #         ),
 #         k8s.V1EnvVar(
-#             name="DJ_PYTHON_MODEL_TRINO_USER",
-#             value="{{ var.value.dj_python_model_trino_user }}",
+#             name="OPUS-ETL-CLUSTER-PASSWORD",
+#             value="{{ var.value.get('opus-etl-cluster-password') }}",
 #         ),
 #         k8s.V1EnvVar(
-#             name="DJ_PYTHON_MODEL_TRINO_PASSWORD",
-#             value="{{ var.value.dj_python_model_trino_password }}",
-#         ),
-#         k8s.V1EnvVar(
-#             name="DJ_PYTHON_MODEL_GLUE_CATALOG",
-#             value="{{ var.value.get('dj_python_model_glue_catalog', 'glue_development') }}",
+#             name="DJ_PYTHON_MODEL_CATALOG_NAME",
+#             value="{{ var.value.get('dj_python_model_catalog_name', 'glue') }}",
 #         ),
 #     ]
 #
