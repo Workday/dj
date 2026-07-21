@@ -10,7 +10,7 @@
     "type": "git",
     "url": "https://github.com/Workday/dj.git"
   },
-  "version": "1.11.0",
+  "version": "2.0.0",
   "workspaces": [
     "web"
   ],
