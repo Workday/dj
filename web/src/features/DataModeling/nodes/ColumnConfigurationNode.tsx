@@ -184,7 +184,7 @@ export const ColumnConfigurationNode: React.FC<NodeProps> = () => {
 
   return (
     <div
-      className="bg-background border-2 border-neutral rounded-lg shadow-lg min-w-[800px] max-w-[800px] cursor-default"
+      className="bg-background border-2 border-neutral rounded-lg shadow-lg min-w-[800px] max-w-[800px] cursor-default nopan nodrag"
       data-tutorial-id="column-configuration-node"
     >
       <Handle type="target" position={Position.Left} id="left-input" />

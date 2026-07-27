@@ -1,5 +1,11 @@
 # Change Log
 
+## 2.1.0
+
+### UX improvements
+
+- **Data Modeling canvas selects keep dropdown text sized with zoom.** Single- and multi-select menus in the visual editor stay inside the canvas transform so option text matches node chrome when you zoom in or out; truncated labels show the full value on hover.
+
 ## 2.0.1
 
 - **Python-model mapped Airflow tasks use default map indices.** Mapped task instances no longer label themselves with the model id in the Airflow UI (`etl_helper.py` for 2.7 and 2.10).

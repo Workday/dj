@@ -27,19 +27,24 @@ const renderColumnOption = (
   const columnName = getColumnName(option.label);
 
   return (
-    <div className={`flex flex-col ${state.selected ? 'font-semibold' : ''}`}>
+    <div
+      className={`flex flex-col min-w-0 pr-2 ${state.selected ? 'font-semibold' : ''}`}
+    >
       {modelName && (
         <span
-          className={`text-[10px] ${
+          className={`text-[0.7em] truncate ${
             state.focus
               ? 'text-primary-contrast/70'
               : 'text-gray-400 dark:text-gray-500'
           }`}
+          title={modelName}
         >
           {modelName}
         </span>
       )}
-      <span className="text-xs truncate">{columnName}</span>
+      <span className="text-[0.85em] truncate" title={columnName}>
+        {columnName}
+      </span>
     </div>
   );
 };
