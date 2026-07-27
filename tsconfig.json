@@ -1,14 +1,13 @@
 {
   "compilerOptions": {
-    "baseUrl": ".",
     "esModuleInterop": true,
     "lib": [
       "ES2023",
       "ESNext",
       "ESNext.Decorators"
     ],
-    "module": "CommonJS",
-    "moduleResolution": "node",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
     "outDir": "out",
     "paths": {
       "admin": [
