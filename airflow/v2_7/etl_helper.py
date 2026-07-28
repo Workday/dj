@@ -16,7 +16,6 @@ from airflow.utils.email import send_email
 from airflow.utils.task_group import TaskGroup
 
 from _ext_.services import trino_run
-from _ext_.variables import trino_catalog
 # from airflow.providers.cncf.kubernetes.operators.kubernetes_pod import KubernetesPodOperator
 # from kubernetes.client import models as k8s
 
@@ -25,8 +24,6 @@ log = logging.getLogger(__name__)
 PYTHON_DIR = Path(__file__).parent.parent / "python_models"
 
 PYTHON_SOURCE_CONFIG_VAR = "dj_python_source_config"
-DEFAULT_RUN_TRACKING_SCHEMA = "opus_python_sources"
-DEFAULT_RUN_TRACKING_TABLE = "python_model_runs"
 RUN_MESSAGE_MAX_LENGTH = 500
 
 
@@ -444,12 +441,12 @@ def send_python_source_failure_notification(
         return
 
     subject = (
-        f"{dag_run.dag_id} DAG Failures - "
+        f"[Python Models] {dag_run.dag_id} - DAG Failures - "
         f"{dag_run.execution_date.strftime('%Y-%m-%d %H:%M:%S')}"
     )
     html_content = f"""
-        <h2>Model and Test Failure Summary</h2>
-        <p><strong>DAG ID:</strong> {dag_run.dag_id}</p>
+        <h2>Python Models - Failure Summary</h2>
+        <p><strong>DAG ID:</strong> source_etl's {dag_run.dag_id}</p>
         <p><strong>Execution Date:</strong> {dag_run.execution_date}</p>
         <p><strong>ETL Timestamp:</strong> {etl_timestamp}</p>
     """
@@ -677,12 +674,23 @@ def get_python_source_run_tracking_config(context: dict | None = None) -> dict:
         config = (context["dag_run"].conf or {}).get("python_source_config") or {}
     if not config:
         config = get_python_source_config()
+
     tracking = config.get("run_tracking") or {}
-    return {
-        "catalog": tracking.get("catalog") or trino_catalog,
-        "schema": tracking.get("schema", DEFAULT_RUN_TRACKING_SCHEMA),
-        "table": tracking.get("table", DEFAULT_RUN_TRACKING_TABLE),
-    }
+    catalog = tracking.get("catalog")
+    schema = tracking.get("schema")
+    table = tracking.get("table")
+
+    missing = [
+        key for key, value in (("catalog", catalog), ("schema", schema), ("table", table))
+        if not value
+    ]
+    if missing:
+        raise ValueError(
+            f"run_tracking.{missing[0]} is required in Airflow Variable "
+            f"'{PYTHON_SOURCE_CONFIG_VAR}' (run_tracking must include catalog, schema, table)"
+        )
+
+    return {"catalog": catalog, "schema": schema, "table": table}
 
 
 def passes_schedule_gate(cron: str, ds: str) -> bool:
@@ -883,7 +891,6 @@ def register_python_model_mapped_tasks(dag_id: str, group_id: str | None = None)
             mapped_task = PythonOperator.partial(
                 task_id=task_name,
                 python_callable=_execute_model_with_context,
-                map_index_template="{{ model_id }}",
                 on_failure_callback=_record_airflow_task_failure,
             ).expand(op_kwargs=[{"model": m, "model_id": m["model_id"]} for m in model_tasks])
 
@@ -951,7 +958,6 @@ def register_python_model_mapped_tasks_by_topic(
                 mapped_task = PythonOperator.partial(
                     task_id=task_name,
                     python_callable=_execute_model_with_context,
-                    map_index_template="{{ model_id }}",
                     on_failure_callback=_record_airflow_task_failure,
                 ).expand(op_kwargs=op_kwargs_list)
 

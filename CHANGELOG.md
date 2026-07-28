@@ -1,8 +1,12 @@
 # Change Log
 
+## 2.0.2
+
+- **Python model run tracking in Airflow.** DJ-generated `etl_helper.py` records each python model run (success, error, skipped, upstream_failed) to a Trino meta table configured via `run_tracking` (`catalog`, `schema`, and `table` are required in the `dj_python_source_config` Airflow Variable). Mapped tasks reconcile failures that occur before model code runs, and expose helpers your DAG can call for end-of-run reconciliation and `[Python Models]` failure email summaries.
+
 ## 2.0.1
 
-- **Python model run tracking in Airflow.** DJ-generated `etl_helper.py` records each python model run (success, error, skipped, upstream_failed) to a Trino meta table (`python_model_runs` by default, configurable via `run_tracking` in the `dj_python_source_config` Airflow Variable). Mapped tasks show the model id in the Airflow UI, reconcile failures that occur before model code runs, and expose helpers your DAG can call for end-of-run reconciliation and failure email summaries.
+Python-model mapped Airflow tasks use default map indices. Mapped task instances no longer label themselves with the model id in the Airflow UI (etl_helper.py for 2.7 and 2.10).
 
 ## 2.0.0
 
