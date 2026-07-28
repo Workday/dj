@@ -10,7 +10,7 @@
     "type": "git",
     "url": "https://github.com/Workday/dj.git"
   },
-  "version": "2.0.1",
+  "version": "2.0.2",
   "workspaces": [
     "web"
   ],
@@ -1049,6 +1049,7 @@
     "typescript-eslint": "^8.50.1"
   },
   "overrides": {
-    "fast-uri": "3.1.4"
+    "fast-uri": "3.1.4",
+    "brace-expansion@5": "5.0.8"
   }
 }
