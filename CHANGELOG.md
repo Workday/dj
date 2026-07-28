@@ -6,7 +6,7 @@
 
 ## 2.0.1
 
-Python-model mapped Airflow tasks use default map indices. Mapped task instances no longer label themselves with the model id in the Airflow UI (etl_helper.py for 2.7 and 2.10).
+- **Python-model mapped Airflow tasks use default map indices.** Mapped task instances no longer label themselves with the model id in the Airflow UI (`etl_helper.py` for 2.7 and 2.10).
 
 ## 2.0.0
 
