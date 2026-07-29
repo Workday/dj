@@ -68,7 +68,8 @@
     "url": "https://github.com/Workday/dj/issues"
   },
   "activationEvents": [
-    "workspaceContains:**/dbt_project.yml"
+    "workspaceContains:**/dbt_project.yml",
+    "onCustomEditor:dj.editor"
   ],
   "capabilities": {
     "untrustedWorkspaces": {
@@ -302,6 +303,33 @@
       {
         "id": "dj.submenu.convertDraftToModel",
         "label": "Convert to DJ Model"
+      }
+    ],
+    "customEditors": [
+      {
+        "viewType": "dj.editor",
+        "displayName": "DJ Visual Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.dj"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
+    "languages": [
+      {
+        "id": "dj",
+        "extensions": [
+          ".dj"
+        ],
+        "aliases": [
+          "DJ Model"
+        ],
+        "icon": {
+          "light": "./assets/images/dj-logo.svg",
+          "dark": "./assets/images/dj-logo.svg"
+        }
       }
     ],
     "configuration": {

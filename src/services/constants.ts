@@ -97,6 +97,7 @@ export const COMMAND_ID = {
 
 // View IDs
 export const VIEW_ID = {
+  DJ_EDITOR: 'dj.editor',
   PROJECT_NAVIGATOR: 'dj.view.projectNavigator',
   MODEL_ACTIONS: 'dj.view.modelActions',
   SELECTED_RESOURCE: 'dj.view.selectedResource',

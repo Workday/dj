@@ -17,6 +17,7 @@ import { ModelRun } from '@web/pages/ModelRun';
 import { ModelTest } from '@web/pages/ModelTest';
 import { PythonModelCreate } from '@web/pages/PythonModelCreate';
 import { QueryControlCenter } from '@web/pages/QueryControlCenter';
+import { DjEditor } from '@web/pages/DjEditor';
 import { SourceCreate } from '@web/pages/SourceCreate';
 import { useCallback, useMemo, useState } from 'react';
 import {
@@ -112,6 +113,12 @@ const routeConfigs: WebRoute[] = [
     label: 'Lightdash Dashboards as Code',
     path: '/lightdash/dashboards-as-code',
     regex: /^\/lightdash\/dashboards-as-code$/,
+  },
+  {
+    element: <DjEditor />,
+    label: 'DJ Editor',
+    path: '/editor/dj',
+    regex: /^\/editor\/dj$/,
   },
 ];
 

@@ -10,6 +10,7 @@ import { COMMAND_ID, VIEW_ID } from '@services/constants';
 import { DataExplorer } from '@services/dataExplorer';
 import { Dbt } from '@services/dbt';
 import { DJLogger } from '@services/djLogger';
+import { DjEditorProvider } from '@services/editor';
 import { Framework } from '@services/framework';
 import { FrameworkState } from '@services/framework/FrameworkState';
 import {
@@ -1690,6 +1691,9 @@ export class Coder {
   }
 
   registerSubscriptions() {
+    // Register the DJ visual editor for .dj files
+    DjEditorProvider.register(this.context, this);
+
     // Register Subscriptions
     this.context.subscriptions.push(
       vscode.window.registerTreeDataProvider(
