@@ -4,8 +4,10 @@
 
 ### Agent skills
 
-- **New `dj-govern-model` skill.** A read-only governance audit across a model, folder, dependency tree, or the whole workspace — it reports ownership coverage, PII / classification / compliance tagging, registered-group conformance, and prod-write posture, and points you at the skill to fix each gap. It never edits files and never forces a project to adopt metadata it hasn't chosen. Try _"Which models in the finance group have no owner?"_
-- **Authoring skills now confirm the target and offer governance tags.** When creating or converting models, the skills ask which dbt project to use instead of silently picking one, require the model's `group` to be a registered group from `models/groups.yml`, and offer optional `owner` / `pii` / `classification` / `compliance` metadata (skip it and nothing is written). Lightdash and Python-model skills confirm the target project/database before uploading or writing to production.
+- **New `dj-govern-model` skill.** Runs a read-only governance audit over a model, folder, dependency tree, or the whole workspace — reporting ownership, PII / classification / compliance tagging, registered-group conformance, and prod-write posture, then pointing you to the skill that fixes each gap. Try _"Which models in the finance group have no owner?"_
+- **Authoring skills confirm the target and offer governance tags.** When creating or converting models, skills ask which dbt project to use, require the `group` to be registered in `models/groups.yml`, and offer optional `owner` / `pii` / `classification` / `compliance` tags (skip them and nothing is written). Lightdash and Python skills confirm the project/database before writing to production.
+- **Skills treat the warehouse as read-only by default.** They inspect data with `SELECT` / `SHOW` / `DESCRIBE` / `EXPLAIN`, confirm the catalog/schema first, and never run writes (`DROP` / `INSERT` / `DELETE`) or `dbt run` / `build` against production without your explicit confirmation.
+- **Model creation builds missing upstreams and steers BI work to marts.** Asking for a dashboard or metrics model defaults to a mart; if the staging / intermediate / source layers it needs are missing, the skill offers to build them upstream-first and reminds you to re-sync so the new columns resolve. It authors SQL `.model.json` files only, never Python models.
 
 ### UX improvements
 

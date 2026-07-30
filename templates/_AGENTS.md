@@ -67,7 +67,18 @@ Model placement and naming are **derived and enforced by the framework** — the
 When the workspace holds more than one dbt project, or a target environment/catalog/database is ambiguous, **ask the user which one to use — do not silently pick a default.**
 
 - **dbt project.** The `.model.json` / `.source.json` paths are relative to the dbt project root (`dbt_project.yml`), which may be nested and differ from the DJ/workspace root (where `.dj/schemas/` lives). If multiple dbt projects exist, confirm the target — prefer the one named in `dj.dbtProjectNames` only after confirming it is the intended one.
-- **Environment / warehouse target.** For any operation that reads from or writes to a warehouse (Trino catalog/schema, Python model output database, Lightdash project), lay out the choices and let the user pick. Never assume prod. Treat a project listed in `dj.lightdash.restrictedProjects` as a prod guardrail and confirm explicitly before targeting it.
+- **Environment / warehouse target.** For any operation that reads from or writes to a warehouse (Trino catalog/schema, Python model output database, Lightdash project), lay out the choices and let the user pick. Never assume prod. For Lightdash uploads specifically, projects listed in `dj.lightdash.restrictedProjects` are guarded (`block` refuses the upload; `warn` requires confirmation) — treat those as production and confirm before uploading.
+
+## Command & Query Execution Safety
+
+Treat the warehouse as **read-only by default**. Data is written by the framework and dbt through generated SQL — not by ad-hoc commands.
+
+- **Read-only queries only, unless the user confirms otherwise.** `SELECT` / `SHOW` / `DESCRIBE` / `EXPLAIN` are safe to run for inspection. Any **DDL** (`CREATE`, `DROP`, `ALTER`, `TRUNCATE`, `RENAME`, `GRANT`, `REVOKE`) or **DML** (`INSERT`, `UPDATE`, `DELETE`, `MERGE`), and any warehouse-writing dbt command (`dbt run`, `build`, `seed`, `snapshot`, `run-operation`), require **explicit per-command user confirmation** before you run them.
+- **Never write to production.** Do not run a DDL/DML statement or a warehouse-writing dbt command against a production target, even with confirmation. If you cannot confirm a target is non-production, stop and ask.
+- **Confirm the connection target before any query.** The user may not have permission on every catalog/schema/table. Before running even a `SELECT`, confirm the catalog/schema/profile/environment to use — ask once; do not assume a default.
+- **Prefer framework facilities over ad-hoc CLI.** To inspect columns, sources, or lineage, read `.source.json` / `.model.json` / `target/manifest.json` / `.dj/schemas/`, or use DJ's **Create Source** flow (which browses Trino catalogs / schemas / tables / columns), before shelling out to the `trino` CLI. Run CLI SQL only after the user confirms the connection and that it is read-only.
+- **The DJ commands are not dbt runs.** `DJ: Sync to SQL and YML` regenerates the `.sql` / `.yml` and reparses the manifest on demand — it runs `dbt parse` only when a synced model is missing or the manifest is stale. `DJ: Refresh Projects` re-reads each `dbt_project.yml` and reloads the on-disk `target/manifest.json` (and rewrites extension-managed files); it does **not** run `dbt parse` / `compile`. Of the dbt CLI commands, `parse` / `compile` / `ls` / `deps` / `docs generate` don't write to the warehouse; `run` / `build` / `seed` / `snapshot` / `run-operation` do, and `source freshness` issues queries. If a manifest must be built from scratch, ask the user to run `dbt parse`.
+- **Keep inspection queries cheap.** Always add a `LIMIT` to ad-hoc `SELECT`s and constrain by partition — never trigger a full-history or unpartitioned scan just to check a shape or a few values.
 
 ## Model Types
 
