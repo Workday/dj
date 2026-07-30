@@ -4,6 +4,7 @@ import importlib.util
 import json
 import logging
 import re
+import time
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -11,7 +12,10 @@ from pathlib import Path
 from airflow.exceptions import AirflowSkipException
 from airflow.models import Variable
 from airflow.operators.python import PythonOperator
+from airflow.utils.email import send_email
 from airflow.utils.task_group import TaskGroup
+
+from _ext_.services import trino_run
 # from airflow.providers.cncf.kubernetes.operators.kubernetes_pod import KubernetesPodOperator
 # from kubernetes.client import models as k8s
 
@@ -20,6 +24,495 @@ log = logging.getLogger(__name__)
 PYTHON_DIR = Path(__file__).parent.parent / "python_models"
 
 PYTHON_SOURCE_CONFIG_VAR = "dj_python_source_config"
+RUN_MESSAGE_MAX_LENGTH = 500
+
+
+def _sql_escape(value: str | None) -> str:
+    if value is None:
+        return ""
+    return str(value).replace("'", "''")
+
+
+def sql_python_model_runs_merge(
+    *,
+    catalog: str,
+    schema: str,
+    table: str,
+    model_name: str,
+    model_group: str,
+    etl_date: str,
+    etl_timestamp: str,
+    run_status: str,
+    run_seconds: float,
+    is_skipped: bool,
+    run_message: str | None = None,
+) -> str:
+    """Build MERGE SQL for python model run tracking meta table."""
+    message_sql = (
+        f"'{_sql_escape(run_message[:RUN_MESSAGE_MAX_LENGTH])}'"
+        if run_message
+        else "NULL"
+    )
+    return f"""
+        MERGE INTO {catalog}.{schema}.{table} old
+        USING (
+            VALUES (
+                '{_sql_escape(model_name)}',
+                '{_sql_escape(model_group)}',
+                cast('{etl_date}' as date),
+                cast('{etl_timestamp}' as timestamp(6)),
+                '{_sql_escape(run_status)}',
+                {run_seconds},
+                {str(is_skipped).lower()},
+                {message_sql}
+            )
+        ) new (
+            model_name, model_group, etl_date, etl_timestamp,
+            run_status, run_seconds, is_skipped, run_message
+        )
+        ON (old.model_name = new.model_name AND old.etl_date = new.etl_date)
+        WHEN MATCHED THEN UPDATE SET
+            model_group = new.model_group,
+            etl_timestamp = new.etl_timestamp,
+            run_status = new.run_status,
+            run_seconds = new.run_seconds,
+            is_skipped = new.is_skipped,
+            run_message = new.run_message
+        WHEN NOT MATCHED THEN INSERT (
+            model_name, model_group, etl_date, etl_timestamp,
+            run_status, run_seconds, is_skipped, run_message
+        ) VALUES (
+            new.model_name, new.model_group, new.etl_date, new.etl_timestamp,
+            new.run_status, new.run_seconds, new.is_skipped, new.run_message
+        )
+    """
+
+
+def record_python_model_run(
+    *,
+    model_name: str,
+    model_group: str,
+    etl_date: str,
+    etl_timestamp: str,
+    run_status: str,
+    run_seconds: float,
+    is_skipped: bool,
+    run_message: str | None = None,
+    context: dict | None = None,
+) -> None:
+    """Persist a python model run outcome to Trino meta table."""
+    if not etl_timestamp:
+        log.warning("Skipping run record for %s: etl_timestamp not set", model_name)
+        return
+
+    tracking = get_python_source_run_tracking_config(context)
+    merge_sql = sql_python_model_runs_merge(
+        catalog=tracking["catalog"],
+        schema=tracking["schema"],
+        table=tracking["table"],
+        model_name=model_name,
+        model_group=model_group,
+        etl_date=etl_date,
+        etl_timestamp=etl_timestamp,
+        run_status=run_status,
+        run_seconds=run_seconds,
+        is_skipped=is_skipped,
+        run_message=run_message,
+    )
+    trino_run(merge_sql)
+    log.info(
+        "Recorded python model run: %s status=%s skipped=%s in %.2fs",
+        model_name,
+        run_status,
+        is_skipped,
+        run_seconds,
+    )
+
+
+def _get_etl_timestamp_from_context(context: dict) -> str | None:
+    ti = context.get("ti")
+    if not ti:
+        return None
+    return ti.xcom_pull(key="etl_timestamp", task_ids="start_etl")
+
+
+def _get_recorded_model_names(etl_timestamp: str, context: dict) -> set[str]:
+    """Return model names already recorded for this DAG run etl_timestamp."""
+    tracking = get_python_source_run_tracking_config(context)
+    sql = f"""
+        SELECT model_name
+        FROM {tracking["catalog"]}.{tracking["schema"]}.{tracking["table"]}
+        WHERE etl_timestamp = cast('{etl_timestamp}' as timestamp(6))
+    """
+    rows = trino_run(sql)
+    return {row[0] for row in rows if row and row[0]}
+
+
+def _build_task_model_registry(
+    dag_id: str,
+    python_source_config: dict | None = None,
+) -> dict[str, dict]:
+    """Map Airflow task_id to topic and model_ids for mapped python model tasks."""
+    if python_source_config is None:
+        python_source_config = get_python_source_config()
+
+    models = discover_models(dag_id)
+    by_topic: dict[str, list[dict]] = defaultdict(list)
+    for model in models:
+        by_topic[model.get("topic") or "default"].append(model)
+
+    registry: dict[str, dict] = {}
+    for topic, topic_models in sorted(by_topic.items()):
+        if python_source_config.get(topic, {}).get("skip", False):
+            continue
+        for model_tasks in _compute_model_tasks(topic_models):
+            task_name = "_".join(m["model_id"] for m in model_tasks)
+            registry[f"{topic}.{task_name}"] = {
+                "topic": topic,
+                "models": [m["model_id"] for m in model_tasks],
+            }
+    return registry
+
+
+def _resolve_model_id_for_mapped_ti(
+    ti,
+    models: list[str],
+    context: dict | None = None,
+) -> str | None:
+    """Resolve model_id for a mapped task instance."""
+    rendered = getattr(ti, "rendered_map_index", None)
+    if rendered and str(rendered) in models:
+        return str(rendered)
+
+    if context:
+        model_id = context.get("model_id")
+        if model_id and model_id in models:
+            return model_id
+        model = context.get("model") or {}
+        model_id = model.get("model_id")
+        if model_id and model_id in models:
+            return model_id
+
+    map_index = getattr(ti, "map_index", -1)
+    if isinstance(map_index, int) and 0 <= map_index < len(models):
+        return models[map_index]
+
+    rendered_str = str(rendered) if rendered is not None else ""
+    if rendered_str.isdigit():
+        idx = int(rendered_str)
+        if 0 <= idx < len(models):
+            return models[idx]
+
+    return None
+
+
+def _record_reconciled_model_run(
+    *,
+    model_id: str,
+    model_group: str,
+    etl_date: str,
+    etl_timestamp: str,
+    run_status: str,
+    run_message: str,
+    context: dict,
+) -> None:
+    try:
+        record_python_model_run(
+            model_name=model_id,
+            model_group=model_group,
+            etl_date=etl_date,
+            etl_timestamp=etl_timestamp,
+            run_status=run_status,
+            run_seconds=0.0,
+            is_skipped=False,
+            run_message=run_message,
+            context=context,
+        )
+    except Exception as exc:
+        log.warning(
+            "Failed to reconcile python model run for %s: %s",
+            model_id,
+            exc,
+        )
+
+
+def _record_airflow_task_failure(context: dict) -> None:
+    """Record model run failures that occur before _execute_model_with_context runs."""
+    try:
+        ti = context["ti"]
+        if ti.state not in ("failed", "upstream_failed"):
+            return
+        if ti.state == "failed" and ti.start_date is not None:
+            return
+
+        etl_timestamp = _get_etl_timestamp_from_context(context)
+        if not etl_timestamp:
+            return
+
+        dag_id = context["dag_run"].dag_id
+        registry = _build_task_model_registry(dag_id)
+        batch_info = registry.get(ti.task_id)
+        if not batch_info:
+            return
+
+        topic = batch_info["topic"]
+        models = batch_info["models"]
+        etl_date = context["ds"]
+        run_message = (
+            getattr(ti, "note", None)
+            or "Airflow task failed before model execution (no task logs)"
+        )
+
+        if ti.state == "failed" and ti.map_index >= 0:
+            model_id = _resolve_model_id_for_mapped_ti(ti, models, context)
+            if model_id:
+                _record_reconciled_model_run(
+                    model_id=model_id,
+                    model_group=topic,
+                    etl_date=etl_date,
+                    etl_timestamp=etl_timestamp,
+                    run_status="error",
+                    run_message=run_message,
+                    context=context,
+                )
+        elif ti.state == "upstream_failed":
+            blocked_message = "Blocked by failed upstream batch"
+            if ti.map_index >= 0:
+                model_id = _resolve_model_id_for_mapped_ti(ti, models, context)
+                targets = [model_id] if model_id else models
+            else:
+                targets = models
+            for model_id in targets:
+                if model_id:
+                    _record_reconciled_model_run(
+                        model_id=model_id,
+                        model_group=topic,
+                        etl_date=etl_date,
+                        etl_timestamp=etl_timestamp,
+                        run_status="upstream_failed",
+                        run_message=blocked_message,
+                        context=context,
+                    )
+    except Exception as exc:
+        log.warning("Failed to record Airflow task failure callback: %s", exc)
+
+
+def reconcile_python_model_runs_from_airflow(
+    context: dict,
+    etl_timestamp: str | None,
+) -> None:
+    """Backfill meta rows for Airflow failures not captured by _execute_model_with_context."""
+    if not etl_timestamp:
+        log.warning("Skipping python model run reconciliation: etl_timestamp not set")
+        return
+
+    dag_run = context["dag_run"]
+    dag_id = dag_run.dag_id
+    etl_date = context["ds"]
+    recorded = _get_recorded_model_names(etl_timestamp, context)
+    registry = _build_task_model_registry(dag_id)
+
+    for ti in dag_run.get_task_instances():
+        if ti.state not in ("failed", "upstream_failed"):
+            continue
+
+        batch_info = registry.get(ti.task_id)
+        if not batch_info:
+            continue
+
+        topic = batch_info["topic"]
+        models = batch_info["models"]
+        run_message = (
+            getattr(ti, "note", None)
+            or "Airflow task failed before model execution (no task logs)"
+        )
+
+        if ti.state == "failed" and ti.map_index >= 0:
+            model_id = _resolve_model_id_for_mapped_ti(ti, models)
+            if model_id and model_id not in recorded:
+                _record_reconciled_model_run(
+                    model_id=model_id,
+                    model_group=topic,
+                    etl_date=etl_date,
+                    etl_timestamp=etl_timestamp,
+                    run_status="error",
+                    run_message=run_message,
+                    context=context,
+                )
+                recorded.add(model_id)
+        elif ti.state == "upstream_failed":
+            blocked_message = "Blocked by failed upstream batch"
+            if ti.map_index >= 0:
+                model_id = _resolve_model_id_for_mapped_ti(ti, models)
+                targets = [model_id] if model_id else models
+            else:
+                targets = models
+            for model_id in targets:
+                if model_id and model_id not in recorded:
+                    _record_reconciled_model_run(
+                        model_id=model_id,
+                        model_group=topic,
+                        etl_date=etl_date,
+                        etl_timestamp=etl_timestamp,
+                        run_status="upstream_failed",
+                        run_message=blocked_message,
+                        context=context,
+                    )
+                    recorded.add(model_id)
+
+    log.info(
+        "Reconciled python model runs from Airflow for etl_timestamp=%s",
+        etl_timestamp,
+    )
+
+
+def _escape_html(value: str) -> str:
+    return (
+        str(value)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
+def _append_failure_table_rows(html_content: str, models: list, status_color: str) -> str:
+    for model in models:
+        model_name = model[0] if model[0] else "N/A"
+        model_group = model[1] if len(model) > 1 and model[1] else "N/A"
+        run_status = model[2] if len(model) > 2 and model[2] else "error"
+        run_message = model[3] if len(model) > 3 and model[3] else "N/A"
+        etl_date = model[4] if len(model) > 4 and model[4] else "N/A"
+        run_message_escaped = (
+            _escape_html(run_message) if run_message != "N/A" else "N/A"
+        )
+        html_content += f"""
+            <tr>
+                <td>{model_name}</td>
+                <td>{model_group}</td>
+                <td style="color: {status_color}; font-weight: bold;">{run_status}</td>
+                <td>{etl_date}</td>
+                <td>{run_message_escaped}</td>
+            </tr>
+        """
+    return html_content
+
+
+def send_python_source_failure_notification(
+    email_list: list[str],
+    context: dict,
+    etl_timestamp: str | None,
+) -> None:
+    """Send consolidated HTML failure summary for DAG run."""
+    if not email_list:
+        return
+    if not etl_timestamp:
+        log.warning("etl_timestamp is required to query python model failures")
+        return
+
+    dag_run = context["dag_run"]
+    tracking = get_python_source_run_tracking_config(context)
+    failed_models_sql = f"""
+        SELECT
+            model_name,
+            model_group,
+            run_status,
+            substring(run_message, 1, 100) AS run_message,
+            cast(etl_date AS varchar) AS etl_date
+        FROM {tracking["catalog"]}.{tracking["schema"]}.{tracking["table"]}
+        WHERE etl_timestamp = cast('{etl_timestamp}' as timestamp(6))
+          AND run_status = 'error'
+        ORDER BY model_group, model_name
+    """
+    upstream_failed_sql = f"""
+        SELECT
+            model_name,
+            model_group,
+            run_status,
+            substring(run_message, 1, 100) AS run_message,
+            cast(etl_date AS varchar) AS etl_date
+        FROM {tracking["catalog"]}.{tracking["schema"]}.{tracking["table"]}
+        WHERE etl_timestamp = cast('{etl_timestamp}' as timestamp(6))
+          AND run_status = 'upstream_failed'
+        ORDER BY model_group, model_name
+    """
+    failed_models = trino_run(failed_models_sql)
+    upstream_failed_models = trino_run(upstream_failed_sql)
+    if not failed_models and not upstream_failed_models:
+        return
+
+    subject = (
+        f"[Python Models] {dag_run.dag_id} - DAG Failures - "
+        f"{dag_run.execution_date.strftime('%Y-%m-%d %H:%M:%S')}"
+    )
+    html_content = f"""
+        <h2>Python Models - Failure Summary</h2>
+        <p><strong>DAG ID:</strong> source_etl's {dag_run.dag_id}</p>
+        <p><strong>Execution Date:</strong> {dag_run.execution_date}</p>
+        <p><strong>ETL Timestamp:</strong> {etl_timestamp}</p>
+    """
+
+    if failed_models:
+        html_content += f"""
+        <h3>Failed Models ({len(failed_models)}):</h3>
+        <table border="1" cellpadding="5" cellspacing="0">
+            <tr>
+                <th>Model Name</th>
+                <th>Model Group</th>
+                <th>Run Status</th>
+                <th>ETL Date</th>
+                <th>Error Message</th>
+            </tr>
+        """
+        html_content = _append_failure_table_rows(html_content, failed_models, "red")
+        html_content += "</table>"
+
+    if upstream_failed_models:
+        html_content += f"""
+        <h3>Upstream Failed Models ({len(upstream_failed_models)}):</h3>
+        <table border="1" cellpadding="5" cellspacing="0">
+            <tr>
+                <th>Model Name</th>
+                <th>Model Group</th>
+                <th>Run Status</th>
+                <th>ETL Date</th>
+                <th>Error Message</th>
+            </tr>
+        """
+        html_content = _append_failure_table_rows(
+            html_content, upstream_failed_models, "orange"
+        )
+        html_content += "</table>"
+
+    dag_run_url = None
+    try:
+        from airflow.configuration import conf
+
+        webserver_base_url = conf.get("webserver", "BASE_URL", fallback="")
+        if webserver_base_url:
+            webserver_base_url = webserver_base_url.rstrip("/")
+            dag_run_url = (
+                f"{webserver_base_url}/dags/{dag_run.dag_id}/grid"
+                f"?dag_run_id={dag_run.run_id}"
+            )
+    except Exception as exc:
+        log.warning("Could not construct DAG run URL: %s", exc)
+
+    if dag_run_url:
+        html_content += (
+            f'<p>Please check the <a href="{dag_run_url}">Airflow UI</a> '
+            "for detailed logs and error messages.</p>"
+        )
+    else:
+        html_content += (
+            "<p>Please check the Airflow UI for detailed logs and error messages.</p>"
+        )
+
+    send_email(to=email_list, subject=subject, html_content=html_content)
+    log.info(
+        "Sent consolidated failure notification: %s failed, %s upstream_failed",
+        len(failed_models),
+        len(upstream_failed_models),
+    )
 
 
 def discover_models(dag_id: str | None = None) -> list[dict]:
@@ -174,6 +667,32 @@ def get_python_source_config() -> dict:
     return raw
 
 
+def get_python_source_run_tracking_config(context: dict | None = None) -> dict:
+    """Resolve catalog/schema/table for python model run tracking meta table."""
+    config: dict = {}
+    if context and context.get("dag_run"):
+        config = (context["dag_run"].conf or {}).get("python_source_config") or {}
+    if not config:
+        config = get_python_source_config()
+
+    tracking = config.get("run_tracking") or {}
+    catalog = tracking.get("catalog")
+    schema = tracking.get("schema")
+    table = tracking.get("table")
+
+    missing = [
+        key for key, value in (("catalog", catalog), ("schema", schema), ("table", table))
+        if not value
+    ]
+    if missing:
+        raise ValueError(
+            f"run_tracking.{missing[0]} is required in Airflow Variable "
+            f"'{PYTHON_SOURCE_CONFIG_VAR}' (run_tracking must include catalog, schema, table)"
+        )
+
+    return {"catalog": catalog, "schema": schema, "table": table}
+
+
 def passes_schedule_gate(cron: str, ds: str) -> bool:
     """Return True if the cron fires on the ``ds`` calendar day (UTC).
 
@@ -253,45 +772,95 @@ def _execute_model_with_context(
     Without a ``topic`` (e.g. the standalone DAG path) there is no gating and
     the run uses the Airflow ``ds`` only.
     """
+    model_name = model["model_id"]
+    model_group = topic or model.get("topic", "")
+    etl_timestamp = _get_etl_timestamp_from_context(context)
+    etl_date = context["ds"]
     dates_in: str | list | dict = ""
+    started_at: float | None = None
 
-    if topic:
-        conf = (context.get("dag_run").conf or {}) if context.get("dag_run") else {}
-        runtime_config = conf.get("python_source_config") or get_python_source_config()
-        topic_cfg = runtime_config.get(topic, {})
-
-        if topic_cfg.get("skip", False):
-            log.info("Skipping model %s (topic %s skip=True at runtime)", model["model_id"], topic)
-            raise AirflowSkipException(f"topic {topic} skip=True")
-
-        date_to_run = topic_cfg.get("date_to_run", "")
-        if not passes_schedule_gate(date_to_run, context["ds"]):
-            log.info(
-                "Skipping model %s (topic %s schedule gate '%s' not met for ds %s)",
-                model["model_id"], topic, date_to_run, context["ds"],
+    def _record(
+        run_status: str,
+        run_seconds: float,
+        is_skipped: bool,
+        run_message: str | None = None,
+        record_etl_date: str | None = None,
+    ) -> None:
+        try:
+            record_python_model_run(
+                model_name=model_name,
+                model_group=model_group,
+                etl_date=record_etl_date or etl_date,
+                etl_timestamp=etl_timestamp or "",
+                run_status=run_status,
+                run_seconds=run_seconds,
+                is_skipped=is_skipped,
+                run_message=run_message,
+                context=context,
             )
-            raise AirflowSkipException(
-                f"topic {topic} schedule gate '{date_to_run}' not met"
-            )
+        except Exception as exc:
+            log.warning("Failed to record python model run for %s: %s", model_name, exc)
 
-        skip_models = topic_cfg.get("skip_model", [])
-        if isinstance(skip_models, str):
-            skip_models = [skip_models]
-        skip_models = [m for m in skip_models if m and str(m).strip()]
-        if model["model_id"] in skip_models:
-            log.info(
-                "Skipping model %s (topic %s skip_model=%s)",
-                model["model_id"], topic, skip_models,
-            )
-            return
+    try:
+        if topic:
+            conf = (context.get("dag_run").conf or {}) if context.get("dag_run") else {}
+            runtime_config = conf.get("python_source_config") or get_python_source_config()
+            topic_cfg = runtime_config.get(topic, {})
 
-        dates_in = topic_cfg.get("dates_in", "")
+            if topic_cfg.get("skip", False):
+                log.info(
+                    "Skipping model %s (topic %s skip=True at runtime)",
+                    model_name,
+                    topic,
+                )
+                _record("skipped", 0.0, True)
+                raise AirflowSkipException(f"topic {topic} skip=True")
 
-    dates = resolve_dates_in(dates_in, context["ds"])
+            date_to_run = topic_cfg.get("date_to_run", "")
+            if not passes_schedule_gate(date_to_run, context["ds"]):
+                log.info(
+                    "Skipping model %s (topic %s schedule gate '%s' not met for ds %s)",
+                    model_name,
+                    topic,
+                    date_to_run,
+                    context["ds"],
+                )
+                _record("skipped", 0.0, True)
+                raise AirflowSkipException(
+                    f"topic {topic} schedule gate '{date_to_run}' not met"
+                )
 
-    ds = dates[0]
-    ctx = {"ds": ds, "ds_nodash": ds.replace("-", ""), "dates": dates}
-    execute_model(model, ctx)
+            skip_models = topic_cfg.get("skip_model", [])
+            if isinstance(skip_models, str):
+                skip_models = [skip_models]
+            skip_models = [m for m in skip_models if m and str(m).strip()]
+            if model_name in skip_models:
+                log.info(
+                    "Skipping model %s (topic %s skip_model=%s)",
+                    model_name,
+                    topic,
+                    skip_models,
+                )
+                _record("skipped", 0.0, True)
+                return
+
+            dates_in = topic_cfg.get("dates_in", "")
+
+        dates = resolve_dates_in(dates_in, context["ds"])
+        etl_date = dates[0]
+        ctx = {"ds": etl_date, "ds_nodash": etl_date.replace("-", "")}
+        if dates_in:
+            ctx["dates"] = dates
+
+        started_at = time.perf_counter()
+        execute_model(model, ctx)
+        _record("success", time.perf_counter() - started_at, False)
+    except AirflowSkipException:
+        raise
+    except Exception as exc:
+        elapsed = time.perf_counter() - started_at if started_at is not None else 0.0
+        _record("error", elapsed, False, run_message=str(exc))
+        raise
 
 
 def register_python_model_mapped_tasks(dag_id: str, group_id: str | None = None):
@@ -322,6 +891,7 @@ def register_python_model_mapped_tasks(dag_id: str, group_id: str | None = None)
             mapped_task = PythonOperator.partial(
                 task_id=task_name,
                 python_callable=_execute_model_with_context,
+                on_failure_callback=_record_airflow_task_failure,
             ).expand(op_kwargs=[{"model": m, "model_id": m["model_id"]} for m in model_tasks])
 
             if prev_task is not None:
@@ -388,6 +958,7 @@ def register_python_model_mapped_tasks_by_topic(
                 mapped_task = PythonOperator.partial(
                     task_id=task_name,
                     python_callable=_execute_model_with_context,
+                    on_failure_callback=_record_airflow_task_failure,
                 ).expand(op_kwargs=op_kwargs_list)
 
                 if prev_task is not None:
