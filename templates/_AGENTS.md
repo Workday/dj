@@ -52,6 +52,23 @@ Model names follow the pattern: `<layer>__<group>__<topic>__<name>`
 - **topic**: Subject area within the group (e.g., `billing`, `orders`, `customers`)
 - **name**: Descriptive name for the model (e.g., `daily_summary`, `account_hierarchy`)
 
+---
+
+## Structural Governance (framework-enforced)
+
+Model placement and naming are **derived and enforced by the framework** — they are not free choices. Do not create model files in arbitrary folders or under arbitrary names.
+
+- **Path is derived, never chosen.** The framework computes each model's location from `type` → layer folder (`staging` / `intermediate` / `marts`) + `group` + `topic` + `name`, and writes/relocates the file there. Renaming or moving a model is done by editing the `type` / `group` / `topic` / `name` fields in the `.model.json` — never by moving the file on disk.
+- **`group` must be a registered group.** Valid groups are defined in `models/groups.yml` (or the `dbt_project.yml` models config). Use one of those. If the group a user asks for is not registered, **ask them to pick a registered group or to register a new one** (via the `dj-initialize` skill) — do not invent a group or create an unregistered folder.
+- **`topic` and `name`** follow the lowercase/underscore pattern (no leading/trailing `_`, no `__`). Mirror the conventions of existing sibling models.
+
+## Project & Environment Resolution
+
+When the workspace holds more than one dbt project, or a target environment/catalog/database is ambiguous, **ask the user which one to use — do not silently pick a default.**
+
+- **dbt project.** The `.model.json` / `.source.json` paths are relative to the dbt project root (`dbt_project.yml`), which may be nested and differ from the DJ/workspace root (where `.dj/schemas/` lives). If multiple dbt projects exist, confirm the target — prefer the one named in `dj.dbtProjectNames` only after confirming it is the intended one.
+- **Environment / warehouse target.** For any operation that reads from or writes to a warehouse (Trino catalog/schema, Python model output database, Lightdash project), lay out the choices and let the user pick. Never assume prod. Treat a project listed in `dj.lightdash.restrictedProjects` as a prod guardrail and confirm explicitly before targeting it.
+
 ## Model Types
 
 ### 1. `stg_select_source` — Staging: Select from a Source
@@ -592,7 +609,7 @@ Named column from a CTE:
 | `offset`                           | integer       | OFFSET clause                                                                                                                                                               |
 | `exclude_date_filter`              | boolean       | Skip auto date filtering                                                                                                                                                    |
 | `exclude_daily_filter`             | boolean       | Skip daily partition filter                                                                                                                                                 |
-| `exclude_portal_partition_columns` | boolean/array | Drop portal partition columns. `true` drops all; an array (e.g. `["portal_partition_hourly"]`) drops only the named ones                                                     |
+| `exclude_portal_partition_columns` | boolean/array | Drop portal partition columns. `true` drops all; an array (e.g. `["portal_partition_hourly"]`) drops only the named ones                                                    |
 | `exclude_portal_source_count`      | boolean       | Don't add portal source count                                                                                                                                               |
 | `data_tests`                       | array         | dbt test configurations                                                                                                                                                     |
 | `lightdash`                        | object        | Lightdash BI tool configuration                                                                                                                                             |
@@ -706,6 +723,21 @@ Read the file's `# yaml-language-server: $schema=…` header (or the auto-instal
 Both `.model.json` and `.source.json` accept **free-form user-defined keys** on their `meta` blocks. Use this to attach arbitrary metadata (ownership, compliance tags, process info, SLAs, etc.) that you want to surface in the generated `.yml` and consume downstream (dbt docs, Lightdash, custom tooling).
 
 Schemas: `model.meta.schema.json`, `column.meta.schema.json`, `source.meta.schema.json`, `source.table.meta.schema.json`.
+
+### Governance metadata conventions (optional)
+
+These keys are **not required and not enforced** by the framework — they are a shared vocabulary so that projects that choose to track governance metadata do so consistently. Offer them when authoring; if the user skips, omit them entirely (do not write placeholders). Teams that want them mandatory enforce that themselves (CI, review, custom validation). Before offering, mirror the keys the project already uses by scanning sibling models.
+
+| Key              | Scope          | Meaning                                                                     |
+| ---------------- | -------------- | --------------------------------------------------------------------------- |
+| `owner`          | model / source | Owning team or individual (e.g., `finops-team`)                             |
+| `owner_slack`    | model / source | Contact channel (e.g., `#finops-team`)                                      |
+| `pii`            | model / column | Whether the model/column carries personally identifiable info               |
+| `classification` | model / column | Sensitivity tier (e.g., `public`, `internal`, `confidential`, `restricted`) |
+| `compliance`     | model / column | Applicable regimes (e.g., `["gdpr", "ccpa"]`)                               |
+| `freshness_sla`  | model / source | Expected freshness (e.g., `daily by 06:00 UTC`)                             |
+
+Column-level `pii` / `classification` / `compliance` inherit through clean passthrough selects (see below), so tagging a source or staging column once can propagate downstream.
 
 ### Model-level meta
 

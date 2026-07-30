@@ -33,7 +33,9 @@ One clarifying question if source vs existing model is unclear.
 
 **Path:** `models/<staging|intermediate|mart>/<group>/<topic>/<layer>__<group>__<topic>__<name>.model.json` (`stg_*`→`staging`, etc.).
 
-**Locate the project first:** the dbt project may be nested, not the workspace root — find its `dbt_project.yml` and treat `models/...` paths as relative to that directory. `.dj/schemas/` lives at the DJ/workspace root, which can differ from the dbt project dir. If more than one dbt project exists, use the one named in `dj.dbtProjectNames`.
+**Locate the project first:** the dbt project may be nested, not the workspace root — find its `dbt_project.yml` and treat `models/...` paths as relative to that directory. `.dj/schemas/` lives at the DJ/workspace root, which can differ from the dbt project dir. **If more than one dbt project exists, ask the user which one to target — do not silently pick a default.** Prefer a project named in `dj.dbtProjectNames` only after confirming it is the one they mean.
+
+**Placement is framework-enforced — never chosen.** DJ derives the file path from `type` → layer + `group` + `topic` + `name` and writes/relocates the file there; do not create files in arbitrary folders or rename on disk (see AGENTS.md **Structural Governance**).
 
 **Checklist:**
 
@@ -45,7 +47,7 @@ One clarifying question if source vs existing model is unclear.
 ## Conventions & gotchas
 
 - **type**: Type of the model - mart, staging, intermediate, source, etc. Determined from the decision tree above.
-- **group**: Must be one of the groups defined in your project (e.g., `analytics`, `finops`, `marketing`, `engineering`, `sales`, `platform`).
+- **group**: Must be a **registered** group. Read `models/groups.yml` (or the `dbt_project.yml` models config) for the valid set. If the requested group is not registered, **ask the user to pick a registered group or to register a new one** (via `dj-initialize`) — do not invent a group or create an unregistered folder.
 - **topic**: Topic of the model - aws_cur, gcp_billing, salesforce, etc.
 - **name**: Name of the model - accounts_billing_daily, opportunities_facts, etc.
 
@@ -87,6 +89,7 @@ The layer directory is derived from the type prefix: `stg_*` -> `staging`, `int_
 - WHERE, HAVING, and JOIN ON conditions support inline subqueries via the `subquery` key. See AGENTS.md "Inline Subqueries" and `model.subquery.schema.json`
 - Source freshness can be disabled with `"freshness": null` at source or table level
 - Free-form `meta` keys are allowed at both model and column level on `.model.json` (e.g., `owner`, `pii`, `compliance`). See AGENTS.md "Custom Meta" section, `model.meta.schema.json`, `column.meta.schema.json`
+- **Governance metadata is optional — offer it, never require it.** After the model shape is settled, offer to tag governance keys (`owner`, `owner_slack`, `pii`, `classification`, `compliance`, `freshness_sla`) per AGENTS.md **Governance metadata conventions**. First scan sibling models and offer the keys the project actually uses. If the user skips, write nothing (no placeholders) and do not re-ask. Teams that want these mandatory enforce it themselves.
 - For Lightdash column config, author `select[i].lightdash.dimension`, `.metrics`, `.metrics_merge`, `.case_sensitive` — not `meta.dimension` etc. The framework surfaces a Warning-severity diagnostic in the Problems tab if authored under `meta`
 - **Marts that back a Lightdash explore/dashboard** — for a default time window (`lightdash.table.required_filters`), a summable metric on a `mart_select_model` passthrough, the right framework-column exclude flag, and how validation works, see [references/mart-lightdash-recipes.md](references/mart-lightdash-recipes.md)
 

@@ -26,6 +26,7 @@ description: Add or update Lightdash AI hints across a model's dependency tree. 
 
 ## Workflow
 
+0. **Resolve the target project.** If the workspace holds more than one dbt project, ask the user which one to update — do not silently search a default. The `models/`, `sources/`, and `seeds/` paths below are relative to that project.
 1. **Read in the Excel file** and load the sheet named using Python (preferably with 'pandas').
 2. **Identify and trace the complete dependency tree**:
    - **Start with the base model** with the name passed as parameter

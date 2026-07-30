@@ -26,6 +26,7 @@ metadata:
 
 ## Workflow
 
+- [ ] **0. Resolve the target project.** If the workspace holds more than one dbt project, ask the user which one to migrate — do not silently scan a default. The `models/` searches and `target/manifest.json` lookups below are relative to that project (`model.${project}.${name}`).
 - [ ] **1. Inventory ephemerals.** Use ripgrep to find candidates -- never iterate-and-parse every `.model.json` (context-budget poison). Search for **all four** forms:
   1. `rg -l '"materialization"\s*:\s*"ephemeral"' models/`
   2. `rg -l '"materialization"\s*:\s*\{\s*"type"\s*:\s*"ephemeral"' models/`

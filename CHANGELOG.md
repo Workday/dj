@@ -2,6 +2,11 @@
 
 ## 2.1.0
 
+### Agent skills
+
+- **New `dj-govern-model` skill.** A read-only governance audit across a model, folder, dependency tree, or the whole workspace — it reports ownership coverage, PII / classification / compliance tagging, registered-group conformance, and prod-write posture, and points you at the skill to fix each gap. It never edits files and never forces a project to adopt metadata it hasn't chosen. Try _"Which models in the finance group have no owner?"_
+- **Authoring skills now confirm the target and offer governance tags.** When creating or converting models, the skills ask which dbt project to use instead of silently picking one, require the model's `group` to be a registered group from `models/groups.yml`, and offer optional `owner` / `pii` / `classification` / `compliance` metadata (skip it and nothing is written). Lightdash and Python-model skills confirm the target project/database before uploading or writing to production.
+
 ### UX improvements
 
 - **Data Modeling canvas selects keep dropdown text sized with zoom.** Single- and multi-select menus in the visual editor stay inside the canvas transform so option text matches node chrome when you zoom in or out; truncated labels show the full value on hover.

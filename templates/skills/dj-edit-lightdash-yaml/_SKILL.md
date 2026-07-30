@@ -71,22 +71,27 @@ target project.
   directly.** Either point them to the extension's webview (so auth, working
   directory, and YAML schema bindings stay in sync), or offer to run the command
   yourself after confirming the target project.
+- **Confirm the target project before uploading; never assume prod.** State the
+  project UUID/name you will upload to and get explicit confirmation. If it is a
+  production project or listed in `dj.lightdash.restrictedProjects`, call that out
+  and confirm again — the restriction only guards the webview Upload tab, not a
+  direct `lightdash upload`. Prefer a preview project unless the user chose prod.
 - **Never edit `.sql` or `.yml` files under `models/`** as part of this skill —
   those belong to DJ's JSON-sync flow, not Dashboards-as-Code.
 
 ## Common edits
 
-| Intent | Where in the YAML |
-| --- | --- |
-| Change a chart's row limit | `metricQuery.limit` |
-| Change a date window (e.g. last 30 -> 90 days) | `metricQuery.filters.dimensions.and[].values` (keep the rule `id` UUID) |
-| Add/remove a chart filter | `metricQuery.filters` (preserve `id` UUIDs on existing filter rules) |
-| Re-order chart sorts | `metricQuery.sorts` (each entry has `fieldId` and `descending`) |
-| Add a custom table calc | `metricQuery.tableCalculations` |
-| Toggle column visibility | `tableConfig.columnOrder` and the chart's `chartConfig` |
-| Add a tile to a dashboard | append to `tiles`, set `type`, `properties`, and a non-overlapping `x/y/w/h` |
-| Add a dashboard-level filter | `filters.dimensions` / `filters.metrics` / `filters.tableCalculations` |
-| Rename what's shown in the UI | `name`, `description`, axis `label` fields, dimension `label` overrides — never `slug` |
+| Intent                                         | Where in the YAML                                                                      |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Change a chart's row limit                     | `metricQuery.limit`                                                                    |
+| Change a date window (e.g. last 30 -> 90 days) | `metricQuery.filters.dimensions.and[].values` (keep the rule `id` UUID)                |
+| Add/remove a chart filter                      | `metricQuery.filters` (preserve `id` UUIDs on existing filter rules)                   |
+| Re-order chart sorts                           | `metricQuery.sorts` (each entry has `fieldId` and `descending`)                        |
+| Add a custom table calc                        | `metricQuery.tableCalculations`                                                        |
+| Toggle column visibility                       | `tableConfig.columnOrder` and the chart's `chartConfig`                                |
+| Add a tile to a dashboard                      | append to `tiles`, set `type`, `properties`, and a non-overlapping `x/y/w/h`           |
+| Add a dashboard-level filter                   | `filters.dimensions` / `filters.metrics` / `filters.tableCalculations`                 |
+| Rename what's shown in the UI                  | `name`, `description`, axis `label` fields, dimension `label` overrides — never `slug` |
 
 ## Gotchas
 

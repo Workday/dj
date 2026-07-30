@@ -91,10 +91,11 @@ Before writing CTEs, search for existing `.model.json` files in the project that
 
 1. **Read the SQL query** provided by the user
 2. **Always ask the user** for the new model's naming before creating anything:
-   - `group` — must be one of the groups defined in your project (e.g., `analytics`, `finops`, `marketing`, `engineering`, `sales`, `platform`)
+   - `group` — must be a **registered** group; read `models/groups.yml` (or the `dbt_project.yml` models config) for the valid set. If the requested group is not registered, ask the user to pick a registered one or register a new one via `dj-initialize` — do not invent a group.
    - `topic` (e.g., aws_cur, billing, salesforce)
    - `name` (e.g., daily_summary, accounts)
      Do NOT infer or reuse names from the SQL query — the user must confirm the name.
+   - If the workspace has more than one dbt project, also ask which project to target — do not silently pick a default.
 3. **Determine the model type** from the SQL pattern table above
 4. **Read the schema** at `.dj/schemas/model.type.<type>.schema.json` — follow all `$ref` links
 5. **Read `.agents/dj/AGENTS.md`** Model Types section for the selected type's example
@@ -102,7 +103,10 @@ Before writing CTEs, search for existing `.model.json` files in the project that
 7. **Verify upstream sources/models exist** by reading their JSON files (read-only — do NOT modify them)
 8. **Confirm the target file path does not already exist** — if it does, ask the user for a different name
 9. **Create a new `.model.json`** file at the correct path — never overwrite an existing file
-10. **Validate** the output against the schema
+10. **Offer governance metadata (optional)** — offer to tag `owner` / `owner_slack` / `pii` / `classification` / `compliance` in `meta` (see AGENTS.md **Governance metadata conventions**), matching keys sibling models already use. If the user skips, write nothing and do not re-ask.
+11. **Validate** the output against the schema
+
+Layer folder placement is derived and enforced by DJ from `type` + `group` + `topic` + `name` — do not hand-pick folders (see AGENTS.md **Structural Governance**).
 
 ## File path convention
 

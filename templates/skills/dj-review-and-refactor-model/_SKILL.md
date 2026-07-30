@@ -32,7 +32,7 @@ metadata:
 
 ## Workflow
 
-- [ ] **1. Resolve scope.** Default to the open `.model.json` in the editor if any. Otherwise ask whether the user wants a single named file, all `.model.json` under a folder, the dependency tree of a base model (resolved from `target/manifest.json` via `child_map` / `parent_map`), or the entire workspace. Confirm before proceeding for folder / tree / workspace scope.
+- [ ] **1. Resolve scope.** Default to the open `.model.json` in the editor if any. Otherwise ask whether the user wants a single named file, all `.model.json` under a folder, the dependency tree of a base model (resolved from `target/manifest.json` via `child_map` / `parent_map`), or the entire workspace. Confirm before proceeding for folder / tree / workspace scope. **If the workspace holds more than one dbt project, also confirm which project (or that all projects) is in scope — do not silently assume one.**
 - [ ] **2. Detect.** Read each in-scope `.model.json` and apply the catalog below. **Do not edit anything.** Capture each finding as `{ file, pattern, group, before, after, why? }`. Skip ephemeral inlining candidates entirely (they belong to `dj-migrate-ephemerals-to-ctes`).
 - [ ] **3. Render the review.** Print a single numbered report using the template below. Recommended items get numeric labels `[1]` `[2]` ...; Needs-your-decision items get letter labels `[A]` `[B]` .... If there are zero findings, say so plainly and exit -- do not invent work.
 - [ ] **4. Wait for confirmation.** Ask the user which items to apply (see "Confirmation prompt" below). **No edits until the user replies.** Treat any non-matching reply as "stop and ask again", not "apply all".
