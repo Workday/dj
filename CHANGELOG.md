@@ -6,6 +6,10 @@
 
 - **Data Modeling canvas selects keep dropdown text sized with zoom.** Single- and multi-select menus in the visual editor stay inside the canvas transform so option text matches node chrome when you zoom in or out; truncated labels show the full value on hover.
 
+## 2.0.2
+
+- **Python model run tracking in Airflow.** DJ-generated `etl_helper.py` records each python model run (success, error, skipped, upstream_failed) to a Trino meta table configured via `run_tracking` (`catalog`, `schema`, and `table` are required in the `dj_python_source_config` Airflow Variable). Mapped tasks reconcile failures that occur before model code runs, and expose helpers your DAG can call for end-of-run reconciliation and `[Python Models]` failure email summaries.
+
 ## 2.0.1
 
 - **Python-model mapped Airflow tasks use default map indices.** Mapped task instances no longer label themselves with the model id in the Airflow UI (`etl_helper.py` for 2.7 and 2.10).
