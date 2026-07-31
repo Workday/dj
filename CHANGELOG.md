@@ -1,5 +1,9 @@
 # Change Log
 
+## 2.0.3
+
+- **Monochrome sidebar icon.** Switched the Activity Bar icon to a monochrome SVG so it remains visible across light, dark, and high-contrast themes in remote workspaces.
+
 ## 2.0.2
 
 - **Python model run tracking in Airflow.** DJ-generated `etl_helper.py` records each python model run (success, error, skipped, upstream_failed) to a Trino meta table configured via `run_tracking` (`catalog`, `schema`, and `table` are required in the `dj_python_source_config` Airflow Variable). Mapped tasks reconcile failures that occur before model code runs, and expose helpers your DAG can call for end-of-run reconciliation and `[Python Models]` failure email summaries.
