@@ -211,13 +211,10 @@ GROUP BY customer_id, customer_name
 - **Never edit** generated `.sql` or `.yml` files — only create new `.model.json`
 - **Never modify upstream models or sources** — read them for column/reference info only
 - Use **JSONC format**: trailing commas allowed, preserve comments
-- Source references use `<database>__<schema>.<table>` format (double underscore, then dot)
 - Column types are `dim` or `fct`, default is `dim` — do NOT use `"dimension"` or `"measure"`
 - `expr` holds the SQL expression — do NOT use `"expression"`
-- When using aggregates, always include `"group_by": "dims"`
 - Verify upstream columns exist before referencing them
-- Prefer `"materialization": "incremental"` over legacy `"materialized": "incremental"`
-- For all conventions, gotchas, and advanced features (CTEs, rollup, subqueries, Lightdash), follow the `dj-create-new-model` skill — it is the authoritative reference
+- For all other conventions, gotchas, and advanced features (naming, source-reference format, `group_by`, materialization, CTEs, rollup, subqueries, Lightdash), follow the `dj-create-new-model` skill and `.agents/dj/AGENTS.md` **Important Conventions** — the authoritative references
 
 ## Gotchas
 

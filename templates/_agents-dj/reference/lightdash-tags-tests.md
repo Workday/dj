@@ -2,6 +2,8 @@
 
 Load this when configuring Lightdash (model or column BI config), editing dashboards-as-code YAML, adding AI hints, tagging models, or declaring data tests.
 
+For authoring or editing the exported dashboards-as-code YAML (chart / dashboard files under the dashboards-as-code path — `lightdash/` by default, configurable via `dj.lightdash.dashboardsAsCodePath`), use the `dj-create-lightdash-yaml` and `dj-edit-lightdash-yaml` skills — they cover the YAML shapes, field-ID rules, and upload gotchas this reference does not.
+
 ## Lightdash Configuration
 
 ### Model-level Lightdash

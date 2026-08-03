@@ -112,7 +112,7 @@ Sources can define partition filters to enable efficient querying:
 
 ## Scheduling & ETL
 
-The DJ (Data JSON) Framework uses an ETL scheduler (via Airflow) that determines **which event dates** need to be processed. This is driven by source configurations:
+DJ uses an ETL scheduler (via Airflow) that determines **which event dates** need to be processed. This is driven by source configurations:
 
 1. **Sources with `event_count` ETL type**: The scheduler queries source tables to detect which dates have new or changed rows, then runs only those dates through the downstream model DAG.
 2. **Sources with `run_schedule` ETL type**: The scheduler triggers downstream models on a fixed cron schedule.

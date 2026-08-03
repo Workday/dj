@@ -36,7 +36,7 @@ Author **SQL** `.model.json` files (staging / intermediate / mart) and the `.sou
 | **int**  | one model → `int_select_model`; joins → `int_join_models`; unnest → `int_join_column`; lookback → `int_lookback_model`; union → `int_union_models` |
 | **mart** | one model → `mart_select_model`; joins → `mart_join_models`                                                                                        |
 
-**Rollup:** optional **`from.rollup`** (a sibling of `from.model` — not nested under it) on **`int_select_model`** / **`int_join_models`** — a coarser time **`interval`** with **`agg`/`aggs`** re-aggregated for the new grain. See `model.from.rollup.schema.json`, `.agents/dj/reference/model-types.md` (**Advanced**), and [references/partitions-and-framework-columns.md](references/partitions-and-framework-columns.md).
+**Rollup:** optional **`from.rollup`** (a sibling of `from.model` — not nested under it) on **`int_select_model`** / **`int_join_models`** — a coarser time **`interval`** with **`agg`/`aggs`** re-aggregated for the new grain. See `model.from.rollup.schema.json` and `.agents/dj/reference/model-types.md` (**Advanced**).
 
 One clarifying question if source vs existing model is unclear.
 
@@ -78,9 +78,9 @@ A mart reads from intermediate/staging models; those read from staging/sources. 
 - Column types are `dim` (dimension) or `fct` (fact/measure), default is `dim`
 - When using `agg`, always include `"group_by": "dims"` (or `[{ "type": "dims" }]`)
 - `"dims"` shorthand: `group_by: "dims"` groups by all dimension columns; join `on: "dims"` auto-joins on all shared dimension columns
-- **Materialization & incremental strategies** — string `"incremental"` / `"ephemeral"` or the structured form; five incremental strategies with storage-format constraints; the Iceberg-vs-Delta/Hive partitioning-keyword switch. See [references/materialization-and-storage.md](references/materialization-and-storage.md), `model.materialization.schema.json`, and `model.incremental_strategy.schema.json`
-- **Inline CTEs** — use the `ctes` array on `int_select_model`, `int_join_models`, `int_union_models`, `mart_select_model`, `mart_join_models` (bulk selects support `exclude`/`include`). For the CTE-vs-new-model decision, mechanics, and gotchas see [references/cte-authoring.md](references/cte-authoring.md); for `datetime` / `portal_partition_*` / `portal_source_count` and `from.rollup` behavior inside CTEs see [references/partitions-and-framework-columns.md](references/partitions-and-framework-columns.md). Also `.agents/dj/reference/ctes-and-subqueries.md` and `model.cte.schema.json`
-- `int_select_model` and `int_join_models` support `from.rollup` for time-grain re-aggregation without a separate `int_rollup_model`. See [references/partitions-and-framework-columns.md](references/partitions-and-framework-columns.md), `.agents/dj/reference/model-types.md`, and `model.from.rollup.schema.json`
+- **Materialization & incremental strategies** — string `"incremental"` / `"ephemeral"` or the structured form; five incremental strategies with storage-format constraints; the Iceberg-vs-Delta/Hive partitioning-keyword switch. See `.agents/dj/reference/materialization.md`, `model.materialization.schema.json`, and `model.incremental_strategy.schema.json`
+- **Inline CTEs** — use the `ctes` array on `int_select_model`, `int_join_models`, `int_union_models`, `mart_select_model`, `mart_join_models` (bulk selects support `exclude`/`include`). For the CTE-vs-new-model decision see [references/cte-authoring.md](references/cte-authoring.md); for the mechanics, gotchas, and `datetime` / `portal_partition_*` / `portal_source_count` / `from.rollup` behavior inside CTEs see `.agents/dj/reference/ctes-and-subqueries.md` and `model.cte.schema.json`
+- `int_select_model` and `int_join_models` support `from.rollup` for time-grain re-aggregation without a separate `int_rollup_model`. See `.agents/dj/reference/model-types.md` (**Advanced**) and `model.from.rollup.schema.json`
 - WHERE, HAVING, and JOIN ON conditions support inline subqueries via the `subquery` key. See `.agents/dj/reference/ctes-and-subqueries.md` and `model.subquery.schema.json`
 - Source freshness can be disabled with `"freshness": null` at source or table level
 - Free-form `meta` keys are allowed at both model and column level on `.model.json` (e.g., `owner`, `pii`, `compliance`). See `.agents/dj/reference/meta-and-governance.md`, `model.meta.schema.json`, `column.meta.schema.json`
@@ -90,7 +90,7 @@ A mart reads from intermediate/staging models; those read from staging/sources. 
 
 ## Gotchas
 
-CTE-specific gotchas are in [references/cte-authoring.md](references/cte-authoring.md); framework-column / partition / `from.rollup` gotchas are in [references/partitions-and-framework-columns.md](references/partitions-and-framework-columns.md); materialization / storage gotchas are in [references/materialization-and-storage.md](references/materialization-and-storage.md). The high-frequency ones:
+CTE / framework-column / partition / `from.rollup` gotchas are in `.agents/dj/reference/ctes-and-subqueries.md`; materialization / storage gotchas are in `.agents/dj/reference/materialization.md`. The high-frequency ones:
 
 - Subquery `column` is required for all operators except `exists`/`not_exists`
 - CTEs must be ordered: a CTE can only reference CTEs defined **before** it in the `ctes` array
