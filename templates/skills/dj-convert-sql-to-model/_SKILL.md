@@ -3,7 +3,9 @@ name: dj-convert-sql-to-model
 description: >-
   Convert an existing SQL query into a DJ .model.json file. Use when the user
   has a working SQL query (often from a .draft.sql file) and wants to formalize
-  it as a DJ/dbt model.
+  it as a DJ/dbt model. Not for authoring a model from requirements (->
+  dj-create-new-model), Python ETL (-> dj-create-python-model), or registering a
+  raw table as a source (-> dj-create-source).
 compatibility: DJ (Data JSON) Framework extension workspace with .dj/schemas/ and .agents/dj/AGENTS.md
 metadata:
   dj-skill: '1.0'
@@ -76,6 +78,8 @@ When the SQL has `GROUP BY`, add `"group_by": "dims"` to the model. Every `fct` 
 - **Raw tables** → `"from": { "source": "<database>__<schema>.<table>" }` (double underscore `__` between catalog and schema, dot `.` between schema and table)
 - **Existing dbt models** → `"from": { "model": "<layer>__<group>__<topic>__<name>" }`
 
+**The raw table must be a registered source.** A `"from": { "source": … }` only resolves if a matching `.source.json` exists and has been synced into the manifest. If it doesn't, see **Missing source?** below — the source has to be created first (with exact Trino data types), not invented.
+
 ## CTE handling
 
 If the SQL has `WITH` clauses, convert to the `ctes` array. CTEs must be ordered: a CTE can only reference CTEs defined before it. The main query becomes the model's primary `from` and `select`. Read `model.cte.schema.json` for the exact shape.
@@ -100,13 +104,20 @@ Before writing CTEs, search for existing `.model.json` files in the project that
 4. **Read the schema** at `.dj/schemas/model.type.<type>.schema.json` — follow all `$ref` links
 5. **Read `.agents/dj/reference/model-types.md`** for the selected type's example
 6. **Scan existing `.model.json` files** in the project's `models/` directory — especially models of the same type — to learn naming conventions, CTE patterns, `select` structure, `group_by` usage, and other structural patterns. Use these as reference when creating the new model. Pay particular attention to models that use `ctes`, `join`, `where`, and `group_by` to understand how the project applies these features
-7. **Verify upstream sources/models exist** by reading their JSON files (read-only — do NOT modify them)
+7. **Verify upstream sources/models exist** by reading their JSON files (read-only — do NOT modify them). For a `stg_select_source` / `stg_union_sources` raw table, confirm a matching `.source.json` is registered; if it isn't, see **Missing source?** below before generating the model — do not reference an unregistered table
 8. **Confirm the target file path does not already exist** — if it does, ask the user for a different name
 9. **Create a new `.model.json`** file at the correct path — never overwrite an existing file
 10. **Offer governance metadata (optional)** — offer to tag `owner` / `owner_slack` / `pii` / `classification` / `compliance` in `meta` (see `.agents/dj/reference/meta-and-governance.md`), matching keys sibling models already use. If the user skips, write nothing and do not re-ask.
 11. **Validate** the output against the schema
 
 Layer folder placement is derived and enforced by DJ from `type` + `group` + `topic` + `name` — do not hand-pick folders (see AGENTS.md **Structural Governance**).
+
+## Missing source? Register it first
+
+A `stg_select_source` / `stg_union_sources` reads a raw `catalog.schema.table`, which resolves only if a `.source.json` registers it and the manifest has been synced. Before converting such a query, confirm the source exists by reading its `.source.json`.
+
+- **If the source is missing, do not invent its columns or data types.** Offer to register it first via the **`dj-create-source`** skill — it introspects the exact Trino types with `SHOW COLUMNS` — and confirm with the user before creating anything. The user can instead create it with the **`DJ: Create Source`** command (webview) if they prefer to do it by hand.
+- **Then refresh the manifest.** A newly created `.source.json` isn't resolvable until DJ syncs it. Ask the user to run **`DJ: Sync to SQL and YML`**, then convert the SQL against the registered source. The agent cannot run VS Code commands itself, so this is a user action.
 
 ## File path convention
 

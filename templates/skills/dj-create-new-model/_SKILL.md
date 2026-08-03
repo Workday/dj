@@ -3,7 +3,10 @@ name: dj-create-new-model
 description: >-
   Create a DJ .model.json file for a new dbt model. Use when the user wants to
   create, add, or scaffold a dbt model -- staging, intermediate, or mart --
-  including joins, CTEs, rollup, subqueries, or aggregations.
+  including joins, CTEs, rollup, subqueries, or aggregations. Not for Python ETL
+  (-> dj-create-python-model), converting existing SQL text (->
+  dj-convert-sql-to-model), or registering a raw table as a source (->
+  dj-create-source).
 compatibility: DJ (Data JSON) Framework extension workspace with .dj/schemas/ and .agents/dj/AGENTS.md
 metadata:
   dj-skill: '1.0'
@@ -11,7 +14,7 @@ metadata:
 
 # Create DJ model
 
-**Create** new **`.model.json`** files (and **`.source.json`** when adding sources). **Never** hand-edit auto-generated **`.sql`** / **`.yml`** — only the JSON sources of truth.
+**Create** new **`.model.json`** files. **Never** hand-edit auto-generated **`.sql`** / **`.yml`** — only the JSON sources of truth. (Registering a raw table as a **`.source.json`** → **`dj-create-source`**; this skill reads sources but delegates their creation.)
 
 **Execution safety:** authoring is file-only — this skill does not run SQL or dbt. If you must inspect data to author a model, follow **Command & Query Execution Safety** in **`.agents/dj/AGENTS.md`**: read-only `SELECT` only, confirm the catalog/schema first, never touch production.
 
@@ -19,12 +22,13 @@ metadata:
 
 ## When this skill applies
 
-Author **SQL** `.model.json` files (staging / intermediate / mart) and the `.source.json` definitions they read from.
+Author **SQL** `.model.json` files (staging / intermediate / mart) that read from existing models and sources.
 
 **Out of scope** — delegate to a sibling skill:
 
 - Python ETL / ingestion (`.python.json`, `.python.py`) → `dj-create-python-model`. **This skill never writes Python models.**
 - Formalizing an existing SQL query into a model → `dj-convert-sql-to-model`.
+- Registering a raw Trino table as a source (`.source.json`) → `dj-create-source`.
 - Reviewing / modernizing / refactoring an existing `.model.json` → `dj-review-and-refactor-model`.
 - Authoring or editing Lightdash chart/dashboard YAML → `dj-create-lightdash-yaml` / `dj-edit-lightdash-yaml`.
 
@@ -67,7 +71,7 @@ One clarifying question if source vs existing model is unclear.
 
 A mart reads from intermediate/staging models; those read from staging/sources. Before authoring, confirm every `from` reference already exists by reading its `.model.json` / `.source.json` (or checking the manifest).
 
-- **If an upstream layer is missing, do not invent its columns.** Offer to build the missing layers **upstream-first** — source → staging → intermediate → mart — and confirm scope with the user before creating anything. Build only the layers the requested model actually needs; skip a layer that adds no transformation (a mart can read a staging model directly when no intermediate logic is required).
+- **If an upstream layer is missing, do not invent its columns.** Offer to build the missing layers **upstream-first** — source → staging → intermediate → mart — and confirm scope with the user before creating anything. Build only the layers the requested model actually needs; skip a layer that adds no transformation (a mart can read a staging model directly when no intermediate logic is required). **A missing raw source (`.source.json`) is created via the `dj-create-source` skill** (or the `DJ: Create Source` webview) — it introspects the exact Trino data types with `SHOW COLUMNS`; never hand-author a source's `data_type`s.
 - **Refresh the manifest before building the downstream.** A newly created `.source.json` or upstream `.model.json` is not resolvable by a downstream model until the dbt manifest registers it. After creating an upstream, ask the user to run **`DJ: Sync to SQL and YML`** — it regenerates the `.sql` / `.yml` and reparses the manifest on demand (running `dbt parse` only when a synced model is missing or the manifest is stale) — then author the downstream against it. `DJ: Refresh Projects` only re-reads project config and reloads the on-disk manifest; it does not run `dbt parse`. The agent cannot run VS Code commands itself, so this is a user action.
 
 ## Important Conventions

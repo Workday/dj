@@ -3,7 +3,9 @@ name: dj-create-python-model
 description: >-
   Create a DJ .python.json file for a new Python ETL model. Use when the user
   wants to create a Python model, ETL pipeline, data ingestion, API fetch,
-  CSV import, or any pre-dbt Python data processing task.
+  CSV import, or any pre-dbt Python data processing task. Not for dbt SQL models
+  (-> dj-create-new-model) or registering a raw table as a source (->
+  dj-create-source).
 compatibility: DJ (Data JSON) Framework extension workspace with .dj/schemas/
 metadata:
   dj-skill: '1.0'
@@ -24,7 +26,7 @@ Use this skill when the user mentions: python model, ETL, data ingestion, API fe
 **Out of scope** — delegate to sibling skills:
 
 - SQL `.model.json` files (staging/intermediate/mart) → `dj-create-new-model`
-- `.source.json` files → `dj-create-new-model`
+- `.source.json` files (registering a raw table as a source) → `dj-create-source`
 - Lightdash YAML → `dj-edit-lightdash-yaml`
 - Refactoring existing models → `dj-review-and-refactor-model`
 
@@ -291,6 +293,8 @@ glue_development__opus_python_source.<table_name>
 ```
 
 (Double underscore separates catalog from schema, dot separates schema from table.)
+
+The output table must be **registered as a `.source.json`** before a downstream model can read it — use the **`dj-create-source`** skill (it introspects the Iceberg table's columns with `SHOW COLUMNS`) or the `DJ: Create Source` webview, then sync.
 
 ## Conventions and gotchas
 
