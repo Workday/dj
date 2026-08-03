@@ -16,7 +16,7 @@ metadata:
 
 **Goal:** dissolve qualifying ephemeral `.model.json` files into the `ctes[]` array of their downstream consumer, then remove the now-redundant file. Mutate **only** the JSON sources of truth — the framework's sync engine regenerates the `.sql` / `.yml` artifacts.
 
-**Reading order:** `.agents/dj/AGENTS.md` (Model Types, Inline CTEs, Important Conventions) → `.dj/schemas/model.cte.schema.json` + `model.materialization.schema.json` → this skill's `references/transformation-matrix.md` for per-type recipes.
+**Reading order:** `.agents/dj/AGENTS.md` (**Important Conventions**), `.agents/dj/reference/model-types.md`, and `.agents/dj/reference/ctes-and-subqueries.md` → `.dj/schemas/model.cte.schema.json` + `model.materialization.schema.json` → this skill's `references/transformation-matrix.md` for per-type recipes.
 
 ## When this skill applies
 

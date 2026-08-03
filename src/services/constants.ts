@@ -11,6 +11,10 @@ export const BASE_MACROS_PATH = path.join(__dirname, '../../macros');
 export const BASE_TESTS_PATH = path.join(__dirname, '../../macros/tests');
 export const BASE_SCHEMAS_PATH = path.join(__dirname, '../../schemas');
 export const BASE_SKILLS_PATH = path.join(__dirname, '../../templates/skills');
+export const BASE_AGENTS_DJ_PATH = path.join(
+  __dirname,
+  '../../templates/_agents-dj',
+);
 
 // Extension constants
 export const OUTPUT_CHANNEL_NAME = 'DJ';

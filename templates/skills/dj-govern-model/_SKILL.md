@@ -81,9 +81,9 @@ Skip any dimension the project does not use at all (e.g. if no model tags
 - **Owner drift within a group.** Flag a group whose models declare conflicting
   `owner` values — often one is stale.
 - **Reserved-key collisions.** Flag governance-looking data authored under a
-  framework-reserved `meta` key instead of its structured sibling (see AGENTS.md
-  **Framework-reserved keys under `meta`**). Recommend `dj-review-and-refactor-model`
-  to relocate; do not edit here.
+  framework-reserved `meta` key instead of its structured sibling (see
+  `.agents/dj/reference/meta-and-governance.md` **Framework-reserved keys under `meta`**).
+  Recommend `dj-review-and-refactor-model` to relocate; do not edit here.
 
 ### D. Prod-write posture
 

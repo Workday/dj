@@ -8,6 +8,7 @@
 - **Authoring skills confirm the target and offer governance tags.** When creating or converting models, skills ask which dbt project to use, require the `group` to be registered in `models/groups.yml`, and offer optional `owner` / `pii` / `classification` / `compliance` tags (skip them and nothing is written). Lightdash and Python skills confirm the project/database before writing to production.
 - **Skills treat the warehouse as read-only by default.** They inspect data with `SELECT` / `SHOW` / `DESCRIBE` / `EXPLAIN`, confirm the catalog/schema first, and never run writes (`DROP` / `INSERT` / `DELETE`) or `dbt run` / `build` against production without your explicit confirmation.
 - **Model creation builds missing upstreams and steers BI work to marts.** Asking for a dashboard or metrics model defaults to a mart; if the staging / intermediate / source layers it needs are missing, the skill offers to build them upstream-first and reminds you to re-sync so the new columns resolve. It authors SQL `.model.json` files only, never Python models.
+- **Leaner agent context.** The generated `.agents/dj/AGENTS.md` is now a slim hub — conventions, project structure, and safety rules — with the deep reference material (model types, materialization, CTEs & subqueries, sources, Lightdash, governance, pitfalls) split into on-demand files under `.agents/dj/reference/` that skills open only when needed.
 
 ### UX improvements
 

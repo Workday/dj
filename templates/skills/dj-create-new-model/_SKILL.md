@@ -15,7 +15,7 @@ metadata:
 
 **Execution safety:** authoring is file-only — this skill does not run SQL or dbt. If you must inspect data to author a model, follow **Command & Query Execution Safety** in **`.agents/dj/AGENTS.md`**: read-only `SELECT` only, confirm the catalog/schema first, never touch production.
 
-**Reading order:** **`.dj/schemas/`** (type schema + `$ref`s) for exact field shapes → **`.agents/dj/AGENTS.md`**: the **Model Types** worked example for your type, then **Advanced** (CTEs, rollup, shorthands, subqueries, materialization, `"dims"`) → this skill's **Important Conventions** + **Gotchas** for the framework rules the schema can't express.
+**Reading order:** **`.dj/schemas/`** (type schema + `$ref`s) for exact field shapes → **`.agents/dj/reference/model-types.md`**: the **Model Types** worked example for your type, then its **Advanced** map (CTEs, rollup, shorthands, subqueries, materialization, `"dims"`) → this skill's **Important Conventions** + **Gotchas** for the framework rules the schema can't express.
 
 ## When this skill applies
 
@@ -36,7 +36,7 @@ Author **SQL** `.model.json` files (staging / intermediate / mart) and the `.sou
 | **int**  | one model → `int_select_model`; joins → `int_join_models`; unnest → `int_join_column`; lookback → `int_lookback_model`; union → `int_union_models` |
 | **mart** | one model → `mart_select_model`; joins → `mart_join_models`                                                                                        |
 
-**Rollup:** optional **`from.rollup`** (a sibling of `from.model` — not nested under it) on **`int_select_model`** / **`int_join_models`** — a coarser time **`interval`** with **`agg`/`aggs`** re-aggregated for the new grain. See `model.from.rollup.schema.json`, AGENTS.md **Advanced**, and [references/partitions-and-framework-columns.md](references/partitions-and-framework-columns.md).
+**Rollup:** optional **`from.rollup`** (a sibling of `from.model` — not nested under it) on **`int_select_model`** / **`int_join_models`** — a coarser time **`interval`** with **`agg`/`aggs`** re-aggregated for the new grain. See `model.from.rollup.schema.json`, `.agents/dj/reference/model-types.md` (**Advanced**), and [references/partitions-and-framework-columns.md](references/partitions-and-framework-columns.md).
 
 One clarifying question if source vs existing model is unclear.
 
@@ -58,7 +58,7 @@ One clarifying question if source vs existing model is unclear.
 1. **Determine `type`** from the decision table above (one clarifying question only if source-vs-model is ambiguous).
 2. **Gather inputs** — `group`, `topic`, `name`, and type-specific fields.
 3. **Read the schema** at `.dj/schemas/model.type.<type>.schema.json` for required/optional fields, following `$ref`s. For CTEs / subqueries / `from.rollup` / hooks / `agg` / materialization also read `model.cte`, `model.subquery`, `model.from.rollup`, `model.sql_hooks`, `model.materialization`, `model.select.*.with.agg` as needed.
-4. **Read AGENTS.md** — the **Model Types** example for your `type`, plus **Advanced** if using CTEs / rollup / shorthands / subqueries.
+4. **Read `.agents/dj/reference/model-types.md`** — the **Model Types** example for your `type`, plus its **Advanced** map if using CTEs / rollup / shorthands / subqueries.
 5. **Verify upstream columns** by reading each `from` reference's `.model.json` / `.source.json` (trace `ctes` too). If a reference doesn't exist yet, see **Missing upstream?** below — do not invent columns.
 6. **Write the `.model.json`** at the derived path in **JSONC** (comments and trailing commas allowed; preserve existing comments).
 7. **Verify** via the editor's bound schema and DJ's on-save regeneration/diagnostics (Problems tab) — do not assume standalone validators (`jsonschema`, `pyyaml`, `pip`) are installed (see [references/mart-lightdash-recipes.md](references/mart-lightdash-recipes.md) §4).
@@ -79,12 +79,12 @@ A mart reads from intermediate/staging models; those read from staging/sources. 
 - When using `agg`, always include `"group_by": "dims"` (or `[{ "type": "dims" }]`)
 - `"dims"` shorthand: `group_by: "dims"` groups by all dimension columns; join `on: "dims"` auto-joins on all shared dimension columns
 - **Materialization & incremental strategies** — string `"incremental"` / `"ephemeral"` or the structured form; five incremental strategies with storage-format constraints; the Iceberg-vs-Delta/Hive partitioning-keyword switch. See [references/materialization-and-storage.md](references/materialization-and-storage.md), `model.materialization.schema.json`, and `model.incremental_strategy.schema.json`
-- **Inline CTEs** — use the `ctes` array on `int_select_model`, `int_join_models`, `int_union_models`, `mart_select_model`, `mart_join_models` (bulk selects support `exclude`/`include`). For the CTE-vs-new-model decision, mechanics, and gotchas see [references/cte-authoring.md](references/cte-authoring.md); for `datetime` / `portal_partition_*` / `portal_source_count` and `from.rollup` behavior inside CTEs see [references/partitions-and-framework-columns.md](references/partitions-and-framework-columns.md). Also AGENTS.md "Inline CTEs" and `model.cte.schema.json`
-- `int_select_model` and `int_join_models` support `from.rollup` for time-grain re-aggregation without a separate `int_rollup_model`. See [references/partitions-and-framework-columns.md](references/partitions-and-framework-columns.md), AGENTS.md "Model Types", and `model.from.rollup.schema.json`
-- WHERE, HAVING, and JOIN ON conditions support inline subqueries via the `subquery` key. See AGENTS.md "Inline Subqueries" and `model.subquery.schema.json`
+- **Inline CTEs** — use the `ctes` array on `int_select_model`, `int_join_models`, `int_union_models`, `mart_select_model`, `mart_join_models` (bulk selects support `exclude`/`include`). For the CTE-vs-new-model decision, mechanics, and gotchas see [references/cte-authoring.md](references/cte-authoring.md); for `datetime` / `portal_partition_*` / `portal_source_count` and `from.rollup` behavior inside CTEs see [references/partitions-and-framework-columns.md](references/partitions-and-framework-columns.md). Also `.agents/dj/reference/ctes-and-subqueries.md` and `model.cte.schema.json`
+- `int_select_model` and `int_join_models` support `from.rollup` for time-grain re-aggregation without a separate `int_rollup_model`. See [references/partitions-and-framework-columns.md](references/partitions-and-framework-columns.md), `.agents/dj/reference/model-types.md`, and `model.from.rollup.schema.json`
+- WHERE, HAVING, and JOIN ON conditions support inline subqueries via the `subquery` key. See `.agents/dj/reference/ctes-and-subqueries.md` and `model.subquery.schema.json`
 - Source freshness can be disabled with `"freshness": null` at source or table level
-- Free-form `meta` keys are allowed at both model and column level on `.model.json` (e.g., `owner`, `pii`, `compliance`). See AGENTS.md "Custom Meta" section, `model.meta.schema.json`, `column.meta.schema.json`
-- **Governance metadata is optional — offer it, never require it.** After the model shape is settled, offer to tag governance keys (`owner`, `owner_slack`, `pii`, `classification`, `compliance`, `freshness_sla`) per AGENTS.md **Governance metadata conventions**. First scan sibling models and offer the keys the project actually uses. If the user skips, write nothing (no placeholders) and do not re-ask. Teams that want these mandatory enforce it themselves.
+- Free-form `meta` keys are allowed at both model and column level on `.model.json` (e.g., `owner`, `pii`, `compliance`). See `.agents/dj/reference/meta-and-governance.md`, `model.meta.schema.json`, `column.meta.schema.json`
+- **Governance metadata is optional — offer it, never require it.** After the model shape is settled, offer to tag governance keys (`owner`, `owner_slack`, `pii`, `classification`, `compliance`, `freshness_sla`) per `.agents/dj/reference/meta-and-governance.md` (**Governance metadata conventions**). First scan sibling models and offer the keys the project actually uses. If the user skips, write nothing (no placeholders) and do not re-ask. Teams that want these mandatory enforce it themselves.
 - For Lightdash column config, author `select[i].lightdash.dimension`, `.metrics`, `.metrics_merge`, `.case_sensitive` — not `meta.dimension` etc. The framework surfaces a Warning-severity diagnostic in the Problems tab if authored under `meta`
 - **Marts that back a Lightdash explore/dashboard** — for a default time window (`lightdash.table.required_filters`), a summable metric on a `mart_select_model` passthrough, the right framework-column exclude flag, and how validation works, see [references/mart-lightdash-recipes.md](references/mart-lightdash-recipes.md)
 

@@ -30,7 +30,7 @@ The work is local to this model and nothing else needs to reuse it.
 ## Mechanics
 
 A minimal CTE has a `name`, a `from`, and a `select`; the model's top-level
-`from` then reads `{ "cte": "<name>" }`. See AGENTS.md "Inline CTEs" and
+`from` then reads `{ "cte": "<name>" }`. See `.agents/dj/reference/ctes-and-subqueries.md` and
 `model.cte.schema.json` for the exact shape.
 
 - **CTEs must be ordered** — a CTE can only reference CTEs defined **before** it in the `ctes` array.

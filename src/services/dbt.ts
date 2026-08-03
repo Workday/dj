@@ -1,4 +1,3 @@
-import { generateAgentsMd } from '@services/agent/utils';
 import type { Coder } from '@services/coder';
 import type { CoderFileInfo } from '@services/coder/types';
 import {
@@ -7,6 +6,7 @@ import {
   isDbtProjectNameConfigured,
 } from '@services/config';
 import {
+  BASE_AGENTS_DJ_PATH,
   BASE_AIRFLOW_PATH,
   BASE_MACROS_PATH,
   BASE_SKILLS_PATH,
@@ -1853,7 +1853,10 @@ ${macro.macro_sql}`;
   }
 
   /**
-   * Write AGENTS.md to the workspace root's .agents/dj/ directory for AI coding agents.
+   * Write the DJ agent context to the workspace root's .agents/dj/ directory
+   * for AI coding agents. Deploys the hub `AGENTS.md` plus its `reference/`
+   * files (loaded on demand), mirroring the Agent Skills progressive-disclosure
+   * layout (https://agentskills.io).
    */
   async writeAgentsMd(): Promise<void> {
     const { codingAgent } = getDjConfig();
@@ -1863,17 +1866,8 @@ ${macro.macro_sql}`;
 
     try {
       this.log.info('WRITING AGENTS.MD');
-      const agentsMdContent = generateAgentsMd();
-      const agentsMdPath = path.join(
-        WORKSPACE_ROOT,
-        '.agents',
-        'dj',
-        'AGENTS.md',
-      );
-      await vscode.workspace.fs.writeFile(
-        vscode.Uri.file(agentsMdPath),
-        Buffer.from(agentsMdContent),
-      );
+      const targetDir = path.join(WORKSPACE_ROOT, '.agents', 'dj');
+      await this.copyTemplateDirectoryRecursive(BASE_AGENTS_DJ_PATH, targetDir);
     } catch (err) {
       this.log.error('Error writing AGENTS.md:', err);
     }
@@ -1910,7 +1904,7 @@ ${macro.macro_sql}`;
               skillDirName,
             );
 
-            await this.copySkillDirectoryRecursive(sourceDir, targetDir);
+            await this.copyTemplateDirectoryRecursive(sourceDir, targetDir);
           } catch (err: unknown) {
             this.log.error(`Error writing skill ${skillDirName}:`, err);
           }
@@ -1946,16 +1940,17 @@ ${macro.macro_sql}`;
   }
 
   /**
-   * Recursively copy a skill directory (files + subdirectories) into the
-   * workspace target. Subdirectories like `references/`, `scripts/`, `assets/`
-   * are part of the Agent Skills open standard (https://agentskills.io) for
-   * progressive disclosure of skill content.
+   * Recursively copy a template directory (files + subdirectories) into the
+   * workspace target. Subdirectories like `reference/`, `references/`,
+   * `scripts/`, `assets/` are part of the Agent Skills open standard
+   * (https://agentskills.io) for progressive disclosure of content.
    *
    * Leading underscores on template filenames are stripped (e.g. `_SKILL.md`
-   * → `SKILL.md`) so they aren't picked up as skills inside this repo's own
-   * `templates/skills` directory. Subdirectory names are preserved verbatim.
+   * → `SKILL.md`, `_AGENTS.md` → `AGENTS.md`) so they aren't picked up as
+   * agent files inside this repo's own `templates` directory. Subdirectory
+   * names are preserved verbatim.
    */
-  private async copySkillDirectoryRecursive(
+  private async copyTemplateDirectoryRecursive(
     sourceDir: string,
     targetDir: string,
   ): Promise<void> {
@@ -1978,7 +1973,10 @@ ${macro.macro_sql}`;
         await vscode.workspace.fs.writeFile(targetPath, content);
       } else if (entryType === vscode.FileType.Directory) {
         const targetSubDir = path.join(targetDir, entryName);
-        await this.copySkillDirectoryRecursive(sourceEntryPath, targetSubDir);
+        await this.copyTemplateDirectoryRecursive(
+          sourceEntryPath,
+          targetSubDir,
+        );
       }
     }
   }

@@ -15,7 +15,7 @@ Convert a raw SQL query into a **new** `.model.json` file following the DJ (Data
 
 **CRITICAL: This skill ONLY creates new `.model.json` files. NEVER modify, update, or overwrite existing `.model.json`, `.source.json`, `.sql`, or `.yml` files. If an upstream model or source already exists, reference it by name — do not edit it.**
 
-**Reading order:** `.dj/schemas/model.type.<type>.schema.json` (follow `$ref`s) → `.agents/dj/AGENTS.md` **Model Types** section → this skill's SQL mapping rules. Always read the schema **before** writing any JSON.
+**Reading order:** `.dj/schemas/model.type.<type>.schema.json` (follow `$ref`s) → `.agents/dj/reference/model-types.md` → this skill's SQL mapping rules. Always read the schema **before** writing any JSON.
 
 ## Output structure (mandatory)
 
@@ -98,12 +98,12 @@ Before writing CTEs, search for existing `.model.json` files in the project that
    - If the workspace has more than one dbt project, also ask which project to target — do not silently pick a default.
 3. **Determine the model type** from the SQL pattern table above
 4. **Read the schema** at `.dj/schemas/model.type.<type>.schema.json` — follow all `$ref` links
-5. **Read `.agents/dj/AGENTS.md`** Model Types section for the selected type's example
+5. **Read `.agents/dj/reference/model-types.md`** for the selected type's example
 6. **Scan existing `.model.json` files** in the project's `models/` directory — especially models of the same type — to learn naming conventions, CTE patterns, `select` structure, `group_by` usage, and other structural patterns. Use these as reference when creating the new model. Pay particular attention to models that use `ctes`, `join`, `where`, and `group_by` to understand how the project applies these features
 7. **Verify upstream sources/models exist** by reading their JSON files (read-only — do NOT modify them)
 8. **Confirm the target file path does not already exist** — if it does, ask the user for a different name
 9. **Create a new `.model.json`** file at the correct path — never overwrite an existing file
-10. **Offer governance metadata (optional)** — offer to tag `owner` / `owner_slack` / `pii` / `classification` / `compliance` in `meta` (see AGENTS.md **Governance metadata conventions**), matching keys sibling models already use. If the user skips, write nothing and do not re-ask.
+10. **Offer governance metadata (optional)** — offer to tag `owner` / `owner_slack` / `pii` / `classification` / `compliance` in `meta` (see `.agents/dj/reference/meta-and-governance.md`), matching keys sibling models already use. If the user skips, write nothing and do not re-ask.
 11. **Validate** the output against the schema
 
 Layer folder placement is derived and enforced by DJ from `type` + `group` + `topic` + `name` — do not hand-pick folders (see AGENTS.md **Structural Governance**).

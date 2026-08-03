@@ -109,7 +109,7 @@ Ask about:
 - **owner** — team or individual
 - **enable_notebook** — generate companion `.python.ipynb` (default: `true`)
 
-**Governance metadata is optional — offer, never require.** Alongside `owner`, offer to tag `owner_slack`, `pii`, `classification`, and `compliance` in `meta` (see the DJ AGENTS.md **Governance metadata conventions**), matching the keys sibling models in the project already use. If the user skips, write nothing and do not re-ask.
+**Governance metadata is optional — offer, never require.** Alongside `owner`, offer to tag `owner_slack`, `pii`, `classification`, and `compliance` in `meta` (see `.agents/dj/reference/meta-and-governance.md`), matching the keys sibling models in the project already use. If the user skips, write nothing and do not re-ask.
 
 ## Optimization guidance
 

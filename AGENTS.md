@@ -511,7 +511,7 @@ LIGHTDASH_TRINO_HOST=host.docker.internal  # Trino host override for Docker
 
 ## AI Agent Integration
 
-When `dj.codingAgent` is `true`, the extension generates a project-tailored `AGENTS.md` at `.agents/dj/AGENTS.md` and copies agent-agnostic skill directories from [`templates/`](templates/) to `.agents/skills/` at workspace activation, following the [Agent Skills](https://agentskills.io) open standard (each skill is a folder with a `SKILL.md`). The agent code lives in [`src/services/agent/`](src/services/agent/); skill files are written by the Dbt service.
+When `dj.codingAgent` is `true`, the extension copies the DJ agent context to `.agents/dj/` — a hub `AGENTS.md` plus on-demand `reference/` files — and copies the agent-agnostic skill directories from [`templates/`](templates/) to `.agents/skills/` at workspace activation, following the [Agent Skills](https://agentskills.io) open standard (each skill is a folder with a `SKILL.md`). The templates live under [`templates/_agents-dj/`](templates/_agents-dj/) and [`templates/skills/`](templates/skills/); both are deployed by the Dbt service ([`src/services/dbt.ts`](src/services/dbt.ts)), which strips the leading `_` from `_AGENTS.md` / `_SKILL.md` on copy.
 
 ## Additional Resources
 
