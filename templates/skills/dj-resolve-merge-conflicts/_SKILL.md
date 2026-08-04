@@ -17,7 +17,7 @@ metadata:
 
 **Goal:** resolve git conflicts in a DJ workspace _correctly for this framework_. The only files you ever hand-merge are the JSON sources of truth (`.model.json` / `.source.json`). The generated `.sql` / `.yml` siblings are **regenerated from the JSON** -- never hand-merged. When the incoming branch looks old or diverged, pause and let the user choose between a full merge and a guided port of specific models.
 
-**Reading order:** `.agents/dj/AGENTS.md` (**Important Conventions**, sync flow) and `.agents/dj/reference/model-types.md` -> `.dj/schemas/` (validate resolved JSON) -> this skill's `references/staleness-and-porting.md` once you reach the staleness gate (Phase 1) or the port path (Phase 2b).
+**Reading order:** `.agents/dj/AGENTS.md` (**Important Conventions**, sync flow) and `.agents/dj/reference/model-types.md` -> `.dj/schemas/` (validate resolved JSON) -> this skill's `references/staleness-and-porting.md` once you reach the staleness gate (Phase 1) or the port path (Phase 2b). For staging and committing once conflicts are resolved and re-synced, see `.agents/dj/reference/git-workflow.md`.
 
 ## When this skill applies
 

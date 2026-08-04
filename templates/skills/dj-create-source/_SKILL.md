@@ -53,7 +53,8 @@ conventions) → this skill.
    ```
 
    through the Trino access described in `.agents/dj/AGENTS.md` **Command & Query Execution Safety**
-   (read-only metadata query; confirm the catalog/schema first; never target production writes). Use
+   (read-only metadata query; confirm the catalog/schema first; never target production writes) — see
+   `.agents/dj/reference/running-trino.md` for resolving the CLI and connection. Use
    the returned **Column** and **Type** values verbatim for `name` and `data_type`. If the table does
    not exist or you cannot reach Trino, stop and tell the user — do not fabricate a source.
 

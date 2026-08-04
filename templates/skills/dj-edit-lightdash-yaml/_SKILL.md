@@ -19,7 +19,8 @@ download step, or previously authored) so they can be re-uploaded. Don't tell th
 user to run the upload CLI directly: either point them to the
 `DJ: Lightdash - Dashboards as Code` webview (which keeps auth and YAML schema
 bindings in sync), or **offer to run the command yourself** after confirming the
-target project.
+target project. For the CLI executable, connection env vars, and the
+restricted-projects guardrail, see `.agents/dj/reference/running-lightdash.md`.
 
 ## When this skill applies
 

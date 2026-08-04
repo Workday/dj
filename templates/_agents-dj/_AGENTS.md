@@ -23,6 +23,10 @@ Follow the **always-relevant** rules below — project structure, naming, struct
 | Configure Lightdash (model/column), dashboards-as-code, AI hints, tags, or data tests                                                     | [reference/lightdash-tags-tests.md](reference/lightdash-tags-tests.md)       |
 | Add free-form or governance `meta`, or understand framework-reserved `meta` keys                                                          | [reference/meta-and-governance.md](reference/meta-and-governance.md)         |
 | Troubleshoot, validate, follow the file-creation checklist, or find the exact schema file                                                 | [reference/pitfalls-and-validation.md](reference/pitfalls-and-validation.md) |
+| Run a dbt command (compile/parse/test, or a warehouse-writing run/build/seed) — venv activation, project dir, command classes             | [reference/running-dbt.md](reference/running-dbt.md)                         |
+| Run a read-only Trino query to inspect data or schema — CLI resolution, connection env, invocation                                        | [reference/running-trino.md](reference/running-trino.md)                     |
+| Run the Lightdash CLI (start-preview / download / upload) — connection env, settings, guardrails                                          | [reference/running-lightdash.md](reference/running-lightdash.md)             |
+| Commit, branch, or stage DJ work in git — what to commit, what to ignore, commit hygiene                                                  | [reference/git-workflow.md](reference/git-workflow.md)                       |
 
 ---
 
@@ -94,6 +98,8 @@ Treat the warehouse as **read-only by default**. Data is written by the framewor
 - **Prefer framework facilities over ad-hoc CLI.** To inspect columns, sources, or lineage, read `.source.json` / `.model.json` / `target/manifest.json` / `.dj/schemas/`, or use DJ's **Create Source** flow (which browses Trino catalogs / schemas / tables / columns), before shelling out to the `trino` CLI. Run CLI SQL only after the user confirms the connection and that it is read-only.
 - **The DJ commands are not dbt runs.** `DJ: Sync to SQL and YML` regenerates the `.sql` / `.yml` and reparses the manifest on demand — it runs `dbt parse` only when a synced model is missing or the manifest is stale. `DJ: Refresh Projects` re-reads each `dbt_project.yml` and reloads the on-disk `target/manifest.json` (and rewrites extension-managed files); it does **not** run `dbt parse` / `compile`. Of the dbt CLI commands, `parse` / `compile` / `ls` / `deps` / `docs generate` don't write to the warehouse; `run` / `build` / `seed` / `snapshot` / `run-operation` do, and `source freshness` issues queries. If a manifest must be built from scratch, ask the user to run `dbt parse`.
 - **Keep inspection queries cheap.** Always add a `LIMIT` to ad-hoc `SELECT`s and constrain by partition — never trigger a full-history or unpartitioned scan just to check a shape or a few values.
+
+For the mechanics of running each tool under this policy, load [reference/running-dbt.md](reference/running-dbt.md) (venv activation, project dir, command classes), [reference/running-trino.md](reference/running-trino.md) (CLI resolution, connection env, invocation), [reference/running-lightdash.md](reference/running-lightdash.md) (preview / download / upload), or [reference/git-workflow.md](reference/git-workflow.md) (what to commit and ignore).
 
 ---
 
