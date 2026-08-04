@@ -1,14 +1,13 @@
 {
   "compilerOptions": {
-    "baseUrl": ".",
     "esModuleInterop": true,
     "lib": [
       "ES2023",
       "ESNext",
       "ESNext.Decorators"
     ],
-    "module": "CommonJS",
-    "moduleResolution": "node",
+    "module": "node16",
+    "moduleResolution": "node16",
     "outDir": "out",
     "paths": {
       "admin": [

@@ -12,7 +12,8 @@
   },
   "version": "2.0.2",
   "workspaces": [
-    "web"
+    "web",
+    "mcp"
   ],
   "engines": {
     "vscode": "^1.90.0"
@@ -1000,6 +1001,9 @@
     "schema": "npx rimraf src/shared/schema/types && cd schemas && npx json2ts -i '*.schema.json' -o ../src/shared/schema/types --strictIndexSignatures && cd ../ && npm run format",
     "update-test-schemas": "npx tsx tests/update-test-schemas.ts",
     "test": "npx jest",
+    "mcp:build": "npm run build --workspace=mcp",
+    "mcp:dev": "npm run dev --workspace=mcp",
+    "mcp:test": "npm run test --workspace=mcp",
     "vscode:prepublish": "npx rimraf dist && npm run compile:web && npm run compile && node esbuild.mjs --production",
     "esbuild:production": "node esbuild.mjs --production",
     "watch": "npm-run-all -p watch:*",

@@ -1,0 +1,60 @@
+{
+  "productionMode": true,
+  "allowLocalProjectMode": true,
+  "exposeFilesystemPaths": false,
+  "defaultProjectId": "project-a",
+  "trino": {
+    "enabled": true,
+    "host": "trino.example.com",
+    "port": 443,
+    "httpScheme": "https",
+    "catalog": "hive",
+    "schema": "default",
+    "user": "mcp-bot",
+    "passwordEnv": "TRINO_PASSWORD",
+    "defaultLimit": 100,
+    "timeoutMs": 120000,
+    "previewMode": "compile"
+  },
+  "projects": [
+    {
+      "id": "project-a",
+      "label": "AWS Billing",
+      "type": "git",
+      "url": "git@ghe.example.com/finance/dbt-billing.git",
+      "ref": "main",
+      "projectName": "billing",
+      "pr": {
+        "provider": "github",
+        "baseBranch": "main"
+      },
+      "trino": {
+        "catalog": "finance",
+        "schema": "billing"
+      }
+    },
+    {
+      "id": "project-b",
+      "label": "Customer Analytics",
+      "type": "git",
+      "url": "git@ghe.example.com/analytics/dbt-customers.git",
+      "ref": "main",
+      "projectName": "customer_analytics",
+      "pr": {
+        "provider": "github",
+        "baseBranch": "main"
+      }
+    },
+    {
+      "id": "project-c",
+      "label": "Supply Chain",
+      "type": "local",
+      "path": "/srv/dj-projects/supply-chain",
+      "projectName": "supply_chain",
+      "pr": {
+        "provider": "github",
+        "baseBranch": "main"
+      }
+    }
+  ]
+}
