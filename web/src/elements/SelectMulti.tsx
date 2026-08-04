@@ -3,6 +3,11 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import ReactDOM from 'react-dom';
 
 import { InputText } from './InputText';
+import {
+  type SelectDropdownPlacement,
+  useSelectDropdownPlacement,
+  useSelectDropdownZoom,
+} from './SelectDropdownContext';
 
 export interface SelectMultiOption {
   value: string;
@@ -17,6 +22,11 @@ export interface SelectMultiProps {
   className?: string;
   searchable?: boolean;
   showSelectedTags?: boolean;
+  /**
+   * Dropdown positioning. Defaults to context (canvas sets `inline`) or
+   * `anchored`. Prefer leaving unset and using `SelectDropdownProvider`.
+   */
+  dropdownPlacement?: SelectDropdownPlacement;
 }
 
 export const SelectMulti: React.FC<SelectMultiProps> = ({
@@ -27,7 +37,11 @@ export const SelectMulti: React.FC<SelectMultiProps> = ({
   className = '',
   searchable = false,
   showSelectedTags = true,
+  dropdownPlacement: dropdownPlacementProp,
 }) => {
+  const dropdownPlacement = useSelectDropdownPlacement(dropdownPlacementProp);
+  const isCanvas = dropdownPlacement === 'inline';
+  const canvasZoom = useSelectDropdownZoom();
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [dropdownPos, setDropdownPos] = useState<{
@@ -98,8 +112,62 @@ export const SelectMulti: React.FC<SelectMultiProps> = ({
       )
     : options;
 
+  const menuFontSize = isCanvas ? `${0.875 * canvasZoom}rem` : '0.875rem';
+
+  const menuInner = (
+    <>
+      {searchable && (
+        <div className="p-2 border-b border-neutral">
+          <InputText
+            placeholder="Search..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            inputClassName="!mt-0"
+          />
+        </div>
+      )}
+      <div
+        className={
+          searchable
+            ? 'max-h-48 overflow-y-auto react-flow__node-scrollable'
+            : ''
+        }
+      >
+        {filteredOptions.length === 0 ? (
+          <div className="px-3 py-2 text-muted-foreground text-center">
+            {searchQuery ? 'No options found' : 'No options available'}
+          </div>
+        ) : (
+          filteredOptions.map((option) => (
+            <div
+              key={option.value}
+              className={`px-3 py-2 cursor-pointer hover:bg-surface/50 flex items-center gap-2 ${
+                value.includes(option.value) ? 'bg-surface/30' : ''
+              }`}
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleOption(option.value);
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={value.includes(option.value)}
+                onChange={() => {}}
+                className="w-4 h-4 rounded border-gray-300"
+              />
+              <span className="text-foreground truncate" title={option.label}>
+                {option.label}
+              </span>
+            </div>
+          ))
+        )}
+      </div>
+    </>
+  );
+
   return (
-    <div ref={containerRef} className={`relative ${className}`}>
+    <div ref={containerRef} className={`nodrag nopan relative ${className}`}>
       {/* Trigger */}
       <div
         className="w-full min-h-[40px] px-3 py-2 border border-neutral rounded-md bg-background text-foreground cursor-pointer flex items-start gap-2"
@@ -114,6 +182,7 @@ export const SelectMulti: React.FC<SelectMultiProps> = ({
               <span
                 key={value[index]}
                 className="inline-flex items-center gap-1 px-2 py-1 bg-primary/10 text-primary rounded text-sm"
+                title={label}
               >
                 {label}
                 <button
@@ -144,12 +213,10 @@ export const SelectMulti: React.FC<SelectMultiProps> = ({
           // handlers (e.g. the CTE editor popover) treat clicks on the dropdown
           // or its backdrop as inside, not as an outside-click that dismisses.
           <div data-portal-dropdown="true">
-            {/* Transparent backdrop rendered at body level — works regardless of React Flow canvas transforms */}
             <div
               style={{ position: 'fixed', inset: 0, zIndex: 9998 }}
               onClick={() => setIsOpen(false)}
             />
-            {/* Dropdown also at body level so position: fixed is relative to actual viewport */}
             {dropdownPos && (
               <div
                 style={{
@@ -158,56 +225,11 @@ export const SelectMulti: React.FC<SelectMultiProps> = ({
                   left: dropdownPos.left,
                   width: dropdownPos.width,
                   zIndex: 9999,
+                  fontSize: menuFontSize,
                 }}
-                className="bg-background border border-neutral rounded-md shadow-lg max-h-60 overflow-y-auto react-flow__node-scrollable"
+                className="nodrag nopan bg-background border border-neutral rounded-md shadow-lg max-h-60 overflow-y-auto react-flow__node-scrollable"
               >
-                {searchable && (
-                  <div className="p-2 border-b border-neutral">
-                    <InputText
-                      placeholder="Search..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      onClick={(e) => e.stopPropagation()}
-                      inputClassName="!mt-0"
-                    />
-                  </div>
-                )}
-                <div
-                  className={
-                    searchable
-                      ? 'max-h-48 overflow-y-auto react-flow__node-scrollable'
-                      : ''
-                  }
-                >
-                  {filteredOptions.length === 0 ? (
-                    <div className="px-3 py-2 text-muted-foreground text-center">
-                      {searchQuery
-                        ? 'No options found'
-                        : 'No options available'}
-                    </div>
-                  ) : (
-                    filteredOptions.map((option) => (
-                      <div
-                        key={option.value}
-                        className={`px-3 py-2 cursor-pointer hover:bg-surface/50 flex items-center gap-2 ${
-                          value.includes(option.value) ? 'bg-surface/30' : ''
-                        }`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggleOption(option.value);
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={value.includes(option.value)}
-                          onChange={() => {}}
-                          className="w-4 h-4 rounded border-gray-300"
-                        />
-                        <span className="text-foreground">{option.label}</span>
-                      </div>
-                    ))
-                  )}
-                </div>
+                {menuInner}
               </div>
             )}
           </div>,

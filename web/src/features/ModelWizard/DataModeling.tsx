@@ -3,7 +3,7 @@ import '../DataModeling/DataModeling.css';
 
 import { ArrowPathIcon, MapIcon } from '@heroicons/react/20/solid';
 import type { SchemaModelFromJoinModels } from '@shared/schema/types/model.type.int_join_models.schema';
-import { Button } from '@web/elements';
+import { Button, SelectDropdownProvider } from '@web/elements';
 import {
   AddJoinButtonNode,
   ColumnConfigurationNode,
@@ -41,6 +41,7 @@ import {
   useEdgesState,
   useNodesState,
   useReactFlow,
+  useStore,
 } from '@xyflow/react';
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
@@ -779,10 +780,25 @@ const DataModelingFlow: React.FC<DataModelingProps> = ({ config }) => {
   );
 };
 
+/** Feeds canvas zoom into select dropdowns (must sit under ReactFlowProvider). */
+const CanvasSelectDropdownProvider: React.FC<{
+  children: React.ReactNode;
+}> = ({ children }) => {
+  const zoom = useStore((s) => s.transform[2]);
+  return (
+    <SelectDropdownProvider placement="inline" zoom={zoom}>
+      {children}
+    </SelectDropdownProvider>
+  );
+};
+
 export const DataModeling: React.FC<DataModelingProps> = (props) => {
   return (
     <ReactFlowProvider>
-      <DataModelingFlow {...props} />
+      {/* Portaled selects (reliable clicks) with fontSize scaled to canvas zoom. */}
+      <CanvasSelectDropdownProvider>
+        <DataModelingFlow {...props} />
+      </CanvasSelectDropdownProvider>
     </ReactFlowProvider>
   );
 };

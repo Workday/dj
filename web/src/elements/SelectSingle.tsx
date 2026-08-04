@@ -16,6 +16,12 @@ import { Tooltip } from '@web/elements';
 import { useDebounce } from '@web/hooks';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
+import {
+  type SelectDropdownPlacement,
+  useSelectDropdownPlacement,
+  useSelectDropdownZoom,
+} from './SelectDropdownContext';
+
 type Option = { label: string; value: string };
 
 /** Stable equality-by-value comparator for the virtualized `by` prop. */
@@ -60,6 +66,11 @@ export type SelectSingleProps = {
    * `0` (immediate, unchanged behavior). Useful with large option sets.
    */
   filterDebounceMs?: number;
+  /**
+   * Dropdown positioning. Defaults to context (canvas sets `inline`) or
+   * `anchored`. Prefer leaving unset and using `SelectDropdownProvider`.
+   */
+  dropdownPlacement?: SelectDropdownPlacement;
 };
 
 export function SelectSingle({
@@ -82,7 +93,11 @@ export function SelectSingle({
   getOptionGroup,
   virtualized,
   filterDebounceMs,
+  dropdownPlacement: dropdownPlacementProp,
 }: SelectSingleProps) {
+  const dropdownPlacement = useSelectDropdownPlacement(dropdownPlacementProp);
+  const isCanvas = dropdownPlacement === 'inline';
+  const canvasZoom = useSelectDropdownZoom();
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -133,6 +148,12 @@ export function SelectSingle({
     [options, effectiveQuery],
   );
 
+  const inputTitle =
+    title ??
+    (selectedDisplayValue
+      ? selectedDisplayValue(value) || undefined
+      : value?.label);
+
   // Single option row, shared by the static (.map) and virtualized
   // (render-prop) paths so their markup stays identical.
   const renderOptionRow = (o: Option) => (
@@ -144,7 +165,8 @@ export function SelectSingle({
           // `block w-full` so the focus highlight spans the full row even in
           // virtualized mode, where each option is absolutely positioned and
           // would otherwise shrink to its content width.
-          'relative block w-full cursor-default select-none py-2 pl-3 pr-9 text-background-contrast text-sm',
+          // Use `text-[1em]` so canvas zoom can scale via parent fontSize.
+          'relative block w-full cursor-default select-none py-2 pl-3 pr-7 text-background-contrast text-[1em]',
           focus
             ? 'bg-primary text-primary-contrast'
             : 'text-background-contrast',
@@ -161,6 +183,7 @@ export function SelectSingle({
                 'block truncate',
                 selected && 'font-semibold',
               )}
+              title={o.label}
             >
               {o.label}
             </span>
@@ -168,7 +191,7 @@ export function SelectSingle({
           {selected && (
             <span
               className={makeClassName(
-                'absolute inset-y-0 right-0 flex items-center pr-4',
+                'absolute inset-y-0 right-0 flex items-center pr-1.5',
                 focus ? 'text-background-contrast' : 'text-primary',
               )}
             >
@@ -180,10 +203,42 @@ export function SelectSingle({
     </ComboboxOption>
   );
 
+  // Keep text clear of the absolute clear + chevron controls even when
+  // callers pass a custom `className` that omits right padding.
+  const iconGutter = showClearButton && value ? 'pr-16' : 'pr-10';
+
+  // Always body-portal via `anchor` so option clicks are never trapped under
+  // React Flow node siblings. On canvas, scale option text with viewport zoom
+  // via fontSize (not CSS `zoom`, which breaks Headless floating-ui).
+  const optionsClassName = makeClassName(
+    'nodrag nopan z-[9999] mt-1 w-[var(--input-width)] rounded-md bg-background py-1 shadow-lg ring-1 ring-background-contrast ring-opacity-5',
+    'empty:invisible',
+    '[--anchor-max-height:18rem] max-h-[--anchor-max-height] overflow-auto',
+  );
+
+  const optionsStyle: React.CSSProperties | undefined = isCanvas
+    ? {
+        // text-sm = 0.875rem; scale with canvas zoom so labels match node chrome
+        fontSize: `${0.875 * canvasZoom}rem`,
+      }
+    : { fontSize: '0.875rem' };
+
+  const inputClassNames = makeClassName(
+    className ||
+      makeClassName(
+        'w-full rounded-md border-0 bg-background h-10 py-2.5 pl-3 text-background-contrast text-sm shadow-sm ring-1 ring-inset',
+        'focus:ring-2 focus:ring-inset focus:ring-primary',
+        error ? 'ring-error' : 'ring-[#D9D9D9] dark:ring-[#4A4A4A]',
+        label && 'mt-1',
+        inputClassName,
+      ),
+    iconGutter,
+  );
+
   return (
     <div
       ref={containerRef}
-      className="w-full"
+      className="nodrag nopan w-full"
       onClick={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
     >
@@ -215,23 +270,14 @@ export function SelectSingle({
           <ComboboxInput<Option | null>
             ref={inputRef}
             autoComplete="one-time-code" // Should disable autofill in browser
-            className={
-              className ||
-              makeClassName(
-                'w-full rounded-md border-0 bg-background h-10 py-2.5 pl-3 pr-16 text-background-contrast text-sm shadow-sm ring-1 ring-inset',
-                'focus:ring-2 focus:ring-inset focus:ring-primary',
-                error ? 'ring-error' : 'ring-[#D9D9D9] dark:ring-[#4A4A4A]',
-                label && 'mt-1',
-                inputClassName,
-              )
-            }
+            className={inputClassNames}
             placeholder={placeholder}
             displayValue={(o) =>
               selectedDisplayValue ? selectedDisplayValue(o) : o?.label || ''
             }
             onChange={(e) => setQuery(e.target.value)}
             onBlur={onBlur}
-            title={title}
+            title={inputTitle}
           />
           {value && showClearButton && (
             <button
@@ -270,11 +316,10 @@ export function SelectSingle({
           <ComboboxOptions
             static={false}
             anchor="bottom"
-            className={makeClassName(
-              'z-[9999] mt-1 w-[var(--input-width)] rounded-md bg-background py-1 text-base shadow-lg ring-1 ring-background-contrast ring-opacity-5',
-              'empty:invisible',
-              '[--anchor-max-height:18rem] max-h-[--anchor-max-height] overflow-auto',
-            )}
+            // Canvas: don't mark sibling chrome inert while the list is open.
+            modal={!isCanvas}
+            className={optionsClassName}
+            style={optionsStyle}
           >
             {virtualized
               ? ({ option }: { option: Option }) => renderOptionRow(option)

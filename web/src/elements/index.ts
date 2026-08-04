@@ -20,6 +20,8 @@ export * from './NumberStepper';
 export * from './Popover';
 export * from './Progress';
 export * from './RadioGroup';
+export * from './SelectDropdownContext';
+export * from './SelectDropdownProvider';
 export * from './SelectMulti';
 export * from './SelectSingle';
 export * from './SlimBanner';
