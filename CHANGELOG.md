@@ -4,21 +4,20 @@
 
 ### Agent skills
 
-- **New `dj-govern-model` skill.** Runs a read-only governance audit over a model, folder, dependency tree, or the whole workspace — reporting ownership, PII / classification / compliance tagging, registered-group conformance, and prod-write posture, then pointing you to the skill that fixes each gap. Try _"Which models in the finance group have no owner?"_
-- **New `dj-create-source` skill.** Registers a raw Trino table as a DJ source by introspecting its exact column types (`SHOW COLUMNS`) and writing the `.source.json`, so a model that reads a not-yet-defined `catalog.schema.table` no longer fails to build. When converting SQL or authoring a model, the skills now detect the missing source and offer to create it first — or you can register it with the `DJ: Create Source` command — and data types are read from the warehouse rather than guessed.
-- **Authoring skills confirm the target and offer governance tags.** When creating or converting models, skills ask which dbt project to use, require the `group` to be registered in `models/groups.yml`, and offer optional `owner` / `pii` / `classification` / `compliance` tags (skip them and nothing is written). Lightdash and Python skills confirm the project/database before writing to production.
-- **Skills treat the warehouse as read-only by default.** They inspect data with `SELECT` / `SHOW` / `DESCRIBE` / `EXPLAIN`, confirm the catalog/schema first, and never run writes (`DROP` / `INSERT` / `DELETE`) or `dbt run` / `build` against production without your explicit confirmation.
-- **Model creation builds missing upstreams and steers BI work to marts.** Asking for a dashboard or metrics model defaults to a mart; if the staging / intermediate / source layers it needs are missing, the skill offers to build them upstream-first and reminds you to re-sync so the new columns resolve. It authors SQL `.model.json` files only, never Python models.
-- **Leaner agent context.** The generated `.agents/dj/AGENTS.md` is now a slim hub — conventions, project structure, and safety rules — with the deep reference material (model types, materialization, CTEs & subqueries, sources, Lightdash, governance, pitfalls) split into on-demand files under `.agents/dj/reference/` that skills open only when needed.
-- **New helper skills for running dbt, Trino, and git.** `dj-run-dbt`, `dj-run-trino`, and `dj-git-workflow` guide the agent to compile/test models, run read-only Trino queries, and commit your `.model.json` sources together with their generated SQL/YAML — activating the right Python environment, confirming the connection, and keeping warehouse writes behind explicit confirmation. The shared how-to-run details live in new `.agents/dj/reference/running-dbt.md`, `running-trino.md`, `running-lightdash.md`, and `git-workflow.md` files that the Lightdash and source skills also point to.
+- **New `dj-govern-model` skill.** Runs a read-only governance audit across a model, folder, dependency tree, or the whole workspace — ownership, PII / classification / compliance tagging, registered-group conformance, and prod-write posture — and points you to the skill that fixes each gap. Try _"Which models in the finance group have no owner?"_
+- **New `dj-create-source` skill.** Registers a raw Trino table as a DJ source by reading its exact column types from the warehouse, so a model that reads a not-yet-defined `catalog.schema.table` builds instead of failing. Authoring skills detect the missing source and offer to create it, or run the `DJ: Create Source` command yourself.
+- **New `dj-run-dbt`, `dj-run-trino`, and `dj-git-workflow` skills.** Compile and test models, run read-only Trino queries, and commit your `.model.json` sources together with their generated SQL/YAML — activating the right Python environment and keeping warehouse writes behind explicit confirmation.
+- **Skills confirm the target and stay read-only by default.** Creating or converting a model asks which dbt project to use, requires the `group` to be registered in `models/groups.yml`, and offers optional `owner` / `pii` / `classification` / `compliance` tags (skip them and nothing is written). Anything that writes to the warehouse or production always needs your explicit confirmation.
+- **Model creation builds missing upstreams and defaults BI work to marts.** A dashboard or metrics request scaffolds a mart and offers to build any missing staging / intermediate / source layers upstream-first, then reminds you to re-sync so the new columns resolve.
+- **Leaner agent context.** The generated `.agents/dj/AGENTS.md` is now a slim hub, with deep reference material split into on-demand files under `.agents/dj/reference/` that skills open only when needed.
 
 ### UX improvements
 
-- **Data Modeling canvas selects keep dropdown text sized with zoom.** Single- and multi-select menus in the visual editor stay inside the canvas transform so option text matches node chrome when you zoom in or out; truncated labels show the full value on hover.
+- **Data Modeling dropdowns scale with zoom.** Single- and multi-select menus in the visual editor now size their text to the zoom level so it matches the node, and truncated labels show the full value on hover.
 
 ### Documentation
 
-- **New [Agent Skills](docs/AGENT_SKILLS.md) guide** — a comprehensive guide to the AI agent skills available in DJ.
+- **New [Agent Skills](docs/AGENT_SKILLS.md) guide** — catalogs every DJ agent skill and when to reach for it.
 
 ## 2.0.2
 
