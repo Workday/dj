@@ -18,6 +18,7 @@ Set up all required and recommended configurations for the **DJ (Data JSON) Fram
 This skill is designed to work uniformly across all AI coding agents (Cursor, GitHub Copilot, Claude Code, Cline, Windsurf, etc.). Questions must be asked as **plain text** in the conversation — do not rely on agent-specific UI elements like structured forms or multi-choice widgets. Present options as numbered lists or bullet points that the user can respond to conversationally.
 
 **Question format:**
+
 - Ask one question or a small related group (2-3 max) at a time
 - Present options as a numbered list when choices are finite
 - Always include a "skip" or "use default" option where applicable
@@ -37,7 +38,7 @@ Follow these steps **in order**. At each step, report findings to the user and a
 
 1. Find `dbt_project.yml` in the workspace (search with `**/dbt_project.yml`, exclude `node_modules`, `dbt_packages`, `.venv`, `target`)
 2. Read the file and extract: `name`, `vars`, `dispatch`, `model-paths`, `macro-paths`, `target-path`
-3. Check if `models/groups.yml` exists (or groups defined in `dbt_project.yml`)
+3. Check whether any groups are registered — scan `.yml` files for a top-level `groups:` key (e.g. `models/_groups.yml`, `models/groups.yml`, or per-folder `group_*.yml`) and the `dbt_project.yml` models config
 4. Check if `.gitignore` exists and whether it contains `.dj`
 5. Check if `.vscode/settings.json` exists and has `dj.*` settings
 6. Check if `target/manifest.json` exists
@@ -46,6 +47,7 @@ Follow these steps **in order**. At each step, report findings to the user and a
 **Present a summary to the user:**
 
 > Here's what I found in your dbt project:
+>
 > - Project name: `<name>`
 > - Storage type: `<found or not configured>`
 > - Dispatch: `<configured or missing>`
@@ -62,14 +64,17 @@ Follow these steps **in order**. At each step, report findings to the user and a
 Ask the user these questions (skip any already answered by the discovered config):
 
 1. **Storage format**: "What storage format does your data lake use?"
+
    - Options: `delta_lake` (Delta Lake + Hive metastore) or `iceberg` (Iceberg + Glue/Polaris)
    - Default: `delta_lake`
 
 2. **dbt adapter**: "Which dbt adapter do you use?"
+
    - Common: `dbt-trino`, `dbt-postgres`, `dbt-snowflake`, `dbt-bigquery`
    - This determines the pip package to install
 
 3. **Trino usage** (optional): "Do you use Trino for querying? This is optional — DJ's core features (JSON sync, model creation, lineage) work without it. Trino adds catalog browsing and query execution."
+
    - If yes, will configure Trino env vars later
    - If no or skip, skip all Trino-related steps entirely
 
@@ -110,9 +115,9 @@ Check which DJ-relevant vars are missing and ask the user to confirm values:
 
 ```yaml
 vars:
-  storage_type: '<delta_lake or iceberg>'  # Drives partitioning SQL generation
-  etl_schema: '<schema_name>'              # ETL metadata schema (default: source_etl)
-  event_dates: '<date-range>'              # Date range for lookback models (format: YYYY-MM-DD~YYYY-MM-DD)
+  storage_type: '<delta_lake or iceberg>' # Drives partitioning SQL generation
+  etl_schema: '<schema_name>' # ETL metadata schema (default: source_etl)
+  event_dates: '<date-range>' # Date range for lookback models (format: YYYY-MM-DD~YYYY-MM-DD)
 ```
 
 **Ask**: "I'd like to add these variables to your `dbt_project.yml`. Here are the recommended values based on your answers. Should I proceed?"
@@ -143,7 +148,7 @@ Wait for confirmation before adding.
 
 ### Step 6: Configure Groups
 
-If no groups are defined (neither in `dbt_project.yml` models config nor in `models/groups.yml`):
+If no groups are defined anywhere (no `.yml` with a top-level `groups:` key — e.g. `models/_groups.yml`, `models/groups.yml`, or per-folder `group_*.yml` — and none in the `dbt_project.yml` models config):
 
 **Ask**: "DJ's model creation wizard uses dbt groups to organize models. What business domains or teams does your project serve?"
 
@@ -190,6 +195,7 @@ If `.gitignore` doesn't exist, ask before creating one.
 Check `.vscode/settings.json` for DJ settings.
 
 **Ask**: "I'll configure VS Code settings for DJ. Please confirm the Python venv path:"
+
 - Default: `.venv` (relative to workspace root)
 
 Create or update `.vscode/settings.json` with:
@@ -201,6 +207,7 @@ Create or update `.vscode/settings.json` with:
 ```
 
 **Additionally ask**:
+
 - "Do you want to restrict DJ to specific project names?" (for monorepos with multiple `dbt_project.yml` files)
   - If yes: `"dj.dbtProjectNames": ["<name>"]`
 - "What log level do you prefer?" (default: `info`)
@@ -226,12 +233,14 @@ If the user indicated they use Trino:
 6. `TRINO_PASSWORD` — (optional) password
 
 **Then ask**: "Where should I add these environment variables?"
+
 - Options: `.env` file in project root, or suggest adding to shell profile (`~/.zshrc`, `~/.bashrc`)
 
 If `.env`: create the file with the values.
 If shell profile: provide the export commands for the user to add manually.
 
 Also check Trino CLI availability:
+
 - "Is `trino-cli` on your PATH? (run `which trino-cli` to check)"
 - If not, suggest: `"dj.trinoPath": "/path/to/trino-cli"` in VS Code settings
 
@@ -246,6 +255,7 @@ These are all optional. Ask about each briefly — if the user says no or skip, 
 **Ask**: "Do you use Lightdash for BI dashboards?"
 
 If yes:
+
 - Ensure `npm install -g @lightdash/cli` is done (or suggest it)
 - Ask for env vars: `LIGHTDASH_URL`, `LIGHTDASH_PREVIEW_NAME`, `LIGHTDASH_PROJECT`
 - Add to `.env` or suggest shell profile additions
@@ -255,6 +265,7 @@ If yes:
 **Ask**: "Do you want DJ to generate Airflow DAGs for your models?"
 
 If yes, add to VS Code settings:
+
 ```json
 {
   "dj.airflowGenerateDags": true,
@@ -268,6 +279,7 @@ If yes, add to VS Code settings:
 **Ask**: "Would you like DJ to generate AI agent context files (`.agents/dj/AGENTS.md` and skill files)?"
 
 If yes, add to VS Code settings:
+
 ```json
 {
   "dj.codingAgent": true
@@ -283,6 +295,7 @@ If `target/manifest.json` is missing or the user wants to refresh it:
 **Ask**: "Would you like me to run `dbt parse` now to generate the manifest? (Required for lineage and column features)"
 
 If yes, run:
+
 ```bash
 source .venv/bin/activate && dbt parse
 ```
@@ -298,19 +311,22 @@ Present a final summary of everything that was configured:
 > **DJ Initialization Complete**
 >
 > **Configured:**
+>
 > - [x] Python venv at `.venv` with `<adapter>`
 > - [x] `dbt_project.yml` vars: `storage_type`, `etl_schema`
 > - [x] Dispatch block added
-> - [x] Groups defined in `models/groups.yml`
+> - [x] Groups registered (in a `groups:` yaml such as `models/groups.yml`)
 > - [x] `.gitignore` updated with `.dj/`
 > - [x] VS Code settings configured
 > - [x] Manifest generated
 >
 > **Skipped:**
+>
 > - [ ] Trino (user opted out)
 > - [ ] Lightdash (not needed)
 >
 > **Next steps:**
+>
 > - Open VS Code Command Palette → `DJ: Refresh Projects` to load the new configuration
 > - Try creating your first model: Command Palette → `DJ: Create Model`
 > - Test Trino connection: Command Palette → `DJ: Test Trino Connection`

@@ -3,7 +3,9 @@ name: dj-create-python-model
 description: >-
   Create a DJ .python.json file for a new Python ETL model. Use when the user
   wants to create a Python model, ETL pipeline, data ingestion, API fetch,
-  CSV import, or any pre-dbt Python data processing task.
+  CSV import, or any pre-dbt Python data processing task. Not for dbt SQL models
+  (-> dj-create-new-model) or registering a raw table as a source (->
+  dj-create-source).
 compatibility: DJ (Data JSON) Framework extension workspace with .dj/schemas/
 metadata:
   dj-skill: '1.0'
@@ -24,7 +26,7 @@ Use this skill when the user mentions: python model, ETL, data ingestion, API fe
 **Out of scope** — delegate to sibling skills:
 
 - SQL `.model.json` files (staging/intermediate/mart) → `dj-create-new-model`
-- `.source.json` files → `dj-create-new-model`
+- `.source.json` files (registering a raw table as a source) → `dj-create-source`
 - Lightdash YAML → `dj-edit-lightdash-yaml`
 - Refactoring existing models → `dj-review-and-refactor-model`
 
@@ -36,12 +38,12 @@ Ask the user the following questions in order. Batch related questions together 
 
 Ask for:
 
-| Field | Rule | Example |
-|-------|------|---------|
-| **name** | `^[a-z][a-z0-9_]*$` | `backstage_catalogs` |
-| **group** | One of: `ml`, `etl`, `analytics`, `others` (or project-configured groups) | `etl` |
-| **topic** | `^[a-z][a-z0-9_]*$` | `api_data` |
-| **description** | Free text (optional) | `Fetches catalog data from Backstage API` |
+| Field           | Rule                                                                      | Example                                   |
+| --------------- | ------------------------------------------------------------------------- | ----------------------------------------- |
+| **name**        | `^[a-z][a-z0-9_]*$`                                                       | `backstage_catalogs`                      |
+| **group**       | One of: `ml`, `etl`, `analytics`, `others` (or project-configured groups) | `etl`                                     |
+| **topic**       | `^[a-z][a-z0-9_]*$`                                                       | `api_data`                                |
+| **description** | Free text (optional)                                                      | `Fetches catalog data from Backstage API` |
 
 ### Step 2: DAG assignment
 
@@ -51,13 +53,13 @@ Ask which Airflow DAG(s) to attach the model to. Look at existing DAGs in the pr
 
 Ask what kind of data source the model will extract from:
 
-| Source type | Typical packages | Extract pattern |
-|-------------|-----------------|-----------------|
-| **REST API** | `requests` | HTTP GET/POST with pagination |
-| **Database / Trino** | `trino` | SQL query via Trino client |
-| **CSV / file** | `pandas` | `pd.read_csv()` from local or S3 |
-| **S3 objects** | `boto3` | List/download from S3 bucket |
-| **Custom** | User-specified | User provides extract logic |
+| Source type          | Typical packages | Extract pattern                  |
+| -------------------- | ---------------- | -------------------------------- |
+| **REST API**         | `requests`       | HTTP GET/POST with pagination    |
+| **Database / Trino** | `trino`          | SQL query via Trino client       |
+| **CSV / file**       | `pandas`         | `pd.read_csv()` from local or S3 |
+| **S3 objects**       | `boto3`          | List/download from S3 bucket     |
+| **Custom**           | User-specified   | User provides extract logic      |
 
 ### Step 4: Transformation needs — SQL-first decision
 
@@ -65,17 +67,17 @@ Ask what transformations are needed. Then apply this decision tree:
 
 **Can the transformation be expressed as SQL?**
 
-| If YES (use Trino SQL) | If NO (use pandas DataFrame) |
-|------------------------|------------------------------|
-| Filtering / WHERE clauses | Nested JSON flattening (dicts/lists) |
-| Column renaming / aliasing | API response parsing / pagination |
-| Type casting (CAST) | ML preprocessing (scikit-learn, etc.) |
-| Deduplication (ROW_NUMBER) | Complex string parsing not in SQL |
-| Aggregation (GROUP BY) | External service calls mid-transform |
-| Joins with other Trino tables | Binary/image data processing |
-| Date partitioning | |
-| Window functions | |
-| CASE expressions | |
+| If YES (use Trino SQL)        | If NO (use pandas DataFrame)          |
+| ----------------------------- | ------------------------------------- |
+| Filtering / WHERE clauses     | Nested JSON flattening (dicts/lists)  |
+| Column renaming / aliasing    | API response parsing / pagination     |
+| Type casting (CAST)           | ML preprocessing (scikit-learn, etc.) |
+| Deduplication (ROW_NUMBER)    | Complex string parsing not in SQL     |
+| Aggregation (GROUP BY)        | External service calls mid-transform  |
+| Joins with other Trino tables | Binary/image data processing          |
+| Date partitioning             |                                       |
+| Window functions              |                                       |
+| CASE expressions              |                                       |
 
 **Always ask:** "Can this transformation be done in Trino SQL?" before defaulting to pandas. SQL transformations are preferred because:
 
@@ -88,14 +90,16 @@ Ask what transformations are needed. Then apply this decision tree:
 
 Present the defaults and ask if the user wants to override any:
 
-| Field | Default | Override? |
-|-------|---------|-----------|
-| `output.database` | `glue_development` | Yes |
-| `output.schema` | `opus_python_source` | Yes |
-| `output_type` | `iceberg` | Yes (alternative: `s3`) |
-| `output.write_mode` | `overwrite_partitions` | Yes |
-| `output.partition_by` | `["portal_partition_daily"]` | Yes |
-| `namespace` | `python` | Yes |
+| Field                 | Default                      | Override?               |
+| --------------------- | ---------------------------- | ----------------------- |
+| `output.database`     | `glue_development`           | Yes                     |
+| `output.schema`       | `opus_python_source`         | Yes                     |
+| `output_type`         | `iceberg`                    | Yes (alternative: `s3`) |
+| `output.write_mode`   | `overwrite_partitions`       | Yes                     |
+| `output.partition_by` | `["portal_partition_daily"]` | Yes                     |
+| `namespace`           | `python`                     | Yes                     |
+
+**Confirm the write target before proceeding.** The output database/schema is where this model _writes_ data, and `overwrite_partitions` is destructive (it replaces existing partitions). Do not assume an environment: if the workspace has more than one candidate database/catalog, or the user's request implies anything other than the `glue_development` default, **state the resolved `output.database` / `output.schema` / `write_mode` and get explicit confirmation** before writing the `.python.json`. Never point a new model at a production database without the user confirming it.
 
 ### Step 6: Dependencies & optional fields
 
@@ -106,6 +110,8 @@ Ask about:
 - **tags** — organizational tags (predefined: `python-model`, `api`, `csv`, `s3`, `trino`, `snapshot`, `iceberg`)
 - **owner** — team or individual
 - **enable_notebook** — generate companion `.python.ipynb` (default: `true`)
+
+**Governance metadata is optional — offer, never require.** Alongside `owner`, offer to tag `owner_slack`, `pii`, `classification`, and `compliance` in `meta` (see `.agents/dj/reference/meta-and-governance.md`), matching the keys sibling models in the project already use. If the user skips, write nothing and do not re-ask.
 
 ## Optimization guidance
 
@@ -129,11 +135,11 @@ Ask about:
 
 ### Write mode selection
 
-| Write mode | Use when |
-|------------|----------|
+| Write mode             | Use when                                                               |
+| ---------------------- | ---------------------------------------------------------------------- |
 | `overwrite_partitions` | Idempotent daily loads — rerun-safe, replaces only affected partitions |
-| `append` | Event streams or append-only logs — never overwrites existing data |
-| `overwrite` | Full table refresh — replaces entire table on each run |
+| `append`               | Event streams or append-only logs — never overwrites existing data     |
+| `overwrite`            | Full table refresh — replaces entire table on each run                 |
 
 ### Resource management
 
@@ -188,17 +194,17 @@ Use this when data comes from an external source (API, CSV, S3) but all transfor
 
 The extension auto-generates `dags/python_models/_trino_io.py` with these functions. **Do not edit this file** — it is always overwritten by the extension.
 
-| Function | Use when |
-|----------|----------|
-| `execute_trino(sql)` | DDL/DML with no return value (CREATE, DROP, INSERT, etc.) |
-| `execute_trino(sql, return_result=True)` | Scalar reads (SELECT COUNT(*), SELECT MAX(...), etc.) — returns first column of first row |
-| `append(table_fqn, insert_sql)` | Append-only INSERT — runs the user's INSERT SQL as-is |
-| `overwrite_partition(table_fqn, partition_col, partition_value, *, insert_sql=...)` | Idempotent daily loads — DELETE one partition, then INSERT (pass a full `INSERT INTO ...` statement) |
+| Function                                                                                       | Use when                                                                                             |
+| ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `execute_trino(sql)`                                                                           | DDL/DML with no return value (CREATE, DROP, INSERT, etc.)                                            |
+| `execute_trino(sql, return_result=True)`                                                       | Scalar reads (SELECT COUNT(\*), SELECT MAX(...), etc.) — returns first column of first row           |
+| `append(table_fqn, insert_sql)`                                                                | Append-only INSERT — runs the user's INSERT SQL as-is                                                |
+| `overwrite_partition(table_fqn, partition_col, partition_value, *, insert_sql=...)`            | Idempotent daily loads — DELETE one partition, then INSERT (pass a full `INSERT INTO ...` statement) |
 | `overwrite_partition(table_fqn, partition_col, partition_value, source_query, *, columns=...)` | Same as above, but DJ builds `INSERT INTO ... (cols) <source_query>` from a SELECT / WITH ... SELECT |
-| `overwrite(table_fqn, overwrite_filter, *, insert_sql=...)` | Overwrite rows matching any SQL filter (use `"true"` for full-table refresh) |
-| `merge(table_fqn, merge_sql)` | Upsert — runs the user's full MERGE INTO ... USING ... SQL |
-| `delete(table_fqn, where_clause)` | Standalone conditional DELETE |
-| `update(table_fqn, set_clause, where_clause)` | Standalone conditional UPDATE |
+| `overwrite(table_fqn, overwrite_filter, *, insert_sql=...)`                                    | Overwrite rows matching any SQL filter (use `"true"` for full-table refresh)                         |
+| `merge(table_fqn, merge_sql)`                                                                  | Upsert — runs the user's full MERGE INTO ... USING ... SQL                                           |
+| `delete(table_fqn, where_clause)`                                                              | Standalone conditional DELETE                                                                        |
+| `update(table_fqn, set_clause, where_clause)`                                                  | Standalone conditional UPDATE                                                                        |
 
 `insert_sql` is keyword-only. Prefer `insert_sql=...` when you already have a full INSERT; use `source_query=` (+ optional `columns=`) when you want the helper to assemble the INSERT.
 
@@ -287,6 +293,8 @@ glue_development__opus_python_source.<table_name>
 ```
 
 (Double underscore separates catalog from schema, dot separates schema from table.)
+
+The output table must be **registered as a `.source.json`** before a downstream model can read it — use the **`dj-create-source`** skill (it introspects the Iceberg table's columns with `SHOW COLUMNS`) or the `DJ: Create Source` webview, then sync.
 
 ## Conventions and gotchas
 

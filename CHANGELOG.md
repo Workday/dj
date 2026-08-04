@@ -2,10 +2,23 @@
 
 ## 2.1.0
 
+### Agent skills
+
+- **New `dj-govern-model` skill.** Runs a read-only governance audit across a model, folder, dependency tree, or the whole workspace — ownership, PII / classification / compliance tagging, registered-group conformance, and prod-write posture — and points you to the skill that fixes each gap. Try _"Which models in the finance group have no owner?"_
+- **New `dj-create-source` skill.** Registers a raw Trino table as a DJ source by reading its exact column types from the warehouse, so a model that reads a not-yet-defined `catalog.schema.table` builds instead of failing. Authoring skills detect the missing source and offer to create it, or run the `DJ: Create Source` command yourself.
+- **New `dj-run-dbt`, `dj-run-trino`, and `dj-git-workflow` skills.** Compile and test models, run read-only Trino queries, and commit your `.model.json` sources together with their generated SQL/YAML — activating the right Python environment and keeping warehouse writes behind explicit confirmation.
+- **Skills confirm the target and stay read-only by default.** Creating or converting a model asks which dbt project to use, requires the `group` to be registered in `models/groups.yml`, and offers optional `owner` / `pii` / `classification` / `compliance` tags (skip them and nothing is written). Anything that writes to the warehouse or production always needs your explicit confirmation.
+- **Model creation builds missing upstreams and defaults BI work to marts.** A dashboard or metrics request scaffolds a mart and offers to build any missing staging / intermediate / source layers upstream-first, then reminds you to re-sync so the new columns resolve.
+- **Leaner agent context.** The generated `.agents/dj/AGENTS.md` is now a slim hub, with deep reference material split into on-demand files under `.agents/dj/reference/` that skills open only when needed.
+
 ### UX improvements
 
-- **Data Modeling canvas selects keep dropdown text sized with zoom.** Single- and multi-select menus in the visual editor stay inside the canvas transform so option text matches node chrome when you zoom in or out; truncated labels show the full value on hover.
+- **Data Modeling dropdowns scale with zoom.** Single- and multi-select menus in the visual editor now size their text to the zoom level so it matches the node, and truncated labels show the full value on hover.
 - **Monochrome sidebar icon.** Switched the Activity Bar icon to a monochrome SVG so it remains visible across light, dark, and high-contrast themes in remote workspaces.
+
+### Documentation
+
+- **New [Agent Skills](docs/AGENT_SKILLS.md) guide** — catalogs every DJ agent skill and when to reach for it.
 
 ## 2.0.2
 

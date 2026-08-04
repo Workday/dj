@@ -22,7 +22,8 @@ The hard part is not the YAML shape (the bound schema guides that) -- it is usin
 the **exact** field IDs, honoring the model's **required filters**, and knowing
 that the **schema cannot validate references**. The detailed, copy-pasteable
 recipes live in `references/lightdash-as-code-authoring.md`; load it before
-writing.
+writing. For the Lightdash CLI executable, connection env vars, and the
+restricted-projects guardrail, see `.agents/dj/reference/running-lightdash.md`.
 
 ## Prerequisites (the explore must already exist)
 
