@@ -23,8 +23,8 @@ policy. This skill only reports; it hands off edits to the authoring / refactor
 skills when the user asks to act.
 
 **Reading order:** `.agents/dj/AGENTS.md` (**Structural Governance**, **Project &
-Environment Resolution**, **Governance metadata conventions**, **Custom Meta**) →
-this skill's checks below.
+Environment Resolution**) → `.agents/dj/reference/meta-and-governance.md`
+(**Custom Meta**, **Governance metadata conventions**) → this skill's checks below.
 
 ## When this skill applies
 
@@ -55,9 +55,11 @@ nothing blocks.**
 
 ### A. Structural conformance (framework-enforced — flag drift only)
 
-- **Registered group.** The model's `group` must exist in `models/groups.yml`
-  (or the `dbt_project.yml` models config). Flag any model whose group is not
-  registered (usually a hand-edited or converted file that drifted).
+- **Registered group.** The model's `group` must be registered in the project's
+  dbt group definitions — scan `.yml` files for a top-level `groups:` key (e.g.
+  `models/_groups.yml`, `models/groups.yml`, or per-folder `group_*.yml`) and the
+  `dbt_project.yml` models config. Flag any model whose group is not registered
+  (usually a hand-edited or converted file that drifted).
 - **Path matches identity.** The file should sit at the framework-derived path
   for its `type` + `group` + `topic` + `name` (see AGENTS.md **Structural
   Governance**). Flag files whose location or name does not match — do not move

@@ -95,7 +95,7 @@ Before writing CTEs, search for existing `.model.json` files in the project that
 
 1. **Read the SQL query** provided by the user
 2. **Always ask the user** for the new model's naming before creating anything:
-   - `group` — must be a **registered** group; read `models/groups.yml` (or the `dbt_project.yml` models config) for the valid set. If the requested group is not registered, ask the user to pick a registered one or register a new one via `dj-initialize` — do not invent a group.
+   - `group` — must be a **registered** group. dbt registers groups in any `.yml` under a top-level `groups:` key (commonly `models/_groups.yml` or `models/groups.yml`, or per-folder `group_*.yml`) and assigns models via the `group` config or `dbt_project.yml` `+group:` — there is no single fixed path, so scan the project's `.yml` files for `groups:` definitions (and sibling models' `group` values) for the valid set. If the requested group is not registered, ask the user to pick a registered one or register a new one via `dj-initialize` — do not invent a group.
    - `topic` (e.g., aws_cur, billing, salesforce)
    - `name` (e.g., daily_summary, accounts)
      Do NOT infer or reuse names from the SQL query — the user must confirm the name.
