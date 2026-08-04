@@ -3,10 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 const SKILLS_DIR = path.resolve(__dirname, '../../../templates/skills');
-const AGENTS_TEMPLATE = path.resolve(
-  __dirname,
-  '../../../templates/_AGENTS.md',
-);
+const AGENTS_DJ_DIR = path.resolve(__dirname, '../../../templates/_agents-dj');
+const AGENTS_TEMPLATE = path.join(AGENTS_DJ_DIR, '_AGENTS.md');
 
 describe('Skills', () => {
   const skillDirs = fs
@@ -84,5 +82,40 @@ describe('Skills', () => {
     const content = fs.readFileSync(AGENTS_TEMPLATE, 'utf-8');
     expect(content).toBeTruthy();
     expect(content).toContain('DJ (Data JSON) Framework');
+  });
+
+  test('_agents-dj relative markdown links resolve to bundled files', () => {
+    const mdFiles: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          walk(full);
+        } else if (entry.name.endsWith('.md')) {
+          mdFiles.push(full);
+        }
+      }
+    };
+    walk(AGENTS_DJ_DIR);
+
+    for (const mdFile of mdFiles) {
+      const content = fs.readFileSync(mdFile, 'utf-8');
+      const links = [...content.matchAll(/\]\(([^)\s]+)\)/g)].map((m) => m[1]);
+      for (const target of links) {
+        // Skip external URLs (scheme prefix) and in-page anchors.
+        if (/^[a-z][a-z+.-]*:/i.test(target) || target.startsWith('#')) {
+          continue;
+        }
+        const resolved = path.resolve(
+          path.dirname(mdFile),
+          target.split('#')[0],
+        );
+        const link = { in: path.relative(AGENTS_DJ_DIR, mdFile), target };
+        expect({ ...link, exists: fs.existsSync(resolved) }).toEqual({
+          ...link,
+          exists: true,
+        });
+      }
+    }
   });
 });

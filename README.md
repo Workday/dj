@@ -31,6 +31,7 @@ DJ is a VS Code extension that revolutionizes dbt development through a structur
 - **Data Catalog Integration**: Browse Trino catalogs and execute queries directly in VS Code.
 - **BI Integration**: Built-in Lightdash support for creating dashboards from dbt models.
 - **11 Model Types**: Complete coverage from staging to marts with pre-built templates.
+- **AI Agent Skills**: Agent-agnostic skills that guide AI coding assistants through common DJ tasks.
 
 ## Supported Stack
 
@@ -297,6 +298,7 @@ DJ supports the following model types:
 - **[Lineage Visualization](docs/LINEAGE.md)** - Model and column-level lineage
 - **[Integrations Guide](docs/integrations/README.md)** - dbt, Trino, and Lightdash integration
 - **[Model Types Reference](docs/models/README.md)** - All 11 model types with examples
+- **[Agent Skills](docs/AGENT_SKILLS.md)** - AI agent skills for common DJ tasks
 
 ## Support & Community
 

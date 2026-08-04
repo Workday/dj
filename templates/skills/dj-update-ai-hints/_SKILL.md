@@ -16,7 +16,7 @@ description: Add or update Lightdash AI hints across a model's dependency tree. 
 - **baseModel**: Base Model that we trying to update ai hints for.
 - **tag**: The tag to filter models to apply them for AI Agent in Lightdash.
 
-## Key Model Type Identification:
+## Key Model Type Identification
 
 - **Mart Models (mart\_\_)**: Final business-ready models
 - **Intermediate Models (int\_\_)**: Business logic and aggregations
@@ -26,6 +26,7 @@ description: Add or update Lightdash AI hints across a model's dependency tree. 
 
 ## Workflow
 
+0. **Resolve the target project.** If the workspace holds more than one dbt project, ask the user which one to update — do not silently search a default. The `models/`, `sources/`, and `seeds/` paths below are relative to that project.
 1. **Read in the Excel file** and load the sheet named using Python (preferably with 'pandas').
 2. **Identify and trace the complete dependency tree**:
    - **Start with the base model** with the name passed as parameter
@@ -106,15 +107,15 @@ mart__analytics__billing__accounts_daily (ROOT)
 
 ## DO NOT's
 
-1. ** DO NOT ** modify any files other than `.json` and files that are part of the dependency tree.
-1. ** DO NOT ** add any columns or metrics. Just update existing.
-1. ** DO NOT ** create additional scripts to achieve this. Just make the changes and Leave to user to whether commit them or revert back.
-1. ** DO NOT ** modify or create `.yml` files.
-1. ** DO NOT ** create empty dimension objects unnecessarily.
-1. ** DO NOT ** remove comments or change formatting. Preserve JSONC structure completely.
-1. ** DO NOT ** add tags to intermediate, staging, or source files - only the base model gets the specified tag.
+1. **DO NOT** modify any files other than `.json` and files that are part of the dependency tree.
+1. **DO NOT** add any columns or metrics. Just update existing.
+1. **DO NOT** create additional scripts to achieve this. Just make the changes and Leave to user to whether commit them or revert back.
+1. **DO NOT** modify or create `.yml` files.
+1. **DO NOT** create empty dimension objects unnecessarily.
+1. **DO NOT** remove comments or change formatting. Preserve JSONC structure completely.
+1. **DO NOT** add tags to intermediate, staging, or source files - only the base model gets the specified tag.
 
-### Success Metrics:
+### Success Metrics
 
 - AI hints placed according to workflow
 - Only base model receives specified tag

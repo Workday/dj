@@ -17,6 +17,8 @@ metadata:
 
 # Analyze a Trino query plan + runtime stats
 
+This skill is **read-only** — it inspects the diagnostics JSON, not a live cluster, and never needs to modify anything. Most diagnoses end in the JSON. If you do reproduce or `EXPLAIN` a query, run **only** read-only statements (`SELECT` / `EXPLAIN` / `SHOW` / `DESCRIBE`) — never DDL/DML; a read-only query against production is fine. Target the same cluster and catalog the diagnostics came from — `summary.catalog`, `profileName`, and `coordinatorUrl` identify them — and reuse those rather than guessing (confirm with the user only when they're absent). See **Command & Query Execution Safety** in `.agents/dj/AGENTS.md`; for how to run those statements, see `.agents/dj/reference/running-trino.md`.
+
 The DJ extension writes two files per analyzed query:
 
 - **`.dj/diagnostics/<queryId>.json`** — sanitized, shaped for LLM

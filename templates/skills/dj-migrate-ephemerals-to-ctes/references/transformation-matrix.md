@@ -289,7 +289,7 @@ Some ephemerals shouldn't be inlined into a CTE at all -- inlining forces the lo
 }
 ```
 
-**Strategy guidance** (per `AGENTS.md` "Materialization shorthand" section):
+**Strategy guidance** (per `.agents/dj/reference/materialization.md`):
 
 - **Iceberg** projects: `dj_iceberg_partition_overwrite` is DJ-shipped and partition-safe; `merge` works for row-level upserts on `unique_key`.
 - **Delta Lake / Hive** projects: prefer `delete+insert` (partition-safe, no custom macro required). Avoid `merge` (Iceberg-only in dbt-trino).

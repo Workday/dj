@@ -83,7 +83,7 @@ For every pattern: preserve `ai_hint`, `lightdash.*`, `data_tests`, `tags`, `des
 - `select[i].meta.metrics_merge` is an object, OR
 - `select[i].meta.case_sensitive` is a boolean.
 
-The reserved-keys list comes from the `Framework-reserved keys under meta` table in `templates/_AGENTS.md`.
+The reserved-keys list comes from the `Framework-reserved keys under meta` table in `.agents/dj/reference/meta-and-governance.md`.
 
 **Before:**
 
@@ -213,7 +213,7 @@ If `exclude_date_filter: true` is also set at the same scope, the After is `"exc
 - **Skip when `from.rollup` is at the same scope.** `exclude_framework_artifacts` (when its resolved value implies excluding `datetime`) is mutually exclusive with `from.rollup`. The validator already errors on the combo. Don't propose the rewrite there.
 - **Mixed `true` / `false` doesn't qualify.** If any of the three booleans is `false` (explicitly opting back in), don't collapse -- the user is opting into a partial set.
 - **CTE-scope vs model-scope.** Apply the rewrite at whichever scope all three are set. Do **not** hoist a CTE's three-flag set up to the model level (different semantics).
-- **Remove all three (or four) legacy keys in the same edit.** Leaving any of them mixed with the new combined flag is confusing and (per AGENTS.md) lets the individual flag override per-column anyway.
+- **Remove all three (or four) legacy keys in the same edit.** Leaving any of them mixed with the new combined flag is confusing and (per `.agents/dj/reference/ctes-and-subqueries.md`) lets the individual flag override per-column anyway.
 - **`exclude_daily_filter`** is **not** part of `exclude_framework_artifacts`; it stays as its own boolean.
 
 ---
@@ -291,7 +291,7 @@ If `exclude_date_filter: true` is also set at the same scope, the After is `"exc
 - **`interval` values are exactly `hour` / `day` / `month` / `year`.** Not `weekly`, not `quarterly`. There is no `datetime_expr` field -- the upstream's `datetime` column with an `interval` drives the rollup.
 - **`exclude_datetime` / `exclude_framework_artifacts` are mutually exclusive with `from.rollup` at the same scope.** If the rollup model has either, the conversion errors at validation -- surface this in the Why-decide note.
 - **Joins.** If the rollup is consumed alongside joins, suggest `int_join_models` instead of `int_select_model`. Either type accepts `from.rollup`.
-- See `model.from.rollup.schema.json` and `templates/_AGENTS.md` (Advanced section) for the full shape.
+- See `model.from.rollup.schema.json` and `.agents/dj/reference/model-types.md` (Advanced) for the full shape.
 
 ---
 

@@ -17,7 +17,7 @@ metadata:
 
 **Goal:** audit `.model.json` files against the latest DJ capabilities, render **all** findings upfront in two buckets (**Recommended** / **Needs your decision**), then apply **only** what the user confirms. Mutate the JSON sources of truth -- the framework regenerates `.sql` / `.yml` artifacts.
 
-**Reading order:** `.agents/dj/AGENTS.md` (Advanced section, Materialization & Incremental Strategies, Custom Meta, Lightdash) → `.dj/schemas/` (`model.materialization.schema.json`, `model.from.rollup.schema.json`, `model.subquery.schema.json`, `model.cte.schema.json`, `lightdash.*.schema.json`) → this skill's `references/refactor-catalog.md` once the apply phase begins.
+**Reading order:** `.agents/dj/reference/model-types.md` (Advanced), `.agents/dj/reference/materialization.md`, `.agents/dj/reference/meta-and-governance.md`, `.agents/dj/reference/lightdash-tags-tests.md` → `.dj/schemas/` (`model.materialization.schema.json`, `model.from.rollup.schema.json`, `model.subquery.schema.json`, `model.cte.schema.json`, `lightdash.*.schema.json`) → this skill's `references/refactor-catalog.md` once the apply phase begins.
 
 ## When this skill applies
 
@@ -32,7 +32,7 @@ metadata:
 
 ## Workflow
 
-- [ ] **1. Resolve scope.** Default to the open `.model.json` in the editor if any. Otherwise ask whether the user wants a single named file, all `.model.json` under a folder, the dependency tree of a base model (resolved from `target/manifest.json` via `child_map` / `parent_map`), or the entire workspace. Confirm before proceeding for folder / tree / workspace scope.
+- [ ] **1. Resolve scope.** Default to the open `.model.json` in the editor if any. Otherwise ask whether the user wants a single named file, all `.model.json` under a folder, the dependency tree of a base model (resolved from `target/manifest.json` via `child_map` / `parent_map`), or the entire workspace. Confirm before proceeding for folder / tree / workspace scope. **If the workspace holds more than one dbt project, also confirm which project (or that all projects) is in scope — do not silently assume one.**
 - [ ] **2. Detect.** Read each in-scope `.model.json` and apply the catalog below. **Do not edit anything.** Capture each finding as `{ file, pattern, group, before, after, why? }`. Skip ephemeral inlining candidates entirely (they belong to `dj-migrate-ephemerals-to-ctes`).
 - [ ] **3. Render the review.** Print a single numbered report using the template below. Recommended items get numeric labels `[1]` `[2]` ...; Needs-your-decision items get letter labels `[A]` `[B]` .... If there are zero findings, say so plainly and exit -- do not invent work.
 - [ ] **4. Wait for confirmation.** Ask the user which items to apply (see "Confirmation prompt" below). **No edits until the user replies.** Treat any non-matching reply as "stop and ask again", not "apply all".
@@ -47,13 +47,13 @@ Each row below is **one** finding type. Verbose before/after JSONC, detection he
 
 ### Group 1: Recommended (safe rewrites, behavior-preserving)
 
-| #   | Pattern                                                                                                                                                                                                                          | Why it's safe                                                                       |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| R1  | Top-level `materialized` + optional `incremental_strategy` + optional `partitioned_by` → single structured `materialization` block                                                                                               | Schema marks the legacy keys `deprecated: true`; `materialization` takes precedence |
-| R2  | `meta.dimension` / `meta.metrics` / `meta.metrics_merge` / `meta.case_sensitive` on a `select` item → `lightdash.dimension` / `lightdash.metrics` / etc.                                                                         | Framework already raises a Warning diagnostic on these; rewrite clears it           |
-| R3  | `"group_by": [{ "type": "dims" }]` → `"group_by": "dims"`                                                                                                                                                                        | Pure shorthand; same SQL                                                            |
-| R4  | `exclude_datetime: true` + `exclude_portal_partition_columns: true` + `exclude_portal_source_count: true` (± `exclude_date_filter`) → `exclude_framework_artifacts: "columns"` (or `"all"` if `exclude_date_filter` is also set) | Combined-flag shortcut documented in `AGENTS.md`; same resolution                   |
-| R5  | `where: { and: [{ expr: "x = 'y'" }] }` (single string expression, no other conditions) → `where: "x = 'y'"`                                                                                                                     | String shorthand; same SQL                                                          |
+| #   | Pattern                                                                                                                                                                                                                          | Why it's safe                                                                                       |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| R1  | Top-level `materialized` + optional `incremental_strategy` + optional `partitioned_by` → single structured `materialization` block                                                                                               | Schema marks the legacy keys `deprecated: true`; `materialization` takes precedence                 |
+| R2  | `meta.dimension` / `meta.metrics` / `meta.metrics_merge` / `meta.case_sensitive` on a `select` item → `lightdash.dimension` / `lightdash.metrics` / etc.                                                                         | Framework already raises a Warning diagnostic on these; rewrite clears it                           |
+| R3  | `"group_by": [{ "type": "dims" }]` → `"group_by": "dims"`                                                                                                                                                                        | Pure shorthand; same SQL                                                                            |
+| R4  | `exclude_datetime: true` + `exclude_portal_partition_columns: true` + `exclude_portal_source_count: true` (± `exclude_date_filter`) → `exclude_framework_artifacts: "columns"` (or `"all"` if `exclude_date_filter` is also set) | Combined-flag shortcut documented in `.agents/dj/reference/ctes-and-subqueries.md`; same resolution |
+| R5  | `where: { and: [{ expr: "x = 'y'" }] }` (single string expression, no other conditions) → `where: "x = 'y'"`                                                                                                                     | String shorthand; same SQL                                                                          |
 
 ### Group 2: Needs your decision (context attached; user picks)
 

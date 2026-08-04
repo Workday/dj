@@ -16,7 +16,7 @@ metadata:
 
 **Goal:** dissolve qualifying ephemeral `.model.json` files into the `ctes[]` array of their downstream consumer, then remove the now-redundant file. Mutate **only** the JSON sources of truth — the framework's sync engine regenerates the `.sql` / `.yml` artifacts.
 
-**Reading order:** `.agents/dj/AGENTS.md` (Model Types, Inline CTEs, Important Conventions) → `.dj/schemas/model.cte.schema.json` + `model.materialization.schema.json` → this skill's `references/transformation-matrix.md` for per-type recipes.
+**Reading order:** `.agents/dj/AGENTS.md` (**Important Conventions**), `.agents/dj/reference/model-types.md`, and `.agents/dj/reference/ctes-and-subqueries.md` → `.dj/schemas/model.cte.schema.json` + `model.materialization.schema.json` → this skill's `references/transformation-matrix.md` for per-type recipes.
 
 ## When this skill applies
 
@@ -26,6 +26,7 @@ metadata:
 
 ## Workflow
 
+- [ ] **0. Resolve the target project.** If the workspace holds more than one dbt project, ask the user which one to migrate — do not silently scan a default. The `models/` searches and `target/manifest.json` lookups below are relative to that project (`model.${project}.${name}`).
 - [ ] **1. Inventory ephemerals.** Use ripgrep to find candidates -- never iterate-and-parse every `.model.json` (context-budget poison). Search for **all four** forms:
   1. `rg -l '"materialization"\s*:\s*"ephemeral"' models/`
   2. `rg -l '"materialization"\s*:\s*\{\s*"type"\s*:\s*"ephemeral"' models/`

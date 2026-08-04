@@ -239,6 +239,7 @@ Takes effect on next `DJ: Sync to SQL and YML`.
 - Writes `AGENTS.md` to `.agents/dj/` and skill files to `.agents/skills/` at the workspace root
 - Legacy string values (`"github-copilot"`, `"claude-code"`, `"cline"`) still accepted but deprecated
 - Skills are agent-agnostic markdown files usable by any AI coding tool
+- See **[Agent Skills](AGENT_SKILLS.md)** for the full catalog of shipped skills
 
 ---
 

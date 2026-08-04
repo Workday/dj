@@ -40,65 +40,66 @@ Use this skill when the user mentions: review python model, audit python model, 
 
 ### 1. Framework Compliance (F)
 
-| Check | What to validate |
-|-------|-----------------|
-| F1 | `.python.json` has required fields: `name`, `group`, `topic` |
-| F2 | Name/group/topic match pattern `^[a-z][a-z0-9_]*$` |
-| F3 | `cells` array is present and non-empty in JSON |
-| F4 | `.python.py` contains `def run_etl(context)` function |
-| F5 | Uses `_trino_io` helpers (`from python_models._trino_io import ...`) — no inline Trino connection code (`trino.dbapi.connect`, `create_engine`, raw `requests.post` to Trino) |
-| F6 | `OUTPUT_CONFIG` uses `PythonModelConfig` from `python_models._config` |
-| F7 | `.python.py` content is derivable from JSON `cells` (no hand-edits that would be lost on next sync) |
-| F8 | Runner cell (`run_etl(context)`) is the last code cell in JSON |
-| F9 | ETL follows the standard function structure: `extract()`, `transform_and_load()`, `cleanup()`, `run_etl()` |
+| Check | What to validate                                                                                                                                                              |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| F1    | `.python.json` has required fields: `name`, `group`, `topic`                                                                                                                  |
+| F2    | Name/group/topic match pattern `^[a-z][a-z0-9_]*$`                                                                                                                            |
+| F3    | `cells` array is present and non-empty in JSON                                                                                                                                |
+| F4    | `.python.py` contains `def run_etl(context)` function                                                                                                                         |
+| F5    | Uses `_trino_io` helpers (`from python_models._trino_io import ...`) — no inline Trino connection code (`trino.dbapi.connect`, `create_engine`, raw `requests.post` to Trino) |
+| F6    | `OUTPUT_CONFIG` uses `PythonModelConfig` from `python_models._config`                                                                                                         |
+| F7    | `.python.py` content is derivable from JSON `cells` (no hand-edits that would be lost on next sync)                                                                           |
+| F8    | Runner cell (`run_etl(context)`) is the last code cell in JSON                                                                                                                |
+| F9    | ETL follows the standard function structure: `extract()`, `transform_and_load()`, `cleanup()`, `run_etl()`                                                                    |
 
 ### 2. Lineage Readiness (L) — end-to-end validation
 
 The DJ lineage engine discovers Python models by querying Iceberg `$properties` on output tables. It reads:
+
 - `python_model_name` — model identity
 - `python_model_table` — output table name
 - `python_model_upstream_sources` — comma-separated `schema.table` pairs for upstream lineage edges
 
 The review validates the **full chain**: JSON metadata → `PythonModelConfig` → Iceberg table properties → lineage discoverability.
 
-| Check | What to validate |
-|-------|-----------------|
-| L1 | `PythonModelConfig` instantiation emits all required properties: `python_model_name`, `python_model_type`, `python_model_namespace`, `python_model_table`, `python_model_description` |
-| L2 | `python_model_upstream_sources` is set on the output table — code must call `ALTER TABLE ... SET PROPERTIES` or use PyIceberg catalog API to write this key listing all source tables the ETL reads from |
-| L3 | Each entry in `python_model_upstream_sources` follows `schema.table` format (dot-separated, matching actual source tables) |
-| L4 | **Completeness** — every table referenced in `extract()` / `transform_and_load()` SQL (FROM/JOIN clauses) appears in `python_model_upstream_sources` (no missing upstream edges) |
-| L5 | **Accuracy** — every entry in `python_model_upstream_sources` corresponds to a table actually queried in the model (no stale/phantom entries) |
-| L6 | `dags` field is populated in JSON (model is scheduled, discoverable by Airflow DAG lineage). Empty `dags` = utility module, not a lineage participant |
-| L7 | `depends_on` correctly lists upstream Python models whose output tables this model reads (task dependency mirrors data dependency) |
-| L8 | Model ID derivable from file path matches `python_model_name` in properties: `python__<group>__<topic>__<name>` |
-| L9 | Companion `.python.py` exists alongside `.python.json` (required for Airflow `etl_helper.py` discovery via `def run_etl(`) |
-| L10 | `OUTPUT_CONFIG.table_name` (or `model_name` fallback) matches the table name referenced in downstream `.source.json` files, if any exist in the project |
+| Check | What to validate                                                                                                                                                                                         |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| L1    | `PythonModelConfig` instantiation emits all required properties: `python_model_name`, `python_model_type`, `python_model_namespace`, `python_model_table`, `python_model_description`                    |
+| L2    | `python_model_upstream_sources` is set on the output table — code must call `ALTER TABLE ... SET PROPERTIES` or use PyIceberg catalog API to write this key listing all source tables the ETL reads from |
+| L3    | Each entry in `python_model_upstream_sources` follows `schema.table` format (dot-separated, matching actual source tables)                                                                               |
+| L4    | **Completeness** — every table referenced in `extract()` / `transform_and_load()` SQL (FROM/JOIN clauses) appears in `python_model_upstream_sources` (no missing upstream edges)                         |
+| L5    | **Accuracy** — every entry in `python_model_upstream_sources` corresponds to a table actually queried in the model (no stale/phantom entries)                                                            |
+| L6    | `dags` field is populated in JSON (model is scheduled, discoverable by Airflow DAG lineage). Empty `dags` = utility module, not a lineage participant                                                    |
+| L7    | `depends_on` correctly lists upstream Python models whose output tables this model reads (task dependency mirrors data dependency)                                                                       |
+| L8    | Model ID derivable from file path matches `python_model_name` in properties: `python__<group>__<topic>__<name>`                                                                                          |
+| L9    | Companion `.python.py` exists alongside `.python.json` (required for Airflow `etl_helper.py` discovery via `def run_etl(`)                                                                               |
+| L10   | `OUTPUT_CONFIG.table_name` (or `model_name` fallback) matches the table name referenced in downstream `.source.json` files, if any exist in the project                                                  |
 
 ### 3. Downstream Integration (D)
 
-| Check | What to validate |
-|-------|-----------------|
-| D1 | Output table uses standard catalog/schema convention (`glue_development.opus_python_source` or project-configured equivalent) |
-| D2 | Partition column `portal_partition_daily` is emitted in output SQL (`'{ds}' AS portal_partition_daily` or equivalent) |
-| D3 | Column names in output SQL follow `snake_case` convention (no camelCase, no spaces, no special characters) |
-| D4 | No `SELECT *` in production INSERT — explicit column enumeration for schema stability and consumer predictability |
-| D5 | Table name matches model name for source discovery (`OUTPUT_CONFIG.table_name or model_name` → downstream `source.table`) |
-| D6 | Output columns are stable — column order and types should be deterministic across runs |
+| Check | What to validate                                                                                                              |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------- |
+| D1    | Output table uses standard catalog/schema convention (`glue_development.opus_python_source` or project-configured equivalent) |
+| D2    | Partition column `portal_partition_daily` is emitted in output SQL (`'{ds}' AS portal_partition_daily` or equivalent)         |
+| D3    | Column names in output SQL follow `snake_case` convention (no camelCase, no spaces, no special characters)                    |
+| D4    | No `SELECT *` in production INSERT — explicit column enumeration for schema stability and consumer predictability             |
+| D5    | Table name matches model name for source discovery (`OUTPUT_CONFIG.table_name or model_name` → downstream `source.table`)     |
+| D6    | Output columns are stable — column order and types should be deterministic across runs                                        |
 
 ### 4. Performance & Best Practices (P)
 
-| Check | What to validate |
-|-------|-----------------|
-| P1 | **SQL-first adherence** — transformations (filter, cast, aggregate, join, deduplicate) done in Trino SQL, not pandas/Python |
-| P2 | Staging tables cleaned up in `cleanup()` — no orphaned `stg_tmp_*` tables left after ETL completes |
-| P3 | Partition predicate pushdown — WHERE clauses on source tables include partition column filters |
-| P4 | Batch staging — large datasets chunked before INSERT (not unbounded single INSERT of millions of rows) |
-| P5 | Write mode appropriate for use case: `overwrite_partition` for idempotent daily loads, `append` for event streams, `overwrite` for full refresh |
-| P6 | No full-table scans — queries against large tables include a partition filter or LIMIT |
-| P7 | DataFrame operations restricted to external ingestion — any pandas/polars used only for API response parsing, not for SQL-expressible transforms |
-| P8 | Explicit `CAST(... AS type)` in SQL for type safety — not relying on pandas `.astype()` or implicit coercion |
-| P9 | Error handling — `run_etl()` has try/except with cleanup on failure (staging tables dropped even if transform fails) |
-| P10 | Idempotency — re-running the model for the same `ds` produces identical results (no append-on-rerun for partition-based models) |
+| Check | What to validate                                                                                                                                 |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| P1    | **SQL-first adherence** — transformations (filter, cast, aggregate, join, deduplicate) done in Trino SQL, not pandas/Python                      |
+| P2    | Staging tables cleaned up in `cleanup()` — no orphaned `stg_tmp_*` tables left after ETL completes                                               |
+| P3    | Partition predicate pushdown — WHERE clauses on source tables include partition column filters                                                   |
+| P4    | Batch staging — large datasets chunked before INSERT (not unbounded single INSERT of millions of rows)                                           |
+| P5    | Write mode appropriate for use case: `overwrite_partition` for idempotent daily loads, `append` for event streams, `overwrite` for full refresh  |
+| P6    | No full-table scans — queries against large tables include a partition filter or LIMIT                                                           |
+| P7    | DataFrame operations restricted to external ingestion — any pandas/polars used only for API response parsing, not for SQL-expressible transforms |
+| P8    | Explicit `CAST(... AS type)` in SQL for type safety — not relying on pandas `.astype()` or implicit coercion                                     |
+| P9    | Error handling — `run_etl()` has try/except with cleanup on failure (staging tables dropped even if transform fails)                             |
+| P10   | Idempotency — re-running the model for the same `ds` produces identical results (no append-on-rerun for partition-based models)                  |
 
 ## Report template
 
@@ -151,20 +152,20 @@ Render the full report in this structure. Adapt headings to the actual model. Om
 
 ### Severity classification
 
-| Severity | Criteria | Report label |
-|----------|----------|--------------|
-| **Issue** | Blocks production deployment or breaks lineage/downstream consumers | `ISSUE` |
-| **Warning** | Degrades performance, violates best practices, or creates maintenance risk | `WARNING` |
-| **Suggestion** | Improvement opportunity; not blocking but raises quality | `SUGGESTION` |
+| Severity       | Criteria                                                                   | Report label |
+| -------------- | -------------------------------------------------------------------------- | ------------ |
+| **Issue**      | Blocks production deployment or breaks lineage/downstream consumers        | `ISSUE`      |
+| **Warning**    | Degrades performance, violates best practices, or creates maintenance risk | `WARNING`    |
+| **Suggestion** | Improvement opportunity; not blocking but raises quality                   | `SUGGESTION` |
 
 ### Recommendation priority
 
-| Priority | Criteria |
-|----------|----------|
+| Priority | Criteria                                                                |
+| -------- | ----------------------------------------------------------------------- |
 | CRITICAL | Lineage broken (L2-L5 failures), missing `run_etl`, no partition column |
-| HIGH | Inline Trino code, missing cleanup, stale upstream_sources |
-| MEDIUM | Non-SQL-first transforms, missing batch staging, no error handling |
-| LOW | Naming style, column order, documentation gaps |
+| HIGH     | Inline Trino code, missing cleanup, stale upstream_sources              |
+| MEDIUM   | Non-SQL-first transforms, missing batch staging, no error handling      |
+| LOW      | Naming style, column order, documentation gaps                          |
 
 ## Hard rules (DO NOT)
 
