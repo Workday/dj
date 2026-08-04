@@ -14,6 +14,7 @@
 ### UX improvements
 
 - **Data Modeling dropdowns scale with zoom.** Single- and multi-select menus in the visual editor now size their text to the zoom level so it matches the node, and truncated labels show the full value on hover.
+- **Monochrome sidebar icon.** Switched the Activity Bar icon to a monochrome SVG so it remains visible across light, dark, and high-contrast themes in remote workspaces.
 
 ### Documentation
 
