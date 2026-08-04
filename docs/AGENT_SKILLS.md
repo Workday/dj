@@ -1,14 +1,14 @@
 # Agent Skills
 
-DJ ships **AI agent skills** — packaged instructions that guide AI coding assistants (Claude Code, Cursor, GitHub Copilot, Cline, Windsurf, and others) through common DJ (Data JSON) Framework tasks: creating and refactoring models, authoring Lightdash dashboards, diagnosing slow Trino queries, resolving merge conflicts, and more.
+DJ ships **AI agent skills** — packaged instructions that guide AI coding assistants (Claude Code, Cursor, GitHub Copilot, Cline, Windsurf, and others) through common DJ (Data JSON) Framework tasks: creating and refactoring models, registering sources, authoring Lightdash dashboards, running dbt and Trino commands, diagnosing slow Trino queries, resolving merge conflicts, committing your work, and more.
 
-This page explains what the skills are, how to turn them on, and catalogs the 13 skills DJ provides today.
+This page explains what the skills are, how to turn them on, and catalogs the 17 skills DJ provides today.
 
 ## What are DJ Agent Skills?
 
 - **Agent-agnostic.** Skills are plain-Markdown files that follow the [Agent Skills open standard](https://agentskills.io) — each skill is a folder containing a `SKILL.md` (plus optional `references/` and `scripts/`). Any AI coding tool that understands the standard can use them; there is no per-agent configuration.
 - **Task-focused.** Each skill encodes DJ's conventions for a single job, so the assistant produces framework-correct output — the right model `type`, valid JSON against the schemas, and the single-source-of-truth rules — instead of guessing.
-- **Paired with a framework reference.** Alongside the skills, DJ generates `.agents/dj/AGENTS.md` — a project-tailored reference for the whole framework (model types, materialization, Lightdash config, CTEs, and more) that the skills read first.
+- **Paired with a framework reference.** Alongside the skills, DJ generates `.agents/dj/AGENTS.md` — a slim, project-tailored hub — plus on-demand `.agents/dj/reference/` files (model types, materialization, Lightdash config, CTEs, running dbt/Trino, git workflow, and more) that the skills read as needed.
 
 ## Enabling skills
 
@@ -24,7 +24,8 @@ Skills are opt-in via a single setting.
 
 DJ then writes, at your workspace root:
 
-- `.agents/dj/AGENTS.md` — the framework reference
+- `.agents/dj/AGENTS.md` — the framework reference hub
+- `.agents/dj/reference/*.md` — on-demand deep-reference files the hub and skills open when needed
 - `.agents/skills/<skill-name>/SKILL.md` — one folder per skill, with any bundled `references/` and `scripts/`
 
 Point your AI coding tool at the workspace and the skills become available. Most skills also rely on the `.dj/schemas/` directory (the JSON schemas DJ maintains in every workspace) for exact model shapes.
@@ -41,7 +42,7 @@ Point your AI coding tool at the workspace and the skills become available. Most
 
 ## The skills
 
-DJ provides 13 skills, grouped below by what they help you do.
+DJ provides 17 skills, grouped below by what they help you do.
 
 ### Setup & onboarding
 
@@ -68,6 +69,13 @@ Converts an existing SQL query into a **new** `.model.json`, mapping SQL pattern
 
 - **Use when:** you have a working SQL query (often from a `.draft.sql` file) and want to formalize it as a DJ/dbt model.
 - **Example prompt:** _"Convert this draft.sql into a DJ model."_
+
+#### `dj-create-source`
+
+Registers a raw Trino table as a DJ `.source.json` by introspecting its exact column types (`SHOW COLUMNS`), so a model that reads a not-yet-defined `catalog.schema.table` builds instead of failing. The model-authoring and SQL-conversion skills detect a missing source and defer to this one; data types are read from the warehouse rather than guessed.
+
+- **Use when:** a model needs a raw `catalog.schema.table` that isn't defined as a source yet, or you want to add a table or columns to an existing source.
+- **Example prompt:** _"Register the raw orders table as a DJ source."_
 
 ### Python ETL models
 
@@ -156,6 +164,29 @@ Resolves git merge, rebase, or cherry-pick conflicts the DJ way — hand-merging
 - **Use when:** a query is slow, you want to understand a query plan, compare two queries (for example before vs. after a config change), or investigate a specific Trino query ID.
 - **Example prompt:** _"Explain why Trino query 20260101_120000_00001_abcde is slow."_
 - **Bundled references:** a six-file Trino field reference — `query-info.md`, `query-stats.md`, `stage-and-task-stats.md`, `operator-stats.md`, `types-and-enums.md`, and `recipes.md`.
+
+### Running dbt, Trino & git
+
+#### `dj-run-dbt`
+
+Runs a dbt command from the terminal — `compile` / `parse` / `ls` / `deps` / `docs generate` / `test`, or a warehouse-writing `run` / `build` / `seed` / `snapshot` — after activating the project's Python virtual environment and running from the dbt project directory. Read-only commands run freely; warehouse writes need explicit confirmation and never target production.
+
+- **Use when:** you want to compile, parse, list, test, build, or otherwise run the dbt CLI, or refresh the manifest.
+- **Example prompt:** _"Compile this model."_
+
+#### `dj-run-trino`
+
+Runs a **read-only** Trino query from the terminal to inspect warehouse data or schema — `SELECT` / `SHOW` / `DESCRIBE` / `EXPLAIN`, always with a `LIMIT` — resolving the CLI from `dj.trinoPath` and the connection from the `TRINO_*` environment. Any DDL/DML needs explicit confirmation and never hits production.
+
+- **Use when:** you want to query Trino, preview rows, `DESCRIBE` / `SHOW` a table, or sanity-check a value. For diagnosing captured query performance, use `dj-trino-analyzer` instead.
+- **Example prompt:** _"Preview 20 rows from the orders table."_
+
+#### `dj-git-workflow`
+
+Commits DJ work the right way — staging each `.model.json` / `.source.json` together with its generated `.sql` / `.yml` after a sync, ignoring DJ's local `.dj/` state, and following the downstream project's own commit conventions. It stops at the commit and guards against staging secrets; pushing needs your go-ahead. For merge conflicts, use `dj-resolve-merge-conflicts` instead.
+
+- **Use when:** you want to commit, stage, branch, or check in your DJ models, or ask what should be committed.
+- **Example prompt:** _"Commit these model changes."_
 
 ## Feedback & more
 
