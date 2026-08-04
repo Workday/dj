@@ -898,7 +898,7 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
 
   return (
     <div
-      className="bg-background border-2 border-neutral rounded-lg shadow-lg w-[900px] max-w-[1100px] cursor-default nopan"
+      className="bg-background border-2 border-neutral rounded-lg shadow-lg w-[900px] max-w-[1100px] cursor-default nopan nodrag"
       data-tutorial-id="column-selection-node"
     >
       <Handle type="target" position={Position.Top} id="input" />

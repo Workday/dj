@@ -1,7 +1,10 @@
 # Change Log
 
-## 2.0.3
+## 2.1.0
 
+### UX improvements
+
+- **Data Modeling canvas selects keep dropdown text sized with zoom.** Single- and multi-select menus in the visual editor stay inside the canvas transform so option text matches node chrome when you zoom in or out; truncated labels show the full value on hover.
 - **Monochrome sidebar icon.** Switched the Activity Bar icon to a monochrome SVG so it remains visible across light, dark, and high-contrast themes in remote workspaces.
 
 ## 2.0.2
