@@ -52,5 +52,16 @@ export function assertSqlIdentifier(
  * catalog / schema / table name into a query.
  */
 export function quoteTrinoIdentifier(identifier: string): string {
+  if (typeof identifier !== 'string') {
+    // Guard against a missing catalog/schema/table name reaching the query
+    // builder. Without this, an `undefined` identifier throws the opaque
+    // "Cannot read properties of undefined (reading 'replace')" deep in the
+    // Trino CLI path instead of a message that names the real problem.
+    throw new Error(
+      `Cannot build Trino query: expected an identifier but received ${JSON.stringify(
+        identifier,
+      )}.`,
+    );
+  }
   return `"${identifier.replace(/"/g, '""')}"`;
 }
