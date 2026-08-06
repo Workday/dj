@@ -30,6 +30,7 @@ import {
   generatePythonModelScaffoldPy,
   stripNotebookOnlyCells,
 } from '@services/framework/utils';
+import { workspaceHasPythonModels } from '@services/framework/utils/source-etl-python-workspace';
 import type {
   PythonModelCell,
   PythonModelConfig,
@@ -60,6 +61,9 @@ export class PythonModelSyncService implements vscode.Disposable {
   private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private logger: PythonModelSyncLogger;
 
+  /** Called when the last user Python model is removed from the workspace. */
+  public onPythonModelsEmpty?: () => Promise<void>;
+
   /** Maps temp ipynb path -> original json path for reverse lookup */
   private notebookPathMap = new Map<string, string>();
 
@@ -78,12 +82,14 @@ export class PythonModelSyncService implements vscode.Disposable {
       vscode.workspace.createFileSystemWatcher('**/*.python.json');
     jsonWatcher.onDidChange((uri) => handler(uri, 'json'));
     jsonWatcher.onDidCreate((uri) => handler(uri, 'json'));
+    jsonWatcher.onDidDelete((uri) => this.debouncedHandleFileDelete(uri));
     this.disposables.push(jsonWatcher);
 
     const pyWatcher =
       vscode.workspace.createFileSystemWatcher('**/*.python.py');
     pyWatcher.onDidChange((uri) => handler(uri, 'python'));
     pyWatcher.onDidCreate((uri) => handler(uri, 'python'));
+    pyWatcher.onDidDelete((uri) => this.debouncedHandleFileDelete(uri));
     this.disposables.push(pyWatcher);
 
     const ipynbWatcher =
@@ -239,6 +245,46 @@ export class PythonModelSyncService implements vscode.Disposable {
         void this.handleFileChange(uri, source);
       }, PythonModelSyncService.DEBOUNCE_MS),
     );
+  }
+
+  private debouncedHandleFileDelete(uri: vscode.Uri): void {
+    const key = `delete:${uri.fsPath}`;
+    const existing = this.debounceTimers.get(key);
+    if (existing) {
+      clearTimeout(existing);
+    }
+    this.debounceTimers.set(
+      key,
+      setTimeout(() => {
+        this.debounceTimers.delete(key);
+        void this.handleModelFileDelete(uri);
+      }, PythonModelSyncService.DEBOUNCE_MS),
+    );
+  }
+
+  private async handleModelFileDelete(uri: vscode.Uri): Promise<void> {
+    const filePath = uri.fsPath;
+    if (!filePath.includes('python_models')) {
+      return;
+    }
+    if (
+      !filePath.endsWith('.python.json') &&
+      !filePath.endsWith('.python.py')
+    ) {
+      return;
+    }
+
+    const hasModels = await workspaceHasPythonModels();
+    if (!hasModels && this.onPythonModelsEmpty) {
+      try {
+        await this.onPythonModelsEmpty();
+      } catch (err) {
+        this.logger.error(
+          'Failed to refresh Airflow DAGs after Python model removal:',
+          err,
+        );
+      }
+    }
   }
 
   private isSuppressed(filePath: string): boolean {
