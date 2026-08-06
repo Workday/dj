@@ -1,8 +1,10 @@
 from airflow.decorators import dag, task
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.utils.trigger_rule import TriggerRule
 from datetime import date, datetime, timedelta, timezone
 import json
 
+from _ext_.etl_helper import get_python_source_config
 from _ext_.services import (
     airflow_timeout,
     dbt_build,
@@ -67,6 +69,12 @@ dag_email_list: list[str] = []
 if not suppress_notifications:
     dag_email_list.append(email_notifications)
 
+# ---------------------------------------------------------------------------
+# Read python_source_config at parse time (controls parallel/sequential wiring)
+# ---------------------------------------------------------------------------
+_python_source_config = get_python_source_config()
+_parallel = _python_source_config.get("parallel", True)
+
 
 @dag(
     catchup=False,
@@ -83,6 +91,7 @@ if not suppress_notifications:
     max_active_runs=1,
     params={
         "skip_sources": False,
+        "skip_python_source": False,
     },
     schedule=schedule_cron,
     start_date=datetime(1970, 1, 1),
@@ -102,6 +111,34 @@ def source_etl_dag():
         if k8s_workers_start is not None:
             # Scale up the workers to the desired number
             k8s_scale(workers=k8s_workers_start)
+
+    # -----------------------------------------------------------------------
+    # Python Model Trigger
+    # -----------------------------------------------------------------------
+
+    @task(task_id="trigger_python_source", trigger_rule=TriggerRule.ALL_DONE)
+    def trigger_python_source_task(**context):
+        """
+        Trigger the opus_python_source DAG and wait for it to complete.
+        """
+        skip = context.get("params", {}).get("skip_python_source", False)
+        if skip:
+            log.info("Skipping python source trigger (skip_python_source=True)")
+            return
+
+        runtime_config = get_python_source_config()
+        config_json = json.dumps(runtime_config)
+        log.info("Triggering opus_python_source with config: %s", config_json)
+
+        trigger = TriggerDagRunOperator(
+            task_id="trigger_opus_python_source_inner",
+            trigger_dag_id="opus_python_source",
+            wait_for_completion=True,
+            poke_interval=30,
+            reset_dag_run=True,
+            conf={"python_source_config": runtime_config},
+        )
+        trigger.execute(context)
 
     @task(task_id="create_source_tables")
     def create_source_tables():
@@ -280,7 +317,11 @@ def source_etl_dag():
 
         return sources
 
-    @task(task_id="fetch_source_dates", max_active_tis_per_dagrun=source_date_tasks)
+    @task(
+        task_id="fetch_source_dates",
+        max_active_tis_per_dagrun=source_date_tasks,
+        map_index_template="{{ source.id.split('.', 2)[2] }}",
+    )
     def fetch_source_dates(source: SourceExtended, ti=None, **context):
         """
         Identify which dates have new data for a source that need to be processed.
@@ -497,7 +538,7 @@ def source_etl_dag():
         etl_timestamp = ti.xcom_pull(key="etl_timestamp", task_ids="start_etl")
 
         source_runs = build_runs(
-            source_id_dates_list, etl_timestamp, date_limit=source_date_limit,chronological=run_chronological
+            source_id_dates_list, etl_timestamp, date_limit=source_date_limit, chronological=run_chronological
         )
 
         # Perform the merges first, before running the sources, because might limit and/or timeout the source run tasks
@@ -543,6 +584,7 @@ def source_etl_dag():
         task_id="run_sources",
         max_active_tis_per_dagrun=1,
         trigger_rule=TriggerRule.ALL_DONE,  # We'll run the ones that were successful, even if some failed
+        map_index_template="{{ source_run.event_dates[0] if source_run.event_dates | length == 1 else (source_run.event_dates | min) ~ '~' ~ (source_run.event_dates | max) }}",
     )
     def run_sources(source_run: dict, ti=None, **context):
         etl_timestamp = ti.xcom_pull(key="etl_timestamp", task_ids="start_etl")
@@ -630,7 +672,11 @@ def source_etl_dag():
 
         return source_models_list
 
-    @task(task_id="fetch_model_dates", max_active_tis_per_dagrun=model_date_tasks)
+    @task(
+        task_id="fetch_model_dates",
+        max_active_tis_per_dagrun=model_date_tasks,
+        map_index_template="{{ source_models.source_id.split('.', 2)[2] }}",
+    )
     def fetch_model_dates(source_models: dict, ti=None):
         source_id = source_models["source_id"]
         models = source_models["models"]
@@ -736,6 +782,7 @@ def source_etl_dag():
         task_id="run_models",
         max_active_tis_per_dagrun=1,
         trigger_rule=TriggerRule.ALL_DONE,  # We'll run the ones that were successful, even if some failed
+        map_index_template="{{ model_run.event_dates[0] if model_run.event_dates | length == 1 else (model_run.event_dates | min) ~ '~' ~ (model_run.event_dates | max) }}",
     )
     def run_models(model_run: dict, ti=None, **context):
         etl_timestamp = ti.xcom_pull(key="etl_timestamp", task_ids="start_etl")
@@ -790,7 +837,7 @@ def source_etl_dag():
                 )
 
         error_runs = build_runs(
-            id_dates_list=model_id_dates_list, etl_timestamp=etl_timestamp, date_limit=1, chronological=run_chronological
+            model_id_dates_list, etl_timestamp, date_limit=1, chronological=run_chronological
         )
 
         run_errors_timestamp = datetime.now(timezone.utc).strftime(
@@ -804,7 +851,11 @@ def source_etl_dag():
         return chunked_error_runs[0]
 
     # Will rerun any errors from the current etl timestamp
-    @task(task_id="run_errors", max_active_tis_per_dagrun=1)
+    @task(
+        task_id="run_errors",
+        max_active_tis_per_dagrun=1,
+        map_index_template="{{ error_run.event_dates[0] if error_run.event_dates | length == 1 else (error_run.event_dates | min) ~ '~' ~ (error_run.event_dates | max) }}",
+    )
     def run_errors(error_run: dict, ti=None, **context):
         etl_timestamp = ti.xcom_pull(key="etl_timestamp", task_ids="start_etl")
         run_errors_timestamp = ti.xcom_pull(
@@ -892,7 +943,11 @@ def source_etl_dag():
         return chunked_optimize_runs[0]
 
     # Will optimize any models reaching the delay threshold
-    @task(task_id="run_optimize", max_active_tis_per_dagrun=optimize_run_tasks)
+    @task(
+        task_id="run_optimize",
+        max_active_tis_per_dagrun=optimize_run_tasks,
+        map_index_template="{{ optimize_run.id.split('.', 2)[2] }}",
+    )
     def run_optimize(optimize_run: dict, ti=None, **context):
         etl_timestamp = ti.xcom_pull(key="etl_timestamp", task_ids="start_etl")
 
@@ -1021,7 +1076,11 @@ def source_etl_dag():
         return chunked_vacuum_runs[0]
 
     # Will run vacuum on all models meeting the delay threshold
-    @task(task_id="run_vacuum", max_active_tis_per_dagrun=vacuum_run_tasks)
+    @task(
+        task_id="run_vacuum",
+        max_active_tis_per_dagrun=vacuum_run_tasks,
+        map_index_template="{{ vacuum_run.id.split('.', 2)[2] }}",
+    )
     def run_vacuum(vacuum_run: dict, ti=None, **context):
         etl_timestamp = ti.xcom_pull(key="etl_timestamp", task_ids="start_etl")
         log.info(vacuum_run)
@@ -1081,6 +1140,7 @@ def source_etl_dag():
     # Sequence tasks
 
     _start_etl = start_etl()
+    _trigger_python_source = trigger_python_source_task()
     _create_source_tables = create_source_tables()
     _fetch_sources = fetch_sources()
     _fetch_source_dates = fetch_source_dates.expand(source=_fetch_sources)
@@ -1098,14 +1158,18 @@ def source_etl_dag():
     _run_vacuum = run_vacuum.expand(vacuum_run=_fetch_vacuum_runs)
     _end_etl = end_etl()
 
-    (
-        _start_etl
-        >> _create_source_tables
+    # Source pipeline chain (always the same internal ordering)
+    _source_chain = (
+        _create_source_tables
         >> _fetch_sources
         >> _fetch_source_dates
         >> _fetch_source_runs
         >> _run_sources
-        >> _fetch_models
+    )
+
+    # Post-source chain
+    _post_source_chain = (
+        _fetch_models
         >> _fetch_model_dates
         >> _fetch_model_runs
         >> _run_models
@@ -1117,6 +1181,18 @@ def source_etl_dag():
         >> _run_vacuum
         >> _end_etl
     )
+
+    if _parallel:
+        # Parallel: python source trigger and source pipeline run concurrently,
+        # both must finish before the post-source chain begins.
+        _start_etl >> _trigger_python_source
+        _start_etl >> _create_source_tables
+        _trigger_python_source >> _fetch_models
+        _run_sources >> _fetch_models
+    else:
+        # Sequential (default): python source trigger runs first, then sources.
+        _start_etl >> _trigger_python_source >> _create_source_tables
+        _run_sources >> _fetch_models
 
 
 etl = source_etl_dag()
