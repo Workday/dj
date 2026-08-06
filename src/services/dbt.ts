@@ -24,6 +24,9 @@ import {
   frameworkGetNode,
   frameworkGetNodeColumns,
   frameworkMakeSourceId,
+  sourceEtlTemplateFileName,
+  SOURCE_ETL_OUTPUT_FILE,
+  workspaceHasPythonModels,
 } from '@services/framework/utils';
 import { ModelEditService } from '@services/modelEdit';
 import { getManifestResources } from '@services/sync';
@@ -1715,27 +1718,26 @@ ${macro.macro_sql}`;
 
     if (airflowVersionFolder) {
       this.log.info('WRITING AIRFLOW FILES');
-      const AIRFLOW_FILES: string[] = [
-        'services.py',
-        'source_etl.py',
-        'utils.py',
-        'variables.py',
+      const hasPythonModels = await workspaceHasPythonModels();
+      const AIRFLOW_FILES: { read: string; write: string }[] = [
+        { read: 'services.py', write: 'services.py' },
+        {
+          read: sourceEtlTemplateFileName(hasPythonModels),
+          write: SOURCE_ETL_OUTPUT_FILE,
+        },
+        { read: 'utils.py', write: 'utils.py' },
+        { read: 'variables.py', write: 'variables.py' },
       ];
 
       // Use Promise.all for parallel file operations
-      const writePromises = AIRFLOW_FILES.map(async (airflowFile) => {
+      const writePromises = AIRFLOW_FILES.map(async ({ read, write }) => {
         try {
           const pathRead = path.join(
             BASE_AIRFLOW_PATH,
             airflowVersionFolder,
-            airflowFile,
+            read,
           );
-          const pathWrite = path.join(
-            WORKSPACE_ROOT,
-            airflowDagsPath,
-            airflowFile,
-          );
-          // Use async file reading instead of sync
+          const pathWrite = path.join(WORKSPACE_ROOT, airflowDagsPath, write);
           const content = await vscode.workspace.fs.readFile(
             vscode.Uri.file(pathRead),
           );
@@ -1744,11 +1746,17 @@ ${macro.macro_sql}`;
             content,
           );
         } catch (err: unknown) {
-          this.log.error(`Error writing ${airflowFile}:`, err);
+          this.log.error(`Error writing ${write} (from ${read}):`, err);
         }
       });
 
       await Promise.all(writePromises);
+
+      if (hasPythonModels) {
+        await this.coder.framework.ensurePythonModelInfrastructure();
+      } else {
+        await this.coder.framework.removePythonModelInfrastructure();
+      }
     }
   }
 
