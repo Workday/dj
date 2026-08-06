@@ -72,6 +72,7 @@ import {
   generatePythonModelScaffoldPy,
   generatePythonModelTasksPy,
   generateTrinoIoPy,
+  workspaceHasPythonModels,
 } from './utils';
 
 /**
@@ -407,13 +408,9 @@ export class Framework implements ApiEnabledService<'framework'> {
           Buffer.from(modelContent),
         );
 
-        // Ensure shared _config.py, _trino_io.py, _model_tasks.py, etl_helper.py,
-        // and .airflowignore exist
-        await this.ensurePythonModelConfigPy();
-        await this.ensureTrinoIoPy();
-        await this.ensureModelTasksPy();
-        await this.ensureEtlHelperFile();
-        await this.ensureAirflowIgnoreFile();
+        // Ensure shared scaffolding and refresh source_etl when Python models exist
+        await this.ensurePythonModelInfrastructure();
+        await this.dbt.writeAirflowDags();
 
         // Generate new DAG file if requested
         if (createDag && dagConfig?.name) {
@@ -1742,22 +1739,16 @@ export class Framework implements ApiEnabledService<'framework'> {
       error: (msg, ...args) => this.log.error(msg, ...args),
       warn: (msg, ...args) => this.log.warn(msg, ...args),
     });
+    this.pythonModelSyncService.onPythonModelsEmpty = async () => {
+      await this.dbt.writeAirflowDags();
+    };
     this.pythonModelSyncService.initialize();
 
-    // Ensure python model infrastructure files are up-to-date on activation
-    const pythonModelsDir = path.join(WORKSPACE_ROOT, 'dags', 'python_models');
-    vscode.workspace.fs.stat(vscode.Uri.file(pythonModelsDir)).then(
-      async () => {
-        await this.ensurePythonModelConfigPy();
-        await this.ensureTrinoIoPy();
-        await this.ensureModelTasksPy();
-        await this.ensureEtlHelperFile();
-        await this.ensureAirflowIgnoreFile();
-      },
-      () => {
-        /* dags/python_models/ doesn't exist yet -- nothing to do */
-      },
-    );
+    void workspaceHasPythonModels().then(async (hasModels) => {
+      if (hasModels) {
+        await this.ensurePythonModelInfrastructure();
+      }
+    });
 
     // Watch DJ-generated python model files for unauthorized edits and revert them
     this.registerGeneratedFileGuards();
@@ -2073,6 +2064,44 @@ export class Framework implements ApiEnabledService<'framework'> {
       `[DAG Discovery] Result: ${dags.length} DAGs [${dags.join(', ')}]`,
     );
     return { dags };
+  }
+
+  /**
+   * Ensure DJ-generated Python model scaffolding exists and is up-to-date.
+   */
+  public async ensurePythonModelInfrastructure(): Promise<void> {
+    await this.ensurePythonModelConfigPy();
+    await this.ensureTrinoIoPy();
+    await this.ensureModelTasksPy();
+    await this.ensureEtlHelperFile();
+    await this.ensureAirflowIgnoreFile();
+  }
+
+  /**
+   * Remove DJ-generated Python scaffolding when no user Python models remain.
+   */
+  public async removePythonModelInfrastructure(): Promise<void> {
+    const { airflowDagsPath } = getDjConfig();
+    const scaffoldingPaths = [
+      path.join(WORKSPACE_ROOT, 'dags', '_ext_', 'etl_helper.py'),
+      path.join(WORKSPACE_ROOT, 'dags', 'python_models', '_config.py'),
+      path.join(WORKSPACE_ROOT, 'dags', 'python_models', '_trino_io.py'),
+      path.join(WORKSPACE_ROOT, 'dags', 'python_models', '_model_tasks.py'),
+    ];
+    if (airflowDagsPath) {
+      scaffoldingPaths.push(
+        path.join(WORKSPACE_ROOT, airflowDagsPath, 'etl_helper.py'),
+      );
+    }
+
+    for (const filePath of scaffoldingPaths) {
+      try {
+        await vscode.workspace.fs.delete(vscode.Uri.file(filePath));
+        this.log.info(`Removed DJ python scaffolding: ${filePath}`);
+      } catch {
+        /* file may not exist */
+      }
+    }
   }
 
   /**
