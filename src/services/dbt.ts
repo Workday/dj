@@ -3124,7 +3124,7 @@ ${macro.macro_sql}`;
             VIEW_ID.SOURCE_CREATE,
             DBT_MSG.CREATE_SOURCE,
             vscode.ViewColumn.One,
-            { enableScripts: true },
+            { enableScripts: true, retainContextWhenHidden: true },
           );
           panel.onDidDispose(() => {
             this.webviewPanelSourceCreate = undefined;
