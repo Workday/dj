@@ -81,6 +81,7 @@ export function ModelRun() {
     seed: false,
     build: false,
     defer: false,
+    favorState: false,
     fullRefresh: false,
     scope: 'single',
     lineage: 'model-only',
@@ -415,6 +416,11 @@ export function ModelRun() {
    */
   const handleBooleanConfigChange = useCallback(
     (key: string, value: boolean) => {
+      if (key === 'defer' && !value) {
+        // Favor State only applies with Defer — clear it when Defer is turned off
+        setConfig((prev) => ({ ...prev, defer: false, favorState: false }));
+        return;
+      }
       handleConfigChange(key as keyof DbtRunConfig, value);
     },
     [handleConfigChange],
@@ -590,20 +596,29 @@ export function ModelRun() {
                 onChange={handleBooleanConfigChange}
               />
             </div>
-            {/* State Path Input - Show when defer is enabled */}
+            {/* Defer options — Favor State and State Path only apply with Defer */}
             {config.defer && (
-              <InputText
-                id="statePath"
-                name="statePath"
-                label="State Path"
-                value={config.statePath}
-                onChange={(e) =>
-                  handleConfigChange('statePath', e.target.value)
-                }
-                placeholder={`${modelInfo?.projectPath || '/path/to/project'}/${DEFAULT_DEFER_STATE_PATH}`}
-                tooltipText={TOOLTIPS.statePath}
-                error={validationErrors.statePath}
-              />
+              <>
+                <MemoizedSwitchCard
+                  checked={config.favorState}
+                  configKey="favorState"
+                  label="Favor State"
+                  tooltipText={TOOLTIPS.favorState}
+                  onChange={handleBooleanConfigChange}
+                />
+                <InputText
+                  id="statePath"
+                  name="statePath"
+                  label="State Path"
+                  value={config.statePath}
+                  onChange={(e) =>
+                    handleConfigChange('statePath', e.target.value)
+                  }
+                  placeholder={`${modelInfo?.projectPath || '/path/to/project'}/${DEFAULT_DEFER_STATE_PATH}`}
+                  tooltipText={TOOLTIPS.statePath}
+                  error={validationErrors.statePath}
+                />
+              </>
             )}
           </div>
 

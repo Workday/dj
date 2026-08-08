@@ -5,6 +5,7 @@
 ### UX improvements
 
 - **Defer works with any run scope.** In `DJ: Run Model`, enabling Defer no longer locks you to modified models — combine it with single model, multi-model, or full project.
+- **Favor State with Defer.** When Defer is on, toggle Favor State to add `--favor-state` so deferred (state) versions win over local ones for overlapping nodes.
 
 ## 2.1.1
 
