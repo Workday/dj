@@ -12,7 +12,6 @@ import { ModelSelector } from './ModelSelector';
 
 interface ScopeSelectorProps {
   currentScope: DbtRunScope;
-  isDeferEnabled: boolean;
   onScopeChange: (scope: DbtRunScope) => void;
   // For single model scope - the model from active editor
   activeModelName?: string | null;
@@ -36,7 +35,6 @@ interface ScopeSelectorProps {
 export const ScopeSelector = React.memo<ScopeSelectorProps>(
   ({
     currentScope,
-    isDeferEnabled,
     onScopeChange,
     activeModelName,
     currentLineage = 'model-only',
@@ -60,22 +58,16 @@ export const ScopeSelector = React.memo<ScopeSelectorProps>(
       <div className="flex flex-col gap-4">
         <div className="grid grid-cols-2 gap-4">
           {availableScopeOptions.map((option) => {
-            // When defer is enabled, disable all scopes except 'modified'
-            const isDisabled = isDeferEnabled && option.value !== 'modified';
-
             return (
               <button
                 key={option.value}
-                onClick={() => !isDisabled && onScopeChange(option.value)}
-                disabled={isDisabled}
+                onClick={() => onScopeChange(option.value)}
                 className={makeClassName(
                   'relative p-4 rounded-lg border-2 text-left transition-all',
                   currentScope === option.value
                     ? 'border-blue-500 bg-message-info'
                     : 'border-neutral bg-background',
-                  isDisabled
-                    ? 'opacity-50 cursor-not-allowed'
-                    : 'hover:border-blue-300 cursor-pointer',
+                  'hover:border-blue-300 cursor-pointer',
                 )}
               >
                 <div className="flex items-center gap-2 mb-1">

@@ -1,5 +1,11 @@
 # Change Log
 
+## Next
+
+### UX improvements
+
+- **Defer works with any run scope.** In `DJ: Run Model`, enabling Defer no longer locks you to modified models — combine it with single model, multi-model, or full project.
+
 ## 2.1.1
 
 ### Airflow
