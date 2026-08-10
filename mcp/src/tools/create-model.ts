@@ -20,7 +20,7 @@ import { listModels } from './list-models';
 
 /**
  * Create a DJ `.model.json` + SQL/YML inside an isolated change-set worktree
- * (previewOnly default true). Publish with dj_publish_change after approval.
+ * (previewOnly default true). Ship with dj_review_change → dj_ship after approval.
  */
 export async function createModel(
   args: ProjectSelector & {
@@ -106,7 +106,7 @@ export async function createModel(
         : undefined,
       next:
         previewOnly && changeSetId
-          ? `Review preview, then dj_publish_change({ changeSetId: "${changeSetId}", approval: true, commitMessage: "..." })`
+          ? `Review preview, then dj_review_change → dj_ship({ changeSetId: "${changeSetId}", approval: true, commitMessage: "..." })`
           : undefined,
     });
   } catch (error) {

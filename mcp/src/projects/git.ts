@@ -186,3 +186,73 @@ export async function createPullRequest(params: {
     throw error;
   }
 }
+
+/** Unified diff for specific relative paths (or full worktree if empty). */
+export async function gitDiff(
+  cwd: string,
+  relativeFiles: string[] = [],
+): Promise<string> {
+  const args = ['diff', '--no-color', 'HEAD', '--'];
+  if (relativeFiles.length) {
+    args.push(...relativeFiles);
+  }
+  try {
+    const { stdout } = await runGit(cwd, args);
+    // Also include untracked new files via diff against /dev/null style:
+    // `git diff --no-index` is awkward; use `git add -N` simulation via status + diff cached.
+    const untracked = await listUntracked(cwd, relativeFiles);
+    let extra = '';
+    for (const file of untracked) {
+      try {
+        const { stdout: patch } = await runGit(cwd, [
+          'diff',
+          '--no-color',
+          '--no-index',
+          '--',
+          '/dev/null',
+          file,
+        ]);
+        extra += (extra ? '\n' : '') + patch;
+      } catch (error) {
+        // git diff --no-index exits 1 when files differ — still has stdout
+        const err = error as { stdout?: string };
+        if (err.stdout) {
+          extra += (extra ? '\n' : '') + err.stdout;
+        }
+      }
+    }
+    return [stdout.trim(), extra.trim()].filter(Boolean).join('\n\n');
+  } catch (error) {
+    const err = error as { stdout?: string; message?: string };
+    if (err.stdout) {
+      return String(err.stdout).trim();
+    }
+    throw error;
+  }
+}
+
+async function listUntracked(
+  cwd: string,
+  relativeFiles: string[],
+): Promise<string[]> {
+  const { stdout } = await runGit(cwd, [
+    'ls-files',
+    '--others',
+    '--exclude-standard',
+  ]);
+  const all = stdout
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (!relativeFiles.length) {
+    return all;
+  }
+  const wanted = new Set(relativeFiles.map((f) => f.split(path.sep).join('/')));
+  return all.filter((f) => wanted.has(f.split(path.sep).join('/')));
+}
+
+export async function gitStatusShort(cwd: string): Promise<string> {
+  const { stdout } = await runGit(cwd, ['status', '--short']);
+  return stdout.trim();
+}
+

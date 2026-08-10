@@ -19,7 +19,7 @@ type ModelCreateSpec = Record<string, unknown> & {
  * End-to-end create from a requirement:
  * optional source + model in an isolated change set, with preview + lineage.
  * Optionally sample live rows via Trino when includeData is true.
- * Publish separately via dj_publish_change after user approval.
+ * Ship separately via dj_review_change → dj_ship after user approval.
  */
 export async function createE2e(
   args: ProjectSelector & {
@@ -190,9 +190,9 @@ export async function createE2e(
 
     const next =
       changeSetId && trino.enabled && trino.host && !args.includeData
-        ? `Optional live rows: dj_preview_data({ changeSetId: "${changeSetId}", modelName: "${modelName ?? ''}", mode: "compile" }). Then dj_publish_change({ changeSetId: "${changeSetId}", approval: true, commitMessage: "..." })`
+        ? `Optional: dj_preview_data / dj_run_model. Then dj_review_change({ changeSetId: "${changeSetId}" }) → dj_ship({ changeSetId: "${changeSetId}", approval: true, commitMessage: "..." })`
         : changeSetId
-          ? `After review: dj_publish_change({ changeSetId: "${changeSetId}", approval: true, commitMessage: "..." })`
+          ? `dj_review_change({ changeSetId: "${changeSetId}" }) then dj_ship({ changeSetId: "${changeSetId}", approval: true, commitMessage: "..." })`
           : undefined;
 
     return success(

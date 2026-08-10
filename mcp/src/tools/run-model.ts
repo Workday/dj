@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import { glob } from 'glob';
 import * as path from 'path';
-import { dbtCompileModel, dbtRunModel } from '../dbt/compile';
+import { dbtRunModel } from '../dbt/compile';
 import { readChangeSet } from '../projects/changes';
 import { resolveActiveProject, toPublicProject } from '../projects/registry';
 import { failure, success, type ProjectSelector } from '../response';
@@ -52,22 +52,20 @@ async function resolveModelName(params: {
 }
 
 /**
- * Live preview of a DJ model: dbt compile or run (with --defer by default),
- * then sample rows via Trino.
+ * Run a dbt model (write to Trino) then sample rows.
+ *
+ * When upstream is omitted or "ask", returns needsDecision so the agent can
+ * ask the user: build upstream (+model) vs defer to shared schema.
  */
-export async function previewData(
+export async function runModel(
   args: ProjectSelector & {
     changeSetId?: string;
     modelName?: string;
     modelPath?: string;
-    mode?: 'compile' | 'run';
-    includeUpstream?: boolean;
-    /** Default true — resolve unselected upstreams from state instead of building them. */
-    defer?: boolean;
-    statePath?: string;
-    /** Shared schema for deferred upstreams (e.g. datamarts_portal). */
+    /** ask (default) | defer | build */
+    upstream?: 'ask' | 'defer' | 'build';
+    previewLimit?: number;
     deferSchema?: string;
-    limit?: number;
   },
 ) {
   try {
@@ -76,7 +74,7 @@ export async function previewData(
 
     let projectPath: string;
     let projectPublic: Record<string, unknown>;
-    let changeSetId = args.changeSetId;
+    const changeSetId = args.changeSetId;
 
     if (changeSetId) {
       const manifest = readChangeSet(changeSetId);
@@ -113,89 +111,104 @@ export async function previewData(
       modelName: args.modelName,
       modelPath: args.modelPath,
     });
-    const mode = args.mode ?? conn.previewMode;
-    const limit = args.limit ?? conn.defaultLimit;
-    const defer = args.defer !== false && args.includeUpstream !== true;
+
+    const upstream = args.upstream ?? 'ask';
+    if (upstream === 'ask') {
+      return success({
+        needsDecision: true,
+        modelName,
+        project: projectPublic,
+        changeSetId,
+        question:
+          'Run with upstream models (+model, rebuild chain in your schema) or defer upstreams to the shared schema and only run this model?',
+        options: [
+          {
+            value: 'defer',
+            label: 'Defer upstreams (recommended) — dbt run --defer',
+          },
+          {
+            value: 'build',
+            label: 'Build upstreams — dbt run --select +model',
+          },
+        ],
+        hint: `Ask the user, then call dj_run_model again with upstream: "defer" or upstream: "build"${
+          changeSetId ? ` and changeSetId: "${changeSetId}"` : ''
+        }.`,
+      });
+    }
+
     const deferSchema =
       args.deferSchema?.trim() ||
       process.env.DJ_DBT_DEFER_SCHEMA?.trim() ||
       'datamarts_portal';
-    const steps: string[] = [];
+    const limit = args.previewLimit ?? conn.defaultLimit;
+    const useDefer = upstream === 'defer';
 
-    if (mode === 'run') {
-      const run = await dbtRunModel({
-        projectPath,
-        modelName,
-        includeUpstream: args.includeUpstream,
-        defer,
-        statePath: args.statePath,
-        deferSchema: defer ? deferSchema : undefined,
-      });
-      steps.push(defer ? 'dbt_run_defer' : 'dbt_run');
-      const sql = `SELECT * FROM ${quoteIdent(conn.catalog)}.${quoteIdent(conn.schema)}.${quoteIdent(modelName)}`;
-      const result = await executeTrinoQuery(conn, sql, { limit });
-      steps.push('trino_query');
-      return success({
-        project: projectPublic,
-        changeSetId,
-        modelName,
-        mode,
-        defer,
-        deferSchema: defer ? deferSchema : undefined,
-        steps,
-        trino: publicTrinoInfo(conn),
-        sql: `${sql}\nLIMIT ${limit}`,
-        columns: result.columns,
-        rows: result.rows,
-        rowCount: result.rowCount,
-        limit,
-        dbt: {
-          stdoutTail: run.stdout.slice(-1500),
-          stderrTail: run.stderr.slice(-1500),
-          deferStatePath: run.deferStatePath,
-        },
-        hint: changeSetId
-          ? `Review rows, then dj_review_change → dj_ship({ changeSetId: "${changeSetId}", approval: true, commitMessage: "..." })`
-          : undefined,
-      });
-    }
-
-    const compiled = await dbtCompileModel({
+    const run = await dbtRunModel({
       projectPath,
       modelName,
-      defer,
-      statePath: args.statePath,
-      deferSchema: defer ? deferSchema : undefined,
+      includeUpstream: upstream === 'build',
+      defer: useDefer,
+      deferSchema: useDefer ? deferSchema : undefined,
     });
-    steps.push(defer ? 'dbt_compile_defer' : 'dbt_compile');
-    const result = await executeTrinoQuery(conn, compiled.compiledSql!, {
-      limit,
-    });
-    steps.push('trino_query');
+
+    const sql = `SELECT * FROM ${quoteIdent(conn.catalog)}.${quoteIdent(conn.schema)}.${quoteIdent(modelName)}`;
+    let preview: {
+      columns: string[];
+      rows: unknown[][];
+      rowCount: number;
+    };
+    try {
+      preview = await executeTrinoQuery(conn, sql, { limit });
+    } catch (error) {
+      return success(
+        {
+          project: projectPublic,
+          changeSetId,
+          modelName,
+          upstream,
+          defer: useDefer,
+          deferSchema: useDefer ? deferSchema : undefined,
+          steps: [useDefer ? 'dbt_run_defer' : 'dbt_run'],
+          trino: publicTrinoInfo(conn),
+          wroteRelation: `${conn.catalog}.${conn.schema}.${modelName}`,
+          previewError: (error as Error).message,
+          dbt: {
+            stdoutTail: run.stdout.slice(-2000),
+            stderrTail: run.stderr.slice(-2000),
+            deferStatePath: run.deferStatePath,
+          },
+          hint: 'dbt run finished but Trino preview failed — relation may be ephemeral or not yet queryable.',
+        },
+        {
+          warnings: [(error as Error).message],
+        },
+      );
+    }
 
     return success({
       project: projectPublic,
       changeSetId,
       modelName,
-      mode: 'compile',
-      defer,
-      deferSchema: defer ? deferSchema : undefined,
-      steps,
+      upstream,
+      defer: useDefer,
+      deferSchema: useDefer ? deferSchema : undefined,
+      steps: [
+        useDefer ? 'dbt_run_defer' : 'dbt_run',
+        'trino_preview',
+      ],
       trino: publicTrinoInfo(conn),
-      compiledSql: compiled.compiledSql,
-      sql: compiled.compiledSql,
-      columns: result.columns,
-      rows: result.rows,
-      rowCount: result.rowCount,
+      wroteRelation: `${conn.catalog}.${conn.schema}.${modelName}`,
+      sql: `${sql}\nLIMIT ${limit}`,
+      columns: preview.columns,
+      rows: preview.rows,
+      rowCount: preview.rowCount,
       limit,
       dbt: {
-        stdoutTail: compiled.stdout.slice(-1500),
-        stderrTail: compiled.stderr.slice(-1500),
-        deferStatePath: compiled.deferStatePath,
+        stdoutTail: run.stdout.slice(-2000),
+        stderrTail: run.stderr.slice(-2000),
+        deferStatePath: run.deferStatePath,
       },
-      hint: changeSetId
-        ? `Review rows, then dj_review_change → dj_ship({ changeSetId: "${changeSetId}", approval: true, commitMessage: "..." })`
-        : undefined,
     });
   } catch (error) {
     return failure([(error as Error).message]);

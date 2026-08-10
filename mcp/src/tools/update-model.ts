@@ -35,7 +35,7 @@ function resolveModelFile(
 
 /**
  * Update a DJ `.model.json` inside an isolated change-set worktree (default).
- * Publish with dj_publish_change after approval.
+ * Ship with dj_review_change → dj_ship after approval.
  */
 export async function updateModel(
   args: ProjectSelector & {
@@ -170,7 +170,7 @@ export async function updateModel(
         : undefined,
       next:
         previewOnly && changeSetId
-          ? `Review preview, then dj_publish_change({ changeSetId: "${changeSetId}", approval: true, commitMessage: "..." })`
+          ? `Review preview, then dj_review_change → dj_ship({ changeSetId: "${changeSetId}", approval: true, commitMessage: "..." })`
           : undefined,
     });
   } catch (error) {

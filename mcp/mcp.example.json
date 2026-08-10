@@ -1,10 +1,10 @@
 {
   "mcpServers": {
-    "dj": {
-      "command": "/Users/dinesh.prakash/perftool-repos/dj-mcp/dj/mcp/start.sh",
+    "dj-mcp": {
+      "command": "~/dj/mcp/start.sh",
       "args": [],
       "env": {
-        "DJ_MCP_CONFIG": "/Users/dinesh.prakash/perftool-repos/dj-mcp/dj/mcp/config.example1.json"
+        "DJ_MCP_CONFIG": "~/dj/mcp/config.example1.json"
       }
     }
   }

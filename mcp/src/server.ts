@@ -17,6 +17,9 @@ import { previewData } from './tools/preview-data';
 import { previewModelTool } from './tools/preview-model';
 import { previewSource } from './tools/preview-source';
 import { publishChange } from './tools/publish-change';
+import { reviewChange } from './tools/review-change';
+import { runModel } from './tools/run-model';
+import { shipChange } from './tools/ship';
 import { trinoStatus } from './tools/trino-status';
 import { updateModel } from './tools/update-model';
 import { useLocalProject } from './tools/use-local-project';
@@ -222,7 +225,7 @@ const TOOL_DEFINITIONS = [
   {
     name: 'dj_create_model',
     description:
-      'Create a DJ model (+sql/yml) in an isolated change-set worktree for review. Does not mutate the base branch until dj_publish_change.',
+      'Create a DJ .model.json (source of truth) and auto-generate sibling .sql + .yml in an isolated change-set. Does not require the DJ VS Code extension. Does not mutate base until dj_ship.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -240,7 +243,7 @@ const TOOL_DEFINITIONS = [
   {
     name: 'dj_update_model',
     description:
-      'Update a DJ .model.json in an isolated change-set worktree and regenerate .sql/.yml. Publish with dj_publish_change after approval.',
+      'Update a DJ .model.json in an isolated change-set and regenerate .sql/.yml. Publish with dj_ship after approval.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -258,7 +261,7 @@ const TOOL_DEFINITIONS = [
   {
     name: 'dj_get_lineage',
     description:
-      'Trace upstream/downstream model and source lineage from .model.json dependencies',
+      'Trace upstream/downstream model and source lineage from .model.json dependencies (agent-readable graph; no extension UI)',
     inputSchema: {
       type: 'object',
       properties: {
@@ -273,7 +276,7 @@ const TOOL_DEFINITIONS = [
   {
     name: 'dj_create_source',
     description:
-      'Create a .source.json (+yml) in an isolated change set for review',
+      'Create a .source.json (source of truth) and auto-generate .yml in an isolated change set. No DJ extension required.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -289,7 +292,7 @@ const TOOL_DEFINITIONS = [
   {
     name: 'dj_create_e2e',
     description:
-      'From a user requirement: create model/source in an isolated change set, return SQL/YAML preview + lineage. Set includeData:true to also sample live Trino rows. After user approval call dj_publish_change.',
+      'From a user requirement: create model/source in an isolated change set, return SQL/YAML preview + lineage. Set includeData:true for live Trino rows. After review: dj_review_change then dj_ship.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -312,8 +315,40 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: 'dj_run_model',
+    description:
+      'Run a dbt model (write to Trino) then preview rows. If upstream is omitted/ask, returns needsDecision — agent must ask the user: defer upstreams vs build +model, then recall with upstream: defer|build. Auto-parses when manifest is missing.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ...projectSelectorProps,
+        changeSetId: { type: 'string' },
+        modelName: { type: 'string' },
+        modelPath: { type: 'string' },
+        upstream: {
+          type: 'string',
+          enum: ['ask', 'defer', 'build'],
+          description:
+            'ask (default) = return decision prompt; defer = --defer to shared schema; build = +model',
+        },
+        previewLimit: { type: 'number' },
+        deferSchema: { type: 'string' },
+      },
+    },
+  },
+  {
     name: 'dj_get_change',
-    description: 'Get status and files for an isolated change set',
+    description: 'Get status and files for an isolated change set (prefer dj_review_change for diffs before shipping)',
+    inputSchema: {
+      type: 'object',
+      properties: { changeSetId: { type: 'string' } },
+      required: ['changeSetId'],
+    },
+  },
+  {
+    name: 'dj_review_change',
+    description:
+      'Review a change set before PR: status, file list, unified diff, base freshness. Use when user asks to create a PR.',
     inputSchema: {
       type: 'object',
       properties: { changeSetId: { type: 'string' } },
@@ -322,7 +357,7 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: 'dj_discard_change',
-    description: 'Discard an isolated change set and remove its worktree',
+    description: 'Discard an isolated change set and remove its worktree (revert before publish)',
     inputSchema: {
       type: 'object',
       properties: { changeSetId: { type: 'string' } },
@@ -330,9 +365,25 @@ const TOOL_DEFINITIONS = [
     },
   },
   {
+    name: 'dj_ship',
+    description:
+      'Create PR from a change set: without approval returns suggested commit/PR text; with approval:true + commitMessage commits, pushes, and opens a GitHub/GHE PR. Preferred when user says “create PR”.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        changeSetId: { type: 'string' },
+        approval: { type: 'boolean' },
+        commitMessage: { type: 'string' },
+        prTitle: { type: 'string' },
+        prBody: { type: 'string' },
+      },
+      required: ['changeSetId'],
+    },
+  },
+  {
     name: 'dj_publish_change',
     description:
-      'After preview approval: commit, push a branch, and open a GitHub/GHE PR. Requires approval: true.',
+      'Alias of dj_ship (legacy). Prefer dj_ship. Requires approval: true and commitMessage.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -402,13 +453,23 @@ async function callTool(
       return toToolContent(
         await createE2e(args as Parameters<typeof createE2e>[0]),
       );
+    case 'dj_run_model':
+      return toToolContent(await runModel(args));
     case 'dj_get_change':
       return toToolContent(
         await getChange(args as Parameters<typeof getChange>[0]),
       );
+    case 'dj_review_change':
+      return toToolContent(
+        await reviewChange(args as Parameters<typeof reviewChange>[0]),
+      );
     case 'dj_discard_change':
       return toToolContent(
         await discardChange(args as Parameters<typeof discardChange>[0]),
+      );
+    case 'dj_ship':
+      return toToolContent(
+        await shipChange(args as Parameters<typeof shipChange>[0]),
       );
     case 'dj_publish_change':
       return toToolContent(

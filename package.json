@@ -1002,6 +1002,7 @@
     "update-test-schemas": "npx tsx tests/update-test-schemas.ts",
     "test": "npx jest",
     "mcp:build": "npm run build --workspace=mcp",
+    "mcp:cli": "npm run cli --workspace=mcp",
     "mcp:dev": "npm run dev --workspace=mcp",
     "mcp:test": "npm run test --workspace=mcp",
     "vscode:prepublish": "npx rimraf dist && npm run compile:web && npm run compile && node esbuild.mjs --production",

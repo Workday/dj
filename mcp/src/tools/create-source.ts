@@ -93,7 +93,7 @@ export async function createSource(
       changedFiles: manifest?.relativeChangedFiles,
       next:
         previewOnly && changeSetId
-          ? `Review, then dj_publish_change({ changeSetId: "${changeSetId}", approval: true, commitMessage: "..." })`
+          ? `Review, then dj_review_change → dj_ship({ changeSetId: "${changeSetId}", approval: true, commitMessage: "..." })`
           : undefined,
     });
   } catch (error) {

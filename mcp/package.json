@@ -7,10 +7,12 @@
   "type": "commonjs",
   "main": "dist/server.js",
   "bin": {
-    "dj-mcp": "dist/server.js"
+    "dj-mcp": "dist/server.js",
+    "dj-gen": "dist/cli.js"
   },
   "scripts": {
     "build": "node esbuild.mjs",
+    "cli": "node dist/cli.js",
     "dev": "npx tsx src/server.ts",
     "start": "node dist/server.js",
     "test": "npx jest"
