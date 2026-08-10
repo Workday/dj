@@ -1,5 +1,15 @@
 # Change Log
 
+## 2.1.2
+
+### Security
+
+- **Dependency upgrades for Snyk findings.** Bumps `react-router`, `glob`, and `ajv`/`fast-uri` to patched versions that address reported CSRF, brace-expansion, and URI-parsing vulnerabilities.
+
+### UX improvements
+
+- **Fix: Model Lineage opens the correct view on first use.** Opening Model Lineage from a model `.sql`, `.model.json`, or `.yml` file (context menu, editor title, or `Cmd+Shift+L`) now shows the model lineage graph in Data Explorer instead of Column Lineage the first time the panel opens.
+
 ## 2.1.1
 
 ### Airflow

@@ -1,24 +1,5 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 
-// Mock vscode before importing anything that pulls it in transitively.
-// The profiles module only relies on `vscode.workspace.getConfiguration` for
-// the (settings-bound) profile list + active-profile pointer, and
-// `vscode.ConfigurationTarget.Workspace` as an enum constant. Stubbing those
-// is enough for the pure-logic tests below.
-jest.mock(
-  'vscode',
-  () => ({
-    workspace: {
-      getConfiguration: () => ({
-        get: <T>(_key: string, fallback: T) => fallback,
-        update: jest.fn(),
-      }),
-    },
-    ConfigurationTarget: { Workspace: 2 },
-  }),
-  { virtual: true },
-);
-
 import {
   resolveProfileSecret,
   TrinoProfileError,

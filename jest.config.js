@@ -2,6 +2,7 @@
 const config = {
   preset: 'ts-jest',
   moduleNameMapper: {
+    '^vscode$': '<rootDir>/src/__mocks__/vscode.js',
     admin: ['<rootDir>/src/admin'],
     '@services/(.*)': ['<rootDir>/src/services/$1'],
     '@services': ['<rootDir>/src/services'],
@@ -24,6 +25,7 @@ const config = {
     '<rootDir>/.venv/',
     '/__tests__/helpers\\.ts$',
   ],
+  modulePathIgnorePatterns: ['<rootDir>/out/', '<rootDir>/dist/'],
 };
 
 module.exports = config;
