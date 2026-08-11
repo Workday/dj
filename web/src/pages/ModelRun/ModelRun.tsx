@@ -595,10 +595,7 @@ export function ModelRun() {
                 tooltipText={TOOLTIPS.fullRefresh}
                 onChange={handleBooleanConfigChange}
               />
-            </div>
-            {/* Defer options — Favor State and State Path only apply with Defer */}
-            {config.defer && (
-              <>
+              {config.defer && (
                 <MemoizedSwitchCard
                   checked={config.favorState}
                   configKey="favorState"
@@ -606,19 +603,22 @@ export function ModelRun() {
                   tooltipText={TOOLTIPS.favorState}
                   onChange={handleBooleanConfigChange}
                 />
-                <InputText
-                  id="statePath"
-                  name="statePath"
-                  label="State Path"
-                  value={config.statePath}
-                  onChange={(e) =>
-                    handleConfigChange('statePath', e.target.value)
-                  }
-                  placeholder={`${modelInfo?.projectPath || '/path/to/project'}/${DEFAULT_DEFER_STATE_PATH}`}
-                  tooltipText={TOOLTIPS.statePath}
-                  error={validationErrors.statePath}
-                />
-              </>
+              )}
+            </div>
+            {/* State Path only applies with Defer */}
+            {config.defer && (
+              <InputText
+                id="statePath"
+                name="statePath"
+                label="State Path"
+                value={config.statePath}
+                onChange={(e) =>
+                  handleConfigChange('statePath', e.target.value)
+                }
+                placeholder={`${modelInfo?.projectPath || '/path/to/project'}/${DEFAULT_DEFER_STATE_PATH}`}
+                tooltipText={TOOLTIPS.statePath}
+                error={validationErrors.statePath}
+              />
             )}
           </div>
 
