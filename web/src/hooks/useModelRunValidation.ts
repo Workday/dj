@@ -84,15 +84,12 @@ export function useModelRunValidation({
       errors.statePath = 'State path is required when defer is enabled';
     }
 
-    // Validate that modified models exist when defer is enabled with 'modified' scope
+    // Validate that modified models exist when 'modified' scope is selected
     // Only show error after we've completed at least one fetch attempt
-    const shouldValidateDeferModels =
-      defer &&
-      scope === 'modified' &&
-      !fetchingModifiedModels &&
-      hasFetchedModels;
+    const shouldValidateModifiedModels =
+      scope === 'modified' && !fetchingModifiedModels && hasFetchedModels;
 
-    if (shouldValidateDeferModels && modifiedModels.length === 0) {
+    if (shouldValidateModifiedModels && modifiedModels.length === 0) {
       errors.defer =
         'No model changes detected from master branch. All models are up to date.';
     }
