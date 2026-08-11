@@ -1,10 +1,8 @@
 from airflow.decorators import dag, task
-from airflow.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.utils.trigger_rule import TriggerRule
 from datetime import date, datetime, timedelta, timezone
 import json
 
-from _ext_.etl_helper import get_python_source_config
 from _ext_.services import (
     airflow_timeout,
     dbt_build,
@@ -69,12 +67,6 @@ dag_email_list: list[str] = []
 if not suppress_notifications:
     dag_email_list.append(email_notifications)
 
-# ---------------------------------------------------------------------------
-# Read python_source_config at parse time (controls parallel/sequential wiring)
-# ---------------------------------------------------------------------------
-_python_source_config = get_python_source_config()
-_parallel = _python_source_config.get("parallel", True)
-
 
 @dag(
     catchup=False,
@@ -91,7 +83,6 @@ _parallel = _python_source_config.get("parallel", True)
     max_active_runs=1,
     params={
         "skip_sources": False,
-        "skip_python_source": False,
     },
     schedule=schedule_cron,
     start_date=datetime(1970, 1, 1),
@@ -111,34 +102,6 @@ def source_etl_dag():
         if k8s_workers_start is not None:
             # Scale up the workers to the desired number
             k8s_scale(workers=k8s_workers_start)
-
-    # -----------------------------------------------------------------------
-    # Python Model Trigger
-    # -----------------------------------------------------------------------
-
-    @task(task_id="trigger_python_source", trigger_rule=TriggerRule.ALL_DONE)
-    def trigger_python_source_task(**context):
-        """
-        Trigger the opus_python_source DAG and wait for it to complete.
-        """
-        skip = context.get("params", {}).get("skip_python_source", False)
-        if skip:
-            log.info("Skipping python source trigger (skip_python_source=True)")
-            return
-
-        runtime_config = get_python_source_config()
-        config_json = json.dumps(runtime_config)
-        log.info("Triggering opus_python_source with config: %s", config_json)
-
-        trigger = TriggerDagRunOperator(
-            task_id="trigger_opus_python_source_inner",
-            trigger_dag_id="opus_python_source",
-            wait_for_completion=True,
-            poke_interval=30,
-            reset_dag_run=True,
-            conf={"python_source_config": runtime_config},
-        )
-        trigger.execute(context)
 
     @task(task_id="create_source_tables")
     def create_source_tables():
@@ -1140,7 +1103,6 @@ def source_etl_dag():
     # Sequence tasks
 
     _start_etl = start_etl()
-    _trigger_python_source = trigger_python_source_task()
     _create_source_tables = create_source_tables()
     _fetch_sources = fetch_sources()
     _fetch_source_dates = fetch_source_dates.expand(source=_fetch_sources)
@@ -1158,18 +1120,14 @@ def source_etl_dag():
     _run_vacuum = run_vacuum.expand(vacuum_run=_fetch_vacuum_runs)
     _end_etl = end_etl()
 
-    # Source pipeline chain (always the same internal ordering)
-    _source_chain = (
-        _create_source_tables
+    (
+        _start_etl
+        >> _create_source_tables
         >> _fetch_sources
         >> _fetch_source_dates
         >> _fetch_source_runs
         >> _run_sources
-    )
-
-    # Post-source chain
-    _post_source_chain = (
-        _fetch_models
+        >> _fetch_models
         >> _fetch_model_dates
         >> _fetch_model_runs
         >> _run_models
@@ -1181,18 +1139,6 @@ def source_etl_dag():
         >> _run_vacuum
         >> _end_etl
     )
-
-    if _parallel:
-        # Parallel: python source trigger and source pipeline run concurrently,
-        # both must finish before the post-source chain begins.
-        _start_etl >> _trigger_python_source
-        _start_etl >> _create_source_tables
-        _trigger_python_source >> _fetch_models
-        _run_sources >> _fetch_models
-    else:
-        # Sequential (default): python source trigger runs first, then sources.
-        _start_etl >> _trigger_python_source >> _create_source_tables
-        _run_sources >> _fetch_models
 
 
 etl = source_etl_dag()

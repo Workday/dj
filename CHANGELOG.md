@@ -8,6 +8,12 @@
 - Make select dropdowns virtualized to improve page perf.
 - Bug fixes with parsing trino output.
 
+## 2.1.1
+
+### Airflow
+
+- **source_etl uses a Python-aware template only when Python models exist.** When `dj.airflowGenerateDags` is enabled, DJ always writes a single `source_etl.py` DAG (`dag_id` `source_etl`). Without Python models it copies the no-Python `source_etl.py` template;
+
 ## 2.1.0
 
 ### Agent skills

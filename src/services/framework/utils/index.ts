@@ -39,6 +39,10 @@ export * from './python-sql-guard';
 // DAG injection helpers for Python model task wiring
 export * from './python-dag-inject';
 
+export * from './source-etl-python';
+
+export * from './source-etl-python-workspace';
+
 // Re-export types that utilities depend on
 export type { DbtProject } from '@shared/dbt/types';
 export type {
