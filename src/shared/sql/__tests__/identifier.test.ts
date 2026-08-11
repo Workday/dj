@@ -99,4 +99,13 @@ describe('quoteTrinoIdentifier', () => {
       '"x"" union select secret --"',
     );
   });
+
+  it('throws a clear error when the identifier is missing', () => {
+    // A missing catalog/schema/table (e.g. an undefined table name reaching
+    // the query builder) must fail with a descriptive message rather than the
+    // opaque "Cannot read properties of undefined (reading 'replace')".
+    expect(() =>
+      quoteTrinoIdentifier(undefined as unknown as string),
+    ).toThrow(/expected an identifier/);
+  });
 });

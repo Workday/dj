@@ -66,7 +66,7 @@ import {
   findDangerousSqlStatements,
   frameworkGetModelId,
   frameworkGetSourceIds,
-  frameworkMakeSourcePrefix,
+  frameworkMakeSourceId,
   generateAutoTests,
   generatePythonModelConfigPy,
   generatePythonModelScaffoldPy,
@@ -730,7 +730,13 @@ export class Framework implements ApiEnabledService<'framework'> {
     context.subscriptions.push(
       vscode.commands.registerCommand(
         COMMAND_ID.SOURCE_REFRESH,
-        async ({ sourceId }: { sourceId: string }) => {
+        async ({
+          sourceId,
+          tableName: providedTableName,
+        }: {
+          sourceId: string;
+          tableName?: string;
+        }) => {
           await vscode.window.withProgress(
             {
               title: 'DJ Loading',
@@ -754,7 +760,14 @@ export class Framework implements ApiEnabledService<'framework'> {
                   return;
                 }
 
-                const tableName = sourceId.split('.')[3];
+                const tableName =
+                  providedTableName ?? sourceId.split('.').pop();
+                if (!tableName) {
+                  vscode.window.showErrorMessage(
+                    'Could not determine the source table to refresh.',
+                  );
+                  return;
+                }
 
                 const trinoColumnsResponse = await this.getApi().handleApi({
                   type: 'trino-fetch-columns',
@@ -997,21 +1010,19 @@ export class Framework implements ApiEnabledService<'framework'> {
                 new RegExp(regex),
               );
               if (range) {
-                const sourceId =
-                  frameworkMakeSourcePrefix({
-                    database: sourceDatabase,
-                    schema: sourceSchema,
-                    project,
-                  }) +
-                  '.' +
-                  sourceTable.name;
+                const sourceId = frameworkMakeSourceId({
+                  database: sourceDatabase,
+                  schema: sourceSchema,
+                  table: sourceTable.name,
+                  project,
+                });
 
                 // Add refresh source as first code lens
                 codeLenses.push(
                   new vscode.CodeLens(range, {
                     title: 'Refresh Source $(refresh)',
                     command: COMMAND_ID.SOURCE_REFRESH,
-                    arguments: [{ sourceId }],
+                    arguments: [{ sourceId, tableName: sourceTable.name }],
                   }),
                 );
 
@@ -1025,19 +1036,14 @@ export class Framework implements ApiEnabledService<'framework'> {
                       }),
                     );
                   } else {
-                    // Use dbtSourcePropertiesString helper
-                    const currentProperties = `${sourceDatabase}.${sourceSchema}.${sourceTable.name}`;
-                    const registeredProperties = etlSource.properties;
-                    const propertiesEqual =
-                      currentProperties === registeredProperties;
-                    if (propertiesEqual) {
-                      codeLenses.push(
-                        new vscode.CodeLens(range, {
-                          title: 'Source Registered $(pass-filled)',
-                          command: '',
-                        }),
-                      );
-                    }
+                    // Present in the dbt_sources registry but not actively
+                    // ETL'd -- surface it as registered.
+                    codeLenses.push(
+                      new vscode.CodeLens(range, {
+                        title: 'Source Registered $(pass-filled)',
+                        command: '',
+                      }),
+                    );
                   }
                 }
               }
