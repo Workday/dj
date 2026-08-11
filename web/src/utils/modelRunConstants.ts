@@ -8,6 +8,8 @@ export const TOOLTIPS = {
     'Uses dbt build instead of dbt run, which can handle different model types (tables, views, incremental models) in a single command.',
   defer:
     'Uses the manifest from a previous run to determine which models to skip. Requires a production manifest file in the state path.',
+  favorState:
+    'When a model exists in both the current project and the deferred state, prefer the deferred (state) version. Only applies with Defer.',
   statePath:
     'Path to the directory containing production manifest (manifest.json). Required when using defer.',
   fullRefresh:

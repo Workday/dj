@@ -246,6 +246,9 @@ export function buildDbtRunCommand(config: DbtRunConfig): string {
   }
   if (config.defer && config.statePath) {
     finalCommand += ` --defer --state ${config.statePath}`;
+    if (config.favorState) {
+      finalCommand += ' --favor-state';
+    }
   }
 
   // Add date variables if provided
