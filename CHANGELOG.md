@@ -1,5 +1,13 @@
 # Change Log
 
+## 2.2.0
+
+### Create Source UX Improvements
+
+- Retain context so create source panel doesn't re init on tab switch.
+- Make select dropdowns virtualized to improve page perf.
+- Bug fixes with parsing trino output.
+
 ## 2.1.0
 
 ### Agent skills
