@@ -1,6 +1,6 @@
 # Change Log
 
-## Next
+## 2.2.0
 
 ### UX improvements
 
