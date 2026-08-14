@@ -1,6 +1,6 @@
 # Change Log
 
-## 2.1.2
+## 2.2.1
 
 ### Security
 
@@ -9,6 +9,19 @@
 ### UX improvements
 
 - **Fix: Model Lineage opens the correct view on first use.** Opening Model Lineage from a model `.sql`, `.model.json`, or `.yml` file (context menu, editor title, or `Cmd+Shift+L`) now shows the model lineage graph in Data Explorer instead of Column Lineage the first time the panel opens.
+
+## 2.2.0
+
+### Create Source UX Improvements
+
+- Retain context so create source panel doesn't re init on tab switch.
+- Make select dropdowns virtualized to improve page perf.
+- Bug fixes with parsing trino output.
+
+### DBT Run UX improvements
+
+- **Defer works with any run scope.** In `DJ: Run Model`, enabling Defer no longer locks you to modified models — combine it with single model, multi-model, or full project.
+- **Favor State with Defer.** When Defer is on, toggle Favor State to add `--favor-state` so deferred (state) versions win over local ones for overlapping nodes.
 
 ## 2.1.1
 

@@ -81,6 +81,7 @@ export function ModelRun() {
     seed: false,
     build: false,
     defer: false,
+    favorState: false,
     fullRefresh: false,
     scope: 'single',
     lineage: 'model-only',
@@ -132,16 +133,6 @@ export function ModelRun() {
     }));
   }, [modelInfo]);
 
-  // Auto-switch scope to 'modified' when defer is enabled
-  useEffect(() => {
-    setConfig((prev) => {
-      if (prev.defer && prev.scope !== 'modified') {
-        return { ...prev, scope: 'modified' };
-      }
-      return prev;
-    });
-  }, [config.defer]);
-
   // Fetch available models when project is set in config
   useEffect(() => {
     if (!config.projectName) return;
@@ -162,24 +153,23 @@ export function ModelRun() {
     void fetchAvailableModels();
   }, [config.projectName, api]);
 
-  // Debounce the scope and defer changes to avoid rapid API calls
+  // Debounce scope changes to avoid rapid API calls
   const debouncedScope = useDebounce(config.scope, 300);
-  const debouncedDefer = useDebounce(config.defer, 300);
 
-  // Fetch modified models when defer is enabled OR scope is 'modified'
+  // Fetch modified models when scope is 'modified'
   // Uses state to track if we've already fetched to avoid redundant API calls
   useEffect(() => {
     const shouldFetchModifiedModels =
-      (debouncedDefer || debouncedScope === 'modified') && config.projectName;
+      debouncedScope === 'modified' && config.projectName;
 
-    const shouldClearModels = !debouncedDefer && debouncedScope !== 'modified';
+    const shouldClearModels = debouncedScope !== 'modified';
 
     if (shouldClearModels) {
       // Cancel any in-flight request
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
-      // Reset modified models and fetch flag when neither defer nor modified scope is active
+      // Reset modified models and fetch flag when modified scope is not active
       setModifiedModels([]);
       setSelectedModifiedModels([]);
       setHasFetchedModels(false);
@@ -228,13 +218,7 @@ export function ModelRun() {
         abortControllerRef.current.abort();
       }
     };
-  }, [
-    debouncedDefer,
-    debouncedScope,
-    config.projectName,
-    hasFetchedModels,
-    api,
-  ]);
+  }, [debouncedScope, config.projectName, hasFetchedModels, api]);
 
   // Listen for theme changes in the document
   useEffect(() => {
@@ -432,6 +416,11 @@ export function ModelRun() {
    */
   const handleBooleanConfigChange = useCallback(
     (key: string, value: boolean) => {
+      if (key === 'defer' && !value) {
+        // Favor State only applies with Defer — clear it when Defer is turned off
+        setConfig((prev) => ({ ...prev, defer: false, favorState: false }));
+        return;
+      }
       handleConfigChange(key as keyof DbtRunConfig, value);
     },
     [handleConfigChange],
@@ -606,8 +595,17 @@ export function ModelRun() {
                 tooltipText={TOOLTIPS.fullRefresh}
                 onChange={handleBooleanConfigChange}
               />
+              {config.defer && (
+                <MemoizedSwitchCard
+                  checked={config.favorState}
+                  configKey="favorState"
+                  label="Favor State"
+                  tooltipText={TOOLTIPS.favorState}
+                  onChange={handleBooleanConfigChange}
+                />
+              )}
             </div>
-            {/* State Path Input - Show when defer is enabled */}
+            {/* State Path only applies with Defer */}
             {config.defer && (
               <InputText
                 id="statePath"
@@ -632,7 +630,6 @@ export function ModelRun() {
             </div>
             <ScopeSelector
               currentScope={config.scope}
-              isDeferEnabled={config.defer}
               onScopeChange={handleScopeChange}
               activeModelName={modelInfo?.modelName}
               currentLineage={config.lineage}

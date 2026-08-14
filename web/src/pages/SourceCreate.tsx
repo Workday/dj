@@ -380,6 +380,8 @@ export function SourceCreate() {
                 label="Select Trino Catalog"
                 options={trinoCatalogOptions}
                 tooltipText="Choose the Trino catalog that contains your data. A catalog in Trino represents a data source or connector (e.g., 'production', 'development', 'staging')."
+                virtualized
+                filterDebounceMs={200}
               />
             )}
           />
@@ -398,6 +400,8 @@ export function SourceCreate() {
                 label="Select Trino Schema"
                 options={trinoSchemaOptions}
                 tooltipText="Select the schema (database) within the catalog. Schemas organize related tables and views together in a logical grouping."
+                virtualized
+                filterDebounceMs={200}
               />
             )}
           />
@@ -416,6 +420,8 @@ export function SourceCreate() {
                 label="Select Trino Table"
                 options={trinoTableOptions}
                 tooltipText="Choose the specific table you want to create as a dbt source. This table will be referenced in your dbt models and should contain the raw data you want to transform."
+                virtualized
+                filterDebounceMs={200}
               />
             )}
           />
