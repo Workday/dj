@@ -26,6 +26,8 @@ Use this skill when the user mentions: review python model, audit python model, 
 - Creating new Python models → `dj-create-python-model`
 - SQL `.model.json` review/refactoring → `dj-review-and-refactor-model`
 - Lightdash YAML → `dj-edit-lightdash-yaml`
+- Verifying the model's output *data* against a legacy/reference table (this skill audits code, not data) → `dj-verify-pymodel-parity`
+- Migrating a legacy notebook into a python model before it can be reviewed → `dj-migrate-notebook-to-pymodel`
 
 ## Workflow
 
