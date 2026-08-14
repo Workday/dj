@@ -44,7 +44,7 @@ Point your AI coding tool at the workspace and the skills become available. Most
 
 DJ provides 20 skills, grouped below by what they help you do.
 
-### Setup & onboarding
+### Setup & configuration
 
 #### `dj-initialize`
 
@@ -53,7 +53,7 @@ Interactive wizard that sets up and configures the DJ Framework in an existing d
 - **Use when:** you want to set up DJ in an existing dbt project, configure required settings, or diagnose why DJ is not working correctly.
 - **Example prompt:** _"Set up the DJ framework in this dbt project."_
 
-### Authoring SQL models
+### Creating models & sources
 
 #### `dj-create-new-model`
 
@@ -77,7 +77,7 @@ Registers a raw Trino table as a DJ `.source.json` by introspecting its exact co
 - **Use when:** a model needs a raw `catalog.schema.table` that isn't defined as a source yet, or you want to add a table or columns to an existing source.
 - **Example prompt:** _"Register the raw orders table as a DJ source."_
 
-### Python ETL models
+### Python models (ETL)
 
 #### `dj-create-python-model`
 
@@ -144,7 +144,7 @@ Adds or updates Lightdash `ai_hint` values across a model's full dependency tree
 - **Use when:** you're working with AI hints in model or source JSON files.
 - **Example prompt:** _"Update the AI hints for this model's dependency tree from ai_hints.xlsx."_
 
-### Refactoring & maintenance
+### Reviewing, refactoring & governance
 
 #### `dj-review-and-refactor-model`
 
@@ -162,16 +162,6 @@ Detects legacy ephemeral models and inlines them as Common Table Expressions (CT
 - **Example prompt:** _"Inline the ephemeral models under intermediate/ as CTEs."_
 - **Bundled reference:** `transformation-matrix.md` — per-type inline recipes and CTE-naming rules.
 
-#### `dj-resolve-merge-conflicts`
-
-Resolves git merge, rebase, or cherry-pick conflicts the DJ way — hand-merging only the `.model.json` / `.source.json` sources of truth and regenerating the `.sql` / `.yml` siblings (never hand-merging generated files). It also helps when an incoming branch is old or diverged and you must choose between a full merge and porting specific models.
-
-- **Use when:** you hit conflicts in DJ files while merging/rebasing/cherry-picking, or say "resolve the merge conflicts" or "help me rebase".
-- **Example prompt:** _"Resolve the merge conflicts in these .model.json files."_
-- **Bundled reference:** `staleness-and-porting.md` — the staleness assessment and guided-port recipe.
-
-### Governance
-
 #### `dj-govern-model`
 
 **Read-only** audit of governance posture across a model, folder, dependency tree, or the whole workspace — ownership coverage, PII / classification / compliance tagging, registered-group conformance, and prod-write posture. It reports gaps and points you at the skill to fix each one; it never edits files and never forces a project to adopt metadata it hasn't chosen.
@@ -179,17 +169,7 @@ Resolves git merge, rebase, or cherry-pick conflicts the DJ way — hand-merging
 - **Use when:** you want to review data ownership, check PII / sensitivity / compliance tagging, find models with no owner, or assess governance coverage for a group or project.
 - **Example prompt:** _"Which models in the finance group have no owner or PII tags?"_
 
-### Performance diagnostics
-
-#### `dj-trino-analyzer`
-
-**Read-only** diagnosis of Trino query performance from the `QueryInfo` JSON that DJ's Query Control Center writes to `.dj/diagnostics/`. It explains slowness — broadcast-join blow-ups, data skew, blocked time, object-store scan latency, and more — and suggests `.model.json` knobs; it never edits generated SQL. Run **`DJ: Analyze Trino Query with AI`** first to produce the diagnostics.
-
-- **Use when:** a query is slow, you want to understand a query plan, compare two queries (for example before vs. after a config change), or investigate a specific Trino query ID.
-- **Example prompt:** _"Explain why Trino query 20260101_120000_00001_abcde is slow."_
-- **Bundled references:** a six-file Trino field reference — `query-info.md`, `query-stats.md`, `stage-and-task-stats.md`, `operator-stats.md`, `types-and-enums.md`, and `recipes.md`.
-
-### Running dbt, Trino & git
+### Running commands & diagnostics
 
 #### `dj-run-dbt`
 
@@ -205,12 +185,30 @@ Runs a **read-only** Trino query from the terminal to inspect warehouse data or 
 - **Use when:** you want to query Trino, preview rows, `DESCRIBE` / `SHOW` a table, or sanity-check a value. For diagnosing captured query performance, use `dj-trino-analyzer` instead.
 - **Example prompt:** _"Preview 20 rows from the orders table."_
 
+#### `dj-trino-analyzer`
+
+**Read-only** diagnosis of Trino query performance from the `QueryInfo` JSON that DJ's Query Control Center writes to `.dj/diagnostics/`. It explains slowness — broadcast-join blow-ups, data skew, blocked time, object-store scan latency, and more — and suggests `.model.json` knobs; it never edits generated SQL. Run **`DJ: Analyze Trino Query with AI`** first to produce the diagnostics.
+
+- **Use when:** a query is slow, you want to understand a query plan, compare two queries (for example before vs. after a config change), or investigate a specific Trino query ID.
+- **Example prompt:** _"Explain why Trino query 20260101_120000_00001_abcde is slow."_
+- **Bundled references:** a six-file Trino field reference — `query-info.md`, `query-stats.md`, `stage-and-task-stats.md`, `operator-stats.md`, `types-and-enums.md`, and `recipes.md`.
+
+### Git & collaboration
+
 #### `dj-git-workflow`
 
 Commits DJ work the right way — staging each `.model.json` / `.source.json` together with its generated `.sql` / `.yml` after a sync, ignoring DJ's local `.dj/` state, and following the downstream project's own commit conventions. It stops at the commit and guards against staging secrets; pushing needs your go-ahead. For merge conflicts, use `dj-resolve-merge-conflicts` instead.
 
 - **Use when:** you want to commit, stage, branch, or check in your DJ models, or ask what should be committed.
 - **Example prompt:** _"Commit these model changes."_
+
+#### `dj-resolve-merge-conflicts`
+
+Resolves git merge, rebase, or cherry-pick conflicts the DJ way — hand-merging only the `.model.json` / `.source.json` sources of truth and regenerating the `.sql` / `.yml` siblings (never hand-merging generated files). It also helps when an incoming branch is old or diverged and you must choose between a full merge and porting specific models.
+
+- **Use when:** you hit conflicts in DJ files while merging/rebasing/cherry-picking, or say "resolve the merge conflicts" or "help me rebase".
+- **Example prompt:** _"Resolve the merge conflicts in these .model.json files."_
+- **Bundled reference:** `staleness-and-porting.md` — the staleness assessment and guided-port recipe.
 
 ## Feedback & more
 

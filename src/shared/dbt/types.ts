@@ -643,6 +643,7 @@ export type DbtRunConfig = {
   // Advanced Flags
   build: boolean;
   defer: boolean;
+  favorState: boolean;
   fullRefresh: boolean;
   // Run Scope
   scope: DbtRunScope;
