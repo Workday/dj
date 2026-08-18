@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-
 import {
   resolveProfileSecret,
   TrinoProfileError,

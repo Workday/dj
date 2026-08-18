@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+      - 'v*.*.*'
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  ci:
+    name: test and package
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build VSIX
+        id: build
+        run: |
+          set -euo pipefail
+          PACKAGE_NAME=$(node -p "require('./package.json').name")
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          VSIX="${PACKAGE_NAME}-${PACKAGE_VERSION}.vsix"
+          npm run package
+          if [ ! -f "$VSIX" ]; then
+            echo "::error::Build succeeded but expected VSIX '$VSIX' was not produced"
+            ls -1 *.vsix 2>/dev/null || true
+            exit 1
+          fi
+          echo "Built $VSIX"

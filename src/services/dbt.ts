@@ -24,8 +24,8 @@ import {
   frameworkGetNode,
   frameworkGetNodeColumns,
   frameworkMakeSourceId,
-  sourceEtlTemplateFileName,
   SOURCE_ETL_OUTPUT_FILE,
+  sourceEtlTemplateFileName,
   workspaceHasPythonModels,
 } from '@services/framework/utils';
 import { ModelEditService } from '@services/modelEdit';

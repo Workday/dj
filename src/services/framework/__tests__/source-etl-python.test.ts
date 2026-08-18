@@ -1,6 +1,3 @@
-import * as fs from 'fs';
-import * as path from 'path';
-
 import {
   isPythonModelJsonPath,
   SOURCE_ETL_NO_PYTHON_TEMPLATE,
@@ -8,6 +5,8 @@ import {
   SOURCE_ETL_WITH_PYTHON_TEMPLATE,
   sourceEtlTemplateFileName,
 } from '@services/framework/utils/source-etl-python';
+import * as fs from 'fs';
+import * as path from 'path';
 
 const AIRFLOW_ROOT = path.join(process.cwd(), 'airflow');
 
