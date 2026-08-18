@@ -70,7 +70,7 @@ export default function DataExplorer() {
         <div
           className={`absolute inset-0 ${activeView === 'column' ? '' : 'hidden'}`}
         >
-          <ColumnLineage />
+          {activeView === 'column' ? <ColumnLineage /> : null}
         </div>
         <div
           className={`absolute inset-0 ${activeView === 'sql' ? '' : 'hidden'}`}

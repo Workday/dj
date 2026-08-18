@@ -248,9 +248,12 @@ export class ColumnLineageService implements DJService {
     if (this.lastStatus) {
       this.sendStatus(this.lastStatus.message, this.lastStatus.variant);
     }
-    void this.handleAutoRefresh(vscode.window.activeTextEditor, {
-      retry: true,
-    });
+    // Only auto-refresh when restoring prior column state — not on cold panel open.
+    if (this.lastContext || this.lastSourceContext) {
+      void this.handleAutoRefresh(vscode.window.activeTextEditor, {
+        retry: true,
+      });
+    }
   }
 
   public sendConfig(): void {
