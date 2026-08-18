@@ -2,7 +2,7 @@
 
 DJ ships **AI agent skills** — packaged instructions that guide AI coding assistants (Claude Code, Cursor, GitHub Copilot, Cline, Windsurf, and others) through common DJ (Data JSON) Framework tasks: creating and refactoring models, registering sources, authoring Lightdash dashboards, running dbt and Trino commands, diagnosing slow Trino queries, resolving merge conflicts, committing your work, and more.
 
-This page explains what the skills are, how to turn them on, and catalogs the 17 skills DJ provides today.
+This page explains what the skills are, how to turn them on, and catalogs the 20 skills DJ provides today.
 
 ## What are DJ Agent Skills?
 
@@ -38,11 +38,11 @@ Point your AI coding tool at the workspace and the skills become available. Most
 - **Progressive disclosure.** A skill loads its `SKILL.md` first and pulls in `references/` or runs `scripts/` only when needed, keeping the assistant focused.
 - **Single source of truth.** Skills edit only the JSON sources of truth — `.model.json`, `.source.json`, `.python.json` — and never hand-edit the generated `.sql` / `.yml` / `.python.py`, which DJ regenerates via JSON Sync.
 - **You stay in control of DJ commands.** Skills can't run VS Code commands themselves; they'll ask you to run things like **`DJ: Sync to SQL and YML`** or **`DJ: Refresh Projects`** at the right moment.
-- **Some skills are read-only.** `dj-review-python-model`, `dj-govern-model`, and `dj-trino-analyzer` produce reports and change nothing.
+- **Some skills are read-only.** `dj-review-python-model`, `dj-govern-model`, `dj-trino-analyzer`, and `dj-verify-pymodel-parity` produce reports and change nothing.
 
 ## The skills
 
-DJ provides 17 skills, grouped below by what they help you do.
+DJ provides 20 skills, grouped below by what they help you do.
 
 ### Setup & configuration
 
@@ -95,7 +95,31 @@ Scaffolds a `.python.json` for a pre-dbt Python ETL pipeline that extracts data 
 - **Example prompt:** _"Review this Python model for production readiness."_
 - **Bundled reference:** `review-checklist.md` — pass/fail examples and edge cases for every check.
 
-### Lightdash & AI hints
+#### `dj-migrate-notebook-to-pymodel`
+
+Migrates a legacy Jupyter notebook (`.ipynb`) into a python model. Classifies each cell into extract/transform/load/exploratory, flags hardcoded secrets and non-deterministic code, applies the SQL-first decision tree to every pandas transform, and produces a migration plan report for you to approve before it hands off to `dj-create-python-model` to scaffold the actual `.python.json`.
+
+- **Use when:** you want to migrate, port, or convert an existing notebook into a python model.
+- **Example prompt:** _"Migrate this notebook into a python model."_
+- **Bundled reference:** `notebook-pattern-mapping.md` — common notebook idioms mapped to their DJ/Trino equivalents.
+
+#### `dj-verify-pymodel-parity`
+
+**Read-only** (w.r.t. model files) generator of Trino SQL that proves a python model's output table matches a legacy/reference table — schema diff, per-partition row-count parity, tolerance-based aggregate parity, and row-level diffs via full outer join or checksum. Hands off actual execution to `dj-run-trino`.
+
+- **Use when:** you want to verify, check, or prove parity between an old table and a newly built or migrated python model's output table.
+- **Example prompt:** _"Verify this new table matches the old one for yesterday's partition."_
+- **Bundled reference:** `parity-recipes.md` — copy-paste SQL templates for each check type.
+
+#### `dj-document-pymodels`
+
+Generates or refreshes a topic-level `README.md` under `dags/python_models/<group>/<topic>/`, documenting every python model in that topic — a model table, per-model data flow and business-logic notes, upstream/downstream cross-references, and gotchas. Shows a diff before writing and preserves hand-written prose wrapped in `<!-- keep -->` markers across regenerations.
+
+- **Use when:** you want to document, write docs for, or generate/refresh a README for a python model topic or group.
+- **Example prompt:** _"Document the models in this topic."_
+- **Bundled reference:** `topic-readme-template.md` — the README skeleton and the preserve/regenerate convention.
+
+### Lightdash BI & AI hints
 
 #### `dj-create-lightdash-yaml`
 

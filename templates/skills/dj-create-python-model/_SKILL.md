@@ -29,6 +29,9 @@ Use this skill when the user mentions: python model, ETL, data ingestion, API fe
 - `.source.json` files (registering a raw table as a source) → `dj-create-source`
 - Lightdash YAML → `dj-edit-lightdash-yaml`
 - Refactoring existing models → `dj-review-and-refactor-model`
+- Migrating a legacy Jupyter notebook into a new python model → `dj-migrate-notebook-to-pymodel` (it hands off to this skill's workflow once the migration plan is approved)
+- Verifying a python model's output table against a legacy/reference table → `dj-verify-pymodel-parity`
+- Documenting a topic's python models in a README → `dj-document-pymodels`
 
 ## Interactive gathering workflow
 

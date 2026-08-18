@@ -1,5 +1,11 @@
 # Change Log
 
+## 2.2.1
+
+### Agent skills
+
+- **New `dj-migrate-notebook-to-pymodel`, `dj-verify-pymodel-parity`, and `dj-document-pymodels` skills.** Migrate a legacy Jupyter notebook into a python model with migration plan, generate Trino SQL to verify a python model's output table matches a legacy table, and generate/refresh a topic-level README for a `python_models/<group>/<topic>/` folder — rounding out the python model lifecycle alongside `dj-create-python-model` and `dj-review-python-model`.
+
 ## 2.2.0
 
 ### Create Source UX Improvements
