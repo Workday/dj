@@ -36,8 +36,8 @@ who/what consumes the output, and why it's organized as its own topic.>
 ### Data flow
 
 <Source → extract → transform → output, one or two sentences. E.g., "Fetches
-paginated results from the Backstage API, stages raw JSON into a Trino temp
-table, then transforms and writes to `glue_development.opus_python_source.catalogs`.">
+paginated results from an external API, stages raw JSON into a Trino temp
+table, then transforms and writes to `<database>.<schema>.<table>`.">
 
 ### Business logic notes
 
