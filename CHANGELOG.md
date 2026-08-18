@@ -2,6 +2,14 @@
 
 ## 2.2.1
 
+### Security
+
+- **Dependency upgrades for Snyk findings.** Bumps `react-router`, `glob`, and `ajv`/`fast-uri` to patched versions that address reported CSRF, brace-expansion, and URI-parsing vulnerabilities.
+
+### UX improvements
+
+- **Fix: Model Lineage opens the correct view on first use.** Opening Model Lineage from a model `.sql`, `.model.json`, or `.yml` file (context menu, editor title, or `Cmd+Shift+L`) now shows the model lineage graph in Data Explorer instead of Column Lineage the first time the panel opens.
+
 ### Agent skills
 
 - **New `dj-migrate-notebook-to-pymodel`, `dj-verify-pymodel-parity`, and `dj-document-pymodels` skills.** Migrate a legacy Jupyter notebook into a python model with migration plan, generate Trino SQL to verify a python model's output table matches a legacy table, and generate/refresh a topic-level README for a `python_models/<group>/<topic>/` folder — rounding out the python model lifecycle alongside `dj-create-python-model` and `dj-review-python-model`.

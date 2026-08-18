@@ -23,7 +23,9 @@ For general environment setup (Trino, Java, dbt, etc.), see the **[Setup Guide](
 
 For development, you'll also need:
 
-- **Node.js** (v20.x - v22.x LTS recommended)
+<!-- https://nodejs.org/en/about/previous-releases#looking-for-the-latest-release-of-a-version-branch  -->
+
+- **Node.js** (v22.22+ or v24.x LTS recommended)
 - **npm** (10.x or higher)
 - **VS Code** (version 1.87.0 or higher)
 

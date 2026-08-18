@@ -23,9 +23,9 @@ import {
   BrowserRouter,
   createBrowserRouter,
   Route,
-  RouterProvider,
   Routes,
 } from 'react-router';
+import { RouterProvider } from 'react-router/dom';
 import { useMount, useUnmount } from 'react-use';
 import * as uuid from 'uuid';
 
