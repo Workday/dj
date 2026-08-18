@@ -8,8 +8,10 @@ Wrap any hand-written prose you want to survive future regenerations in a `<!-- 
 
 ```markdown
 <!-- keep -->
+
 This section was written by a human and will not be touched by future
 regenerations of this README.
+
 <!-- /keep -->
 ```
 
@@ -21,14 +23,16 @@ Everything **outside** `<!-- keep -->` blocks is mechanically regenerated from t
 # <topic> (<group>)
 
 <!-- keep -->
+
 <One-paragraph topic purpose — what this group of models exists to do,
 who/what consumes the output, and why it's organized as its own topic.>
+
 <!-- /keep -->
 
 ## Models
 
-| Model | Description | DAG(s) | Output table | Write mode | Partition | Depends on |
-|-------|-------------|--------|---------------|------------|-----------|------------|
+| Model                              | Description            | DAG(s)               | Output table                  | Write mode   | Partition              | Depends on                  |
+| ---------------------------------- | ---------------------- | -------------------- | ----------------------------- | ------------ | ---------------------- | --------------------------- |
 | `python__<group>__<topic>__<name>` | <one-line description> | <dag list or "none"> | `<database>.<schema>.<table>` | <write_mode> | <partition_by columns> | <upstream models or "none"> |
 
 ## `<model_name>`
@@ -36,8 +40,8 @@ who/what consumes the output, and why it's organized as its own topic.>
 ### Data flow
 
 <Source → extract → transform → output, one or two sentences. E.g., "Fetches
-paginated results from the Backstage API, stages raw JSON into a Trino temp
-table, then transforms and writes to `glue_development.opus_python_source.catalogs`.">
+paginated results from an external API, stages raw JSON into a Trino temp
+table, then transforms and writes to `<database>.<schema>.<table>`.">
 
 ### Business logic notes
 
