@@ -4,7 +4,7 @@ import tseslint from 'typescript-eslint';
 import unusedImports from 'eslint-plugin-unused-imports';
 import simpleImportSort from 'eslint-plugin-simple-import-sort';
 
-export default [
+export default tseslint.config(
   {
     ignores: [
       'out/',
@@ -23,6 +23,15 @@ export default [
   },
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
+  // Jest mocks (and any other JS under src/) are not in the TS program.
+  {
+    files: ['**/*.js'],
+    extends: [tseslint.configs.disableTypeChecked],
+    languageOptions: {
+      sourceType: 'commonjs',
+      globals: globals.node,
+    },
+  },
   {
     files: ['**/*.ts', '**/*.tsx'],
     plugins: {
@@ -135,4 +144,4 @@ export default [
       '@typescript-eslint/no-non-null-assertion': 'off',
     },
   },
-];
+);
