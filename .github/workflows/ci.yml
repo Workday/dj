@@ -13,71 +13,36 @@ concurrency:
 permissions: {}
 
 jobs:
-  test:
-    name: test
+  ci:
+    name: test and package
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: 'npm'
 
-      - name: Install dependencies
-        run: npm ci
+      - run: npm ci
 
       - name: Run tests
         run: npm test
 
-  package:
-    name: package
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Resolve package metadata
-        id: pkg
+      - name: Build VSIX
+        id: build
         run: |
           set -euo pipefail
           PACKAGE_NAME=$(node -p "require('./package.json').name")
           PACKAGE_VERSION=$(node -p "require('./package.json').version")
-          echo "vsix=${PACKAGE_NAME}-${PACKAGE_VERSION}.vsix" >> "$GITHUB_OUTPUT"
-
-      - name: Package extension
-        env:
-          VSIX: ${{ steps.pkg.outputs.vsix }}
-        run: |
-          set -euo pipefail
+          VSIX="${PACKAGE_NAME}-${PACKAGE_VERSION}.vsix"
           npm run package
           if [ ! -f "$VSIX" ]; then
-            echo "::error::Expected VSIX '$VSIX' not produced by 'npm run package'"
+            echo "::error::Build succeeded but expected VSIX '$VSIX' was not produced"
             ls -1 *.vsix 2>/dev/null || true
             exit 1
           fi
-
-      - name: Upload VSIX artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.pkg.outputs.vsix }}
-          path: ./${{ steps.pkg.outputs.vsix }}
-          if-no-files-found: error
-          retention-days: 7
+          echo "Built $VSIX"
