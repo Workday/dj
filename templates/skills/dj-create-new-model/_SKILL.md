@@ -67,6 +67,34 @@ One clarifying question if source vs existing model is unclear.
 6. **Write the `.model.json`** at the derived path in **JSONC** (comments and trailing commas allowed; preserve existing comments).
 7. **Verify** via the editor's bound schema and DJ's on-save regeneration/diagnostics (Problems tab) — do not assume standalone validators (`jsonschema`, `pyyaml`, `pip`) are installed (see [references/mart-lightdash-recipes.md](references/mart-lightdash-recipes.md) §4).
 
+## Creating the model: DJ CLI bridge (preferred when DJ is running)
+
+When the DJ extension is running, prefer creating the model through the **CLI bridge** instead of hand-writing the file and asking the user to sync. It runs the **same engine as the Create Model form** (`Api.handleApi`), so it derives the path, enforces the "already exists" guard, writes the `.model.json`, and triggers regeneration in one step:
+
+```bash
+.dj/bin/dj model.create --file <req.json>
+```
+
+The request is a single object `{ "request": { … } }` with the fields you'd otherwise author — `type`, `group`, `topic`, `name`, and the type-specific `from` / `select` / `ctes` / etc. (identical shapes to the `.dj/schemas/` type schema). Minimal `stg_select_source` example:
+
+```json
+{
+  "request": {
+    "type": "stg_select_source",
+    "group": "core",
+    "topic": "sales",
+    "name": "customers",
+    "from": { "source": "raw__public.customers" },
+    "select": [{ "name": "id", "type": "dim" }, { "name": "name" }]
+  }
+}
+```
+
+- **`projectName`** is optional when the workspace has a single dbt project (inferred); with several projects add `"projectName": "<name>"` — the error lists the names, matching the "ask which project" rule above.
+- **Do steps 1–5 first.** The bridge validates and writes, but does not design: determine `type`, gather `group`/`topic`/`name`, read the schema, and verify upstream columns before calling it. The framework derives the path — never pass or choose a file path. Run `.dj/bin/dj system.capabilities` to see the available operations.
+- **Exit codes:** `0` created · `1` operation error (e.g. `Model … already exists`, unregistered group, missing source) · `2` bad input JSON · `3` no live DJ endpoint · `4` timeout.
+- **Fallback (manual authoring).** If `.dj/bin/dj` is absent or exits `3` (DJ not running, or Windows), fall back to **Write the `.model.json`** directly (Workflow steps 6–7) and ask the user to run **`DJ: Sync to SQL and YML`**.
+
 ## Missing upstream? Build the chain first
 
 A mart reads from intermediate/staging models; those read from staging/sources. Before authoring, confirm every `from` reference already exists by reading its `.model.json` / `.source.json` (or checking the manifest).

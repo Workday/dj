@@ -1,5 +1,12 @@
 # Change Log
 
+## Unreleased
+
+### Agent / CLI
+
+- **New DJ CLI bridge (`.dj/bin/dj`) — initial `model.create` use case.** The running extension now deploys a standalone `dj` CLI to `.dj/bin/dj` and exposes a local, token-authenticated Unix-socket bridge so a terminal or an AI agent can create a model without opening the webview — e.g. `.dj/bin/dj model.create --file req.json`. The CLI is a thin transport into the extension's existing `Api.handleApi` logic (no reimplementation); it also supports `system.ping` and `system.capabilities`. macOS/Linux only; requires VS Code running with DJ active. See `docs/cli_commands/README.md`.
+
+
 ## 2.2.1
 
 ### Security

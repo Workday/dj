@@ -1,4 +1,5 @@
 import { Api } from '@services/api';
+import { CliBridgeServer } from '@services/cliBridge/CliBridgeServer';
 import { classifyWatchedPath } from '@services/coder/classifyWatchedPath';
 import type { CoderFileInfo } from '@services/coder/types';
 import { ColumnLineageService } from '@services/columnLineage';
@@ -6,7 +7,7 @@ import {
   getDbtProjectExcludePaths,
   registerConfigurationChangeHandler,
 } from '@services/config';
-import { COMMAND_ID, VIEW_ID } from '@services/constants';
+import { BASE_CLI_DJ_PATH, COMMAND_ID, VIEW_ID } from '@services/constants';
 import { DataExplorer } from '@services/dataExplorer';
 import { Dbt } from '@services/dbt';
 import { DJLogger } from '@services/djLogger';
@@ -32,7 +33,11 @@ import type { ApiMessage } from '@shared/api/types';
 import type { DbtProject, DbtProjectManifest } from '@shared/dbt/types';
 import { getDbtModelId, getDbtProperties } from '@shared/dbt/utils';
 import type { WebviewMessage } from '@shared/webview/types';
-import { WORKSPACE_ROOT } from 'admin';
+import {
+  DJ_BIN_PATH,
+  DJ_CLI_ENDPOINTS_PATH,
+  WORKSPACE_ROOT,
+} from 'admin';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -67,6 +72,7 @@ export class Coder {
   private manifestWatcher?: vscode.FileSystemWatcher;
   // Track if full services have been activated (for late initialization)
   private servicesActivated: boolean = false;
+  private cliBridge?: CliBridgeServer;
 
   // Debounce timers for model/source sync to coalesce rapid saves and auto-save events
   private pendingModelSyncs: Map<string, NodeJS.Timeout> = new Map();
@@ -391,6 +397,7 @@ export class Coder {
       this.log.info('Query Draft activation completed');
 
       this.servicesActivated = true;
+      this.startCliBridge();
       return true;
     } catch (error: unknown) {
       this.log.error('Service initialization failed:', error);
@@ -1641,6 +1648,7 @@ export class Coder {
 
       // Mark services as activated
       this.servicesActivated = true;
+      this.startCliBridge();
 
       // Now that schemas exist, activate watchers
       // Note: Discovery watchers are already active (from no-projects case)
@@ -1765,6 +1773,60 @@ export class Coder {
     this.log.info('File watchers activated');
   }
 
+  /**
+   * Start the CLI bridge (idempotent) and (re)deploy the bundled CLI to
+   * `.dj/bin/dj`. Called after services activate. Never throws — a bridge/deploy
+   * failure must not break extension activation.
+   */
+  private startCliBridge(): void {
+    try {
+      if (!this.cliBridge) {
+        this.cliBridge = new CliBridgeServer({
+          api: {
+            handleApi: (payload) =>
+              this.api.handleApi(
+                payload as Parameters<typeof this.api.handleApi>[0],
+              ),
+          },
+          projectNames: () => [...this.dbt.projects.keys()],
+          version: String(
+            this.context.extension?.packageJSON?.version ?? '0.0.0',
+          ),
+          endpointsDir: DJ_CLI_ENDPOINTS_PATH,
+          log: this.log,
+        });
+      }
+      this.deployCli();
+      this.cliBridge.start();
+    } catch (error: unknown) {
+      this.log.error('[dj-bridge] startCliBridge failed:', error);
+    }
+  }
+
+  /**
+   * Copy the bundled CLI (`dist/cli/dj.js`, shipped in the VSIX) to the
+   * workspace at `.dj/bin/dj` and make it executable. Re-copied each activation
+   * so the deployed CLI tracks the installed extension version. Mirrors how the
+   * framework deploys `.dj/schemas/*` from bundled sources.
+   */
+  private deployCli(): void {
+    try {
+      if (!fs.existsSync(BASE_CLI_DJ_PATH)) {
+        this.log.warn(
+          `[dj-bridge] CLI bundle not found at ${BASE_CLI_DJ_PATH}; skipping deploy`,
+        );
+        return;
+      }
+      fs.mkdirSync(DJ_BIN_PATH, { recursive: true });
+      const dest = path.join(DJ_BIN_PATH, 'dj');
+      fs.copyFileSync(BASE_CLI_DJ_PATH, dest);
+      fs.chmodSync(dest, 0o755);
+      this.log.info(`[dj-bridge] deployed CLI to ${dest}`);
+    } catch (error: unknown) {
+      this.log.warn('[dj-bridge] failed to deploy CLI:', error);
+    }
+  }
+
   deactivate() {
     // Clear all pending debounce timers to prevent callbacks after deactivation
     for (const timer of this.pendingModelSyncs.values()) {
@@ -1787,6 +1849,7 @@ export class Coder {
     this.watcher?.dispose();
     this.projectWatcher?.dispose();
     this.manifestWatcher?.dispose();
+    this.cliBridge?.stop();
     this.api.deactivate();
     this.framework.deactivate();
     this.lightdash.deactivate();
