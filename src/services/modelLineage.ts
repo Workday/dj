@@ -468,6 +468,9 @@ export class ModelLineage {
               .filter(Boolean)
           : [];
 
+        if (upstreamSources.length === 0) {
+          return null;
+        }
 
         const upstreamSourceNodes: LineageNode[] = [];
         for (const sourceId of upstreamSources) {
@@ -490,6 +493,7 @@ export class ModelLineage {
           }
         }
 
+        if (upstreamSourceNodes.length === 0) {
           return null;
         }
 
