@@ -13,6 +13,7 @@ import {
 } from '@xyflow/react';
 import { useCallback, useEffect, useRef } from 'react';
 
+import type { PythonModelEdge } from '../../stores/dataExplorerStore';
 import { useDataExplorerStore } from '../../stores/dataExplorerStore';
 import LightdashNode from './LightdashNode';
 import ModelNode from './ModelNode';
@@ -42,6 +43,7 @@ interface LineageGraphProps {
   currentNode: LineageNode;
   upstreamNodes: LineageNode[];
   downstreamNodes: LineageNode[];
+  pythonModelEdges?: PythonModelEdge[];
   lightdashDownstream?: LightdashLineageNode[];
   projectName: string;
   selectedNodeForQuery: string | null;
@@ -213,6 +215,7 @@ export default function LineageGraph({
   currentNode,
   upstreamNodes,
   downstreamNodes,
+  pythonModelEdges,
   lightdashDownstream,
   projectName,
   selectedNodeForQuery,
@@ -286,6 +289,18 @@ export default function LineageGraph({
       ...downstreamNodes,
       ...additionalNodes,
     ];
+
+    // Redirect map for Python-model upstream sources: child node id -> the
+    const upstreamEdgeTargets = new Map<string, string[]>();
+    (pythonModelEdges ?? []).forEach(({ pythonModelNodeId, sourceNodeId }) => {
+      const existing = upstreamEdgeTargets.get(pythonModelNodeId);
+      if (existing) {
+        existing.push(sourceNodeId);
+      } else {
+        upstreamEdgeTargets.set(pythonModelNodeId, [sourceNodeId]);
+      }
+    });
+    const knownNodeIds = new Set<string>(allLineageNodes.map((n) => n.id));
 
     // Check model outdated status for all models
     const checkStatuses = async () => {
@@ -396,21 +411,29 @@ export default function LineageGraph({
       };
       newNodes.push(flowNode);
 
-      const edge: Edge = {
-        id: `${node.id}-${currentNode.id}`,
-        source: node.id,
-        target: currentNode.id,
-        sourceHandle: 'output',
-        targetHandle: 'input',
-        style: edgeStyle,
-        markerEnd: {
-          type: MarkerType.ArrowClosed,
-          width: 20,
-          height: 20,
-          color: EDGE_COLOR,
-        },
-      };
-      newEdges.push(edge);
+      const redirectTargets = (upstreamEdgeTargets.get(node.id) ?? []).filter(
+        (targetId) => knownNodeIds.has(targetId),
+      );
+      const edgeTargets =
+        redirectTargets.length > 0 ? redirectTargets : [currentNode.id];
+
+      edgeTargets.forEach((targetId) => {
+        const edge: Edge = {
+          id: `${node.id}-${targetId}`,
+          source: node.id,
+          target: targetId,
+          sourceHandle: 'output',
+          targetHandle: 'input',
+          style: edgeStyle,
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            width: 20,
+            height: 20,
+            color: EDGE_COLOR,
+          },
+        };
+        newEdges.push(edge);
+      });
     });
 
     // Create downstream nodes and edges
@@ -473,6 +496,13 @@ export default function LineageGraph({
       // Check if already added
       if (newNodes.some((n) => n.id === node.id)) return;
 
+      const hasVisibleUpstreamEdge = additionalEdges.some(
+        (e) => e.target === node.id,
+      );
+      const hasVisibleDownstreamEdge = additionalEdges.some(
+        (e) => e.source === node.id,
+      );
+
       const flowNode: Node<ModelNodeData> = {
         id: node.id,
         type: 'lineageNode',
@@ -492,8 +522,10 @@ export default function LineageGraph({
           // Use backend values to determine if node has its own upstream/downstream
           hasUpstream: node.hasOwnUpstream === true,
           hasDownstream: node.hasOwnDownstream === true,
-          isUpstreamExpanded: isNodeUpstreamExpanded(node.id),
-          isDownstreamExpanded: isNodeDownstreamExpanded(node.id),
+          isUpstreamExpanded:
+            isNodeUpstreamExpanded(node.id) || hasVisibleUpstreamEdge,
+          isDownstreamExpanded:
+            isNodeDownstreamExpanded(node.id) || hasVisibleDownstreamEdge,
           onRun: onRunQuery,
           onCompile: handleCompile,
           onCompileAndRun: handleCompileAndRun,
@@ -584,6 +616,7 @@ export default function LineageGraph({
     currentNode,
     upstreamNodes,
     downstreamNodes,
+    pythonModelEdges,
     lightdashDownstream,
     projectName,
     onRunQuery,

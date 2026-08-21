@@ -155,12 +155,15 @@ export default function ModelNode({ data }: { data: ModelNodeData }) {
   const showDownstreamExpand =
     !isStale && hasDownstream && !isDownstreamExpanded && onExpandDownstream;
 
+  const isClickable = !isStale && type !== 'python';
+  const displayName = type === 'python' && description ? description : name;
+
   return (
     <div
       className={`bg-card border rounded-lg min-w-[240px] max-w-[380px] transition-all ${
-        isStale ? 'cursor-default' : 'cursor-pointer'
+        isClickable ? 'cursor-pointer' : 'cursor-default'
       } ${getBorderStyle()}`}
-      onClick={isStale ? undefined : handleNodeClickInternal}
+      onClick={isClickable ? handleNodeClickInternal : undefined}
       title={isStale ? `${name} - not found in this dbt project` : undefined}
     >
       {/* Input handle - LEFT for horizontal flow */}
@@ -186,114 +189,117 @@ export default function ModelNode({ data }: { data: ModelNodeData }) {
             className="font-mono font-semibold text-[10px] text-foreground break-words leading-tight"
             title={nodeTitle}
           >
-            {name}
+            {displayName}
           </div>
         </div>
       </div>
 
-      {/* Divider */}
-      <div className="w-full h-[0.5px] bg-black/30" />
+      {/* Divider and footer are hidden for python nodes (no actions/metadata) */}
+      {type !== 'python' && (
+        <>
+          <div className="w-full h-[0.5px] bg-black/30" />
 
-      {/* Footer */}
-      <div className="px-2 py-1.5 flex items-center justify-between gap-1">
-        {/* Left: Expand upstream */}
-        <div className="flex items-center">
-          {showUpstreamExpand && (
-            <button
-              onClick={handleExpandUpstream}
-              className="p-1 rounded hover:bg-surface transition-colors"
-              title="Show upstream models"
-            >
-              <PlusCircleIcon className="w-4 h-4 text-primary" />
-            </button>
-          )}
-        </div>
+          <div className="px-2 py-1.5 flex items-center justify-between gap-1">
+            {/* Left: Expand upstream */}
+            <div className="flex items-center">
+              {showUpstreamExpand && (
+                <button
+                  onClick={handleExpandUpstream}
+                  className="p-1 rounded hover:bg-surface transition-colors"
+                  title="Show upstream models"
+                >
+                  <PlusCircleIcon className="w-4 h-4 text-primary" />
+                </button>
+              )}
+            </div>
 
-        {/* Center: Materialization and test count (or stale flag) */}
-        <div className="flex items-center gap-1.5 flex-1 justify-start">
-          {isStale && (
-            <span
-              className="font-mono flex items-center gap-1 text-[8px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/40"
-              title="Referenced by Lightdash but not found in this dbt project"
-            >
-              <ExclamationTriangleIcon className="w-2.5 h-2.5" />
-              not in project
-            </span>
-          )}
-          {!isStale && materialized && (
-            <span
-              className={`font-mono text-[9px] px-1.5 py-0.5 rounded border font-medium ${MATERIALIZATION_STYLES[materialized]}`}
-            >
-              {MATERIALIZATION_LABELS[materialized]}
-            </span>
-          )}
-          {!isStale && testCount !== undefined && testCount > 0 && (
-            <span
-              title={`${testCount} ${testCount === 1 ? 'test' : 'tests'}`}
-              className="font-mono flex items-center gap-0.5 text-[8px] px-1.5 py-0.5 rounded bg-surface text-surface-contrast border border-neutral"
-            >
-              {testCount}
-              <ShieldCheckIcon className="w-2.5 h-2.5" />
-            </span>
-          )}
-        </div>
+            {/* Center: Materialization and test count (or stale flag) */}
+            <div className="flex items-center gap-1.5 flex-1 justify-start">
+              {isStale && (
+                <span
+                  className="font-mono flex items-center gap-1 text-[8px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/40"
+                  title="Referenced by Lightdash but not found in this dbt project"
+                >
+                  <ExclamationTriangleIcon className="w-2.5 h-2.5" />
+                  not in project
+                </span>
+              )}
+              {!isStale && materialized && (
+                <span
+                  className={`font-mono text-[9px] px-1.5 py-0.5 rounded border font-medium ${MATERIALIZATION_STYLES[materialized]}`}
+                >
+                  {MATERIALIZATION_LABELS[materialized]}
+                </span>
+              )}
+              {!isStale && testCount !== undefined && testCount > 0 && (
+                <span
+                  title={`${testCount} ${testCount === 1 ? 'test' : 'tests'}`}
+                  className="font-mono flex items-center gap-0.5 text-[8px] px-1.5 py-0.5 rounded bg-surface text-surface-contrast border border-neutral"
+                >
+                  {testCount}
+                  <ShieldCheckIcon className="w-2.5 h-2.5" />
+                </span>
+              )}
+            </div>
 
-        {/* Right: Action buttons (suppressed for stale references) */}
-        <div className="flex items-center">
-          {!isStale && (
-            <button
-              onClick={handleViewColumns}
-              className="p-1 rounded hover:bg-surface transition-colors"
-              title="View columns"
-            >
-              <ViewColumnsIcon className="w-4 h-4 text-surface-contrast" />
-            </button>
-          )}
-          {!isStale && type === 'model' && (
-            <>
-              <button
-                onClick={handleCompileClick}
-                className={`p-1 rounded hover:bg-surface transition-colors relative ${
-                  needsCompilation ? 'text-orange-600' : ''
-                }`}
-                title={
-                  needsCompilation
-                    ? 'Compile model (source has changed)'
-                    : 'Compile model'
-                }
-              >
-                <CogIcon
-                  className={`w-4 h-4 ${needsCompilation ? 'text-orange-600' : 'text-surface-contrast'}`}
-                />
-                {needsCompilation && (
-                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-orange-500 rounded-full" />
-                )}
-              </button>
-              <button
-                onClick={handleRunClick}
-                className="p-1 rounded hover:bg-surface transition-colors"
-                title={
-                  needsCompilation
-                    ? 'Compile & Run query (model has changes)'
-                    : 'Run query'
-                }
-              >
-                <PlayCircleIcon className="w-4 h-4 text-green-800" />
-              </button>
-            </>
-          )}
+            {/* Right: Action buttons (suppressed for stale references) */}
+            <div className="flex items-center">
+              {!isStale && (
+                <button
+                  onClick={handleViewColumns}
+                  className="p-1 rounded hover:bg-surface transition-colors"
+                  title="View columns"
+                >
+                  <ViewColumnsIcon className="w-4 h-4 text-surface-contrast" />
+                </button>
+              )}
+              {!isStale && type === 'model' && (
+                <>
+                  <button
+                    onClick={handleCompileClick}
+                    className={`p-1 rounded hover:bg-surface transition-colors relative ${
+                      needsCompilation ? 'text-orange-600' : ''
+                    }`}
+                    title={
+                      needsCompilation
+                        ? 'Compile model (source has changed)'
+                        : 'Compile model'
+                    }
+                  >
+                    <CogIcon
+                      className={`w-4 h-4 ${needsCompilation ? 'text-orange-600' : 'text-surface-contrast'}`}
+                    />
+                    {needsCompilation && (
+                      <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-orange-500 rounded-full" />
+                    )}
+                  </button>
+                  <button
+                    onClick={handleRunClick}
+                    className="p-1 rounded hover:bg-surface transition-colors"
+                    title={
+                      needsCompilation
+                        ? 'Compile & Run query (model has changes)'
+                        : 'Run query'
+                    }
+                  >
+                    <PlayCircleIcon className="w-4 h-4 text-green-800" />
+                  </button>
+                </>
+              )}
 
-          {showDownstreamExpand && (
-            <button
-              onClick={handleExpandDownstream}
-              className="p-1 rounded hover:bg-surface transition-colors"
-              title="Show downstream models"
-            >
-              <PlusCircleIcon className="w-4 h-4 text-primary" />
-            </button>
-          )}
-        </div>
-      </div>
+              {showDownstreamExpand && (
+                <button
+                  onClick={handleExpandDownstream}
+                  className="p-1 rounded hover:bg-surface transition-colors"
+                  title="Show downstream models"
+                >
+                  <PlusCircleIcon className="w-4 h-4 text-primary" />
+                </button>
+              )}
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Output handle - RIGHT for horizontal flow */}
       <Handle
