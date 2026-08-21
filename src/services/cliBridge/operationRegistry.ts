@@ -13,18 +13,49 @@ import type {
   OperationRegistry,
 } from '@shared/cli/types';
 
-/** Narrow an unknown input to `{ request: Record<string, unknown> }`. */
-function readRequest(input: unknown): Record<string, unknown> {
-  const request =
-    input && typeof input === 'object'
-      ? (input as { request?: unknown }).request
-      : undefined;
-  if (!request || typeof request !== 'object' || Array.isArray(request)) {
-    throw new Error(
-      "model.create requires an object 'request' (see examples/model-create.request.json)",
-    );
+/**
+ * Normalize a CLI input payload into the `request` object `handleApi` expects.
+ *
+ * The CLI surface is flat: callers pass the model/query fields directly, not a
+ * `{ request: {...} }` envelope. This accepts three shapes:
+ *   - a flat payload `{ ...fields }` — the object *is* the request;
+ *   - an explicit envelope `{ request: {...} }` — back-compat escape hatch;
+ *   - nothing — for ops that take no request (`nullable`) or only an inferred
+ *     `projectName` (`allowEmpty`, which yields an empty request to fill in).
+ */
+function readRequest(
+  input: unknown,
+  opts: { nullable?: boolean; allowEmpty?: boolean } = {},
+): Record<string, unknown> | null {
+  const emptyOrThrow = (message: string): Record<string, unknown> | null => {
+    if (opts.nullable) {
+      return null;
+    }
+    if (opts.allowEmpty) {
+      return {};
+    }
+    throw new Error(message);
+  };
+
+  if (input === null || input === undefined) {
+    return emptyOrThrow('This operation requires a JSON payload (object)');
   }
-  return { ...(request as Record<string, unknown>) };
+  if (typeof input !== 'object' || Array.isArray(input)) {
+    throw new Error('Payload must be a JSON object');
+  }
+
+  const obj = input as Record<string, unknown>;
+  if ('request' in obj) {
+    const inner = obj.request;
+    if (inner === null || inner === undefined) {
+      return emptyOrThrow("'request' may not be null for this operation");
+    }
+    if (typeof inner !== 'object' || Array.isArray(inner)) {
+      throw new Error("'request' must be a JSON object");
+    }
+    return { ...(inner as Record<string, unknown>) };
+  }
+  return { ...obj };
 }
 
 /**
@@ -63,6 +94,34 @@ export function createOperationRegistry(): OperationRegistry {
     registry[op.name] = op;
   };
 
+  /**
+   * Register a read (side-effect-free) op that forwards to a single API type.
+   *   - `nullable`: the API ignores its request; forward `request: null`.
+   *   - `project`:  the API needs a `projectName`; infer it when omitted.
+   * Everything else forwards the caller's flat payload verbatim.
+   */
+  const registerRead = (
+    name: string,
+    apiType: string,
+    description: string,
+    opts: { nullable?: boolean; project?: boolean } = {},
+  ): void =>
+    register({
+      name,
+      description,
+      sideEffect: 'read',
+      handler: async (input, ctx) => {
+        const request = readRequest(input, {
+          nullable: opts.nullable,
+          allowEmpty: opts.project,
+        });
+        if (opts.project && request) {
+          resolveProjectName(request, ctx);
+        }
+        return ctx.api.handleApi({ type: apiType, request });
+      },
+    });
+
   register({
     name: 'system.ping',
     description: 'Liveness/version check for the DJ bridge.',
@@ -89,6 +148,65 @@ export function createOperationRegistry(): OperationRegistry {
       }),
   });
 
+  // ---- Read tier: introspect the workspace so an agent can ground its
+  // `from` / `select` choices instead of guessing. ----
+
+  registerRead(
+    'dbt.projects',
+    'dbt-fetch-projects',
+    'List dbt projects in the workspace (includes the parsed manifest).',
+    { nullable: true },
+  );
+  registerRead(
+    'dbt.models',
+    'dbt-fetch-available-models',
+    'List available model names in a project (use to populate a model `from`). projectName optional when a single dbt project exists.',
+    { project: true },
+  );
+  registerRead(
+    'dbt.sources',
+    'dbt-fetch-sources',
+    'List declared dbt source names (use to populate a model `from`).',
+    { nullable: true },
+  );
+  registerRead(
+    'dbt.modified-models',
+    'dbt-fetch-modified-models',
+    'List models changed versus the base ref (build/run scope). projectName optional when a single dbt project exists.',
+    { project: true },
+  );
+  registerRead(
+    'dbt.compiled-status',
+    'dbt-check-compiled-status',
+    'Report whether a model is compiled (path/time). Requires { modelName }; projectName optional when a single dbt project exists.',
+    { project: true },
+  );
+  registerRead(
+    'dbt.model-outdated',
+    'dbt-check-model-outdated',
+    "Report whether a model's compiled output is stale. Requires { modelName }; projectName optional when a single dbt project exists.",
+    { project: true },
+  );
+
+  registerRead('trino.catalogs', 'trino-fetch-catalogs', 'List Trino catalogs.', {
+    nullable: true,
+  });
+  registerRead(
+    'trino.schemas',
+    'trino-fetch-schemas',
+    'List schemas in a catalog. Requires { catalog }.',
+  );
+  registerRead(
+    'trino.tables',
+    'trino-fetch-tables',
+    'List tables in a schema. Requires { catalog, schema }.',
+  );
+  registerRead(
+    'trino.columns',
+    'trino-fetch-columns',
+    'List a table’s columns. Requires { catalog, schema, table }.',
+  );
+
   register({
     name: 'model.create',
     description:
@@ -96,6 +214,11 @@ export function createOperationRegistry(): OperationRegistry {
     sideEffect: 'mutate',
     handler: async (input, ctx) => {
       const request = readRequest(input);
+      if (!request) {
+        throw new Error(
+          "model.create requires an object payload (see examples/model-create.request.json)",
+        );
+      }
       resolveProjectName(request, ctx);
       const response = await ctx.api.handleApi({
         type: 'framework-model-create',
