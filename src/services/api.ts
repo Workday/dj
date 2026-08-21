@@ -91,6 +91,10 @@ export class Api {
       case 'framework-check-model-exists':
       case 'framework-preferences':
       case 'framework-model-cte-analysis':
+      case 'framework-python-model-create':
+      case 'framework-dag-create':
+      case 'framework-get-available-dags':
+      case 'framework-get-python-model-groups':
         return (await this.framework.handleApi(
           payload as any,
         )) as ApiResponse<T>;
