@@ -5,9 +5,17 @@ operations **against the running VS Code extension**, reusing the exact same
 logic the webview UI uses (`Api.handleApi`). No feature logic is reimplemented in
 the CLI — it is a second transport into the extension.
 
-> **Status:** initial use case is `model.create` only (plus `system.ping` /
-> `system.capabilities`). macOS/Linux only. Requires VS Code running with the DJ
-> extension active on the workspace.
+> **Status:** 27 operations across four tiers — Read, Authoring, Mutate, and
+> Query & data (plus `system.ping` / `system.capabilities`). macOS/Linux only.
+> Requires VS Code running with the DJ extension active on the workspace.
+
+## Documentation
+
+- [`command-reference.md`](command-reference.md) — the full command scope, request
+  shapes, and token/accuracy rationale.
+- [`agent-verification-prompts.md`](agent-verification-prompts.md) — copy-paste
+  prompts to verify **every** command with an AI agent directly.
+- [`phase-1-plan.md`](phase-1-plan.md) — the operation plan and what remains deferred.
 
 ## How it works
 

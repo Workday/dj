@@ -34,6 +34,8 @@ export interface CliBridgeServerOptions {
   api: { handleApi: (payload: unknown) => Promise<unknown> };
   /** Names of the dbt projects currently loaded. */
   projectNames: () => string[];
+  /** Resolve a loaded dbt project object by name (for dbt.parse). */
+  getProject: (name: string) => unknown;
   /** Extension version (surfaced by system.ping). */
   version: string;
   /** Directory for endpoint descriptors, e.g. `.dj/state/cli-endpoints`. */
@@ -215,6 +217,7 @@ export class CliBridgeServer {
     const ctx: OperationContext = {
       api: this.opts.api,
       projectNames: this.opts.projectNames,
+      getProject: this.opts.getProject,
       version: this.opts.version,
       log: this.opts.log,
     };

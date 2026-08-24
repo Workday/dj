@@ -64,6 +64,9 @@ export interface OperationContext {
   api: { handleApi: (payload: unknown) => Promise<unknown> };
   /** Names of the dbt projects currently loaded (for projectName resolution). */
   projectNames: () => string[];
+  /** Resolve a loaded dbt project object by name (for ops needing the full
+   *  DbtProject, e.g. dbt.parse). Returns undefined when unknown. */
+  getProject?: (name: string) => unknown;
   /** Extension version. */
   version: string;
   log?: {

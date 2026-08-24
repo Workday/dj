@@ -1789,6 +1789,7 @@ export class Coder {
               ),
           },
           projectNames: () => [...this.dbt.projects.keys()],
+          getProject: (name) => this.dbt.projects.get(name),
           version: String(
             this.context.extension?.packageJSON?.version ?? '0.0.0',
           ),

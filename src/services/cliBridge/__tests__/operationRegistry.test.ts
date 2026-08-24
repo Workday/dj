@@ -22,6 +22,9 @@ function makeCtx(projectNames: string[] = ['analytics']): {
       },
     },
     projectNames: () => projectNames,
+    // A loaded project is a stand-in object keyed by name; dbt.parse forwards it.
+    getProject: (name: string) =>
+      projectNames.includes(name) ? { pathRelative: name } : undefined,
     version: '9.9.9',
   };
   return { ctx, calls };
@@ -152,5 +155,195 @@ describe('operationRegistry — dispatch + capabilities', () => {
     expect(res.ok).toBe(true);
     expect(calls[0].type).toBe('framework-model-create');
     expect((calls[0].request as { projectName: string }).projectName).toBe('analytics');
+  });
+});
+
+describe('operationRegistry — authoring tier', () => {
+  it('registers authoring mutate ops with sideEffect mutate', () => {
+    const reg = createOperationRegistry();
+    for (const name of ['model.create', 'source.create', 'model.update']) {
+      expect(reg[name].sideEffect).toBe('mutate');
+    }
+  });
+
+  it('registers authoring read ops with sideEffect read', () => {
+    const reg = createOperationRegistry();
+    for (const name of ['model.preview', 'model.exists', 'model.cte-analysis']) {
+      expect(reg[name].sideEffect).toBe('read');
+    }
+  });
+
+  it('source.create infers projectName and forwards the flat payload', async () => {
+    const reg = createOperationRegistry();
+    const { ctx, calls } = makeCtx(['analytics']);
+    await dispatch(
+      reg,
+      'source.create',
+      { trinoCatalog: 'c', trinoSchema: 's', trinoTable: 't' },
+      ctx,
+    );
+    expect(calls).toEqual([
+      {
+        type: 'framework-source-create',
+        request: {
+          trinoCatalog: 'c',
+          trinoSchema: 's',
+          trinoTable: 't',
+          projectName: 'analytics',
+        },
+      },
+    ]);
+  });
+
+  it('model.preview forwards to framework-model-preview', async () => {
+    const reg = createOperationRegistry();
+    const { ctx, calls } = makeCtx();
+    await dispatch(reg, 'model.preview', { name: 'x', projectName: 'analytics' }, ctx);
+    expect(calls[0].type).toBe('framework-model-preview');
+  });
+});
+
+describe('operationRegistry — mutate tier', () => {
+  it('registers dbt mutate ops as mutate', () => {
+    const reg = createOperationRegistry();
+    for (const name of ['dbt.compile', 'dbt.compile-logs', 'dbt.parse', 'dbt.run']) {
+      expect(reg[name].sideEffect).toBe('mutate');
+    }
+  });
+
+  it('dbt.compile forwards { modelName, projectName }', async () => {
+    const reg = createOperationRegistry();
+    const { ctx, calls } = makeCtx(['analytics']);
+    await dispatch(reg, 'dbt.compile', { modelName: 'm' }, ctx);
+    expect(calls).toEqual([
+      {
+        type: 'dbt-model-compile',
+        request: { modelName: 'm', projectName: 'analytics' },
+      },
+    ]);
+  });
+
+  it('dbt.parse resolves name to the project object and forwards { project }', async () => {
+    const reg = createOperationRegistry();
+    const { ctx, calls } = makeCtx(['analytics']);
+    await dispatch(reg, 'dbt.parse', null, ctx);
+    expect(calls).toEqual([
+      {
+        type: 'dbt-parse-project',
+        request: { project: { pathRelative: 'analytics' } },
+      },
+    ]);
+  });
+
+  it('dbt.parse rejects an unknown / unloaded project', async () => {
+    const reg = createOperationRegistry();
+    const { ctx } = makeCtx(['analytics']);
+    await expect(
+      dispatch(reg, 'dbt.parse', { projectName: 'ghost' }, ctx),
+    ).rejects.toThrow(/project 'ghost' is not loaded/);
+  });
+
+  it('dbt.run lifts projectName into config and forwards { config }', async () => {
+    const reg = createOperationRegistry();
+    const { ctx, calls } = makeCtx(['analytics']);
+    await dispatch(reg, 'dbt.run', { modelName: 'm' }, ctx);
+    expect(calls).toEqual([
+      {
+        type: 'dbt-run-model',
+        request: { config: { modelName: 'm', projectName: 'analytics' } },
+      },
+    ]);
+  });
+
+  it('dbt.run accepts an explicit { config } object', async () => {
+    const reg = createOperationRegistry();
+    const { ctx, calls } = makeCtx(['analytics']);
+    await dispatch(reg, 'dbt.run', { config: { modelName: 'm' } }, ctx);
+    expect(calls).toEqual([
+      {
+        type: 'dbt-run-model',
+        request: { config: { modelName: 'm', projectName: 'analytics' } },
+      },
+    ]);
+  });
+});
+
+describe('operationRegistry — query & data read tier', () => {
+  it('registers query/data ops as read', () => {
+    const reg = createOperationRegistry();
+    for (const name of [
+      'model.compiled-sql',
+      'model.query',
+      'model.lineage',
+      'model.reverse-lineage',
+      'query.execute',
+    ]) {
+      expect(reg[name].sideEffect).toBe('read');
+    }
+  });
+
+  it('model.reverse-lineage forwards the flat { kind, slug } payload', async () => {
+    const reg = createOperationRegistry();
+    const { ctx, calls } = makeCtx();
+    await dispatch(reg, 'model.reverse-lineage', { kind: 'chart', slug: 's' }, ctx);
+    expect(calls).toEqual([
+      {
+        type: 'data-explorer-get-reverse-lineage',
+        request: { kind: 'chart', slug: 's' },
+      },
+    ]);
+  });
+
+  it('query.execute forwards a SELECT with its limit', async () => {
+    const reg = createOperationRegistry();
+    const { ctx, calls } = makeCtx();
+    await dispatch(reg, 'query.execute', { sql: 'select 1', limit: 10 }, ctx);
+    expect(calls).toEqual([
+      {
+        type: 'query-draft-execute',
+        request: { sql: 'select 1', limit: 10 },
+      },
+    ]);
+  });
+
+  it('query.execute allows WITH / SHOW / a leading comment', async () => {
+    const reg = createOperationRegistry();
+    const { ctx, calls } = makeCtx();
+    await dispatch(reg, 'query.execute', { sql: 'with t as (select 1) select * from t' }, ctx);
+    await dispatch(reg, 'query.execute', { sql: 'SHOW TABLES' }, ctx);
+    await dispatch(reg, 'query.execute', { sql: '-- note\nselect 1' }, ctx);
+    expect(calls).toHaveLength(3);
+  });
+
+  it('query.execute rejects a non-SELECT statement', async () => {
+    const reg = createOperationRegistry();
+    const { ctx } = makeCtx();
+    await expect(
+      dispatch(reg, 'query.execute', { sql: 'delete from t' }, ctx),
+    ).rejects.toThrow(/read-only SELECT/);
+  });
+
+  it('query.execute rejects multiple statements', async () => {
+    const reg = createOperationRegistry();
+    const { ctx } = makeCtx();
+    await expect(
+      dispatch(reg, 'query.execute', { sql: 'select 1; drop table t' }, ctx),
+    ).rejects.toThrow(/single read-only statement/);
+  });
+
+  it('query.execute rejects empty sql', async () => {
+    const reg = createOperationRegistry();
+    const { ctx } = makeCtx();
+    await expect(
+      dispatch(reg, 'query.execute', { sql: '   ' }, ctx),
+    ).rejects.toThrow(/non-empty 'sql'/);
+  });
+
+  it('query.execute rejects a statement hidden behind a block comment', async () => {
+    const reg = createOperationRegistry();
+    const { ctx } = makeCtx();
+    await expect(
+      dispatch(reg, 'query.execute', { sql: '/* select */ delete from t' }, ctx),
+    ).rejects.toThrow(/read-only SELECT/);
   });
 });
