@@ -2127,6 +2127,15 @@ export function frameworkGenerateModelOutput({
 
   let sql = '';
 
+  // Force extra dbt DAG edges for refs hidden from parse (e.g. inside {% if execute %}).
+  // Emit as `--depends_on:` (no space) so dbt's parser matches the documented form.
+  if ('depends_on' in modelJson && modelJson.depends_on?.length) {
+    for (const modelName of modelJson.depends_on) {
+      sql += `--depends_on: {{ ref('${modelName}') }}\n`;
+    }
+    sql += '\n';
+  }
+
   // Append comments
   const modelComments = [
     ...modelFrom.comments,

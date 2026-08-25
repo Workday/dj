@@ -54,6 +54,16 @@ export type SchemaModelTags = (
     }
 )[];
 /**
+ * Additional model names whose ref() edges should be forced in generated SQL via --depends_on comments (for refs hidden from dbt parse, e.g. inside {% if execute %})
+ *
+ * @minItems 1
+ */
+export type SchemaModelDependsOn = [SchemaModelRef, ...SchemaModelRef[]];
+/**
+ * Validate model ids
+ */
+export type SchemaModelRef = string;
+/**
  * Validate model data_tests
  */
 export type SchemaModelDataTests = (
@@ -263,10 +273,6 @@ export type SchemaModelExcludeFrameworkArtifacts = 'all' | 'columns';
  * Will prevent the automatic portal source count column from getting added
  */
 export type SchemaModelExcludePortalSourceCount = boolean;
-/**
- * Validate model ids
- */
-export type SchemaModelRef = string;
 
 /**
  * Validates schema for rollup models
@@ -280,6 +286,7 @@ export interface SchemaModelTypeIntRollupModel {
   lightdash?: SchemaModelLightdash;
   tags?: SchemaModelTags;
   meta?: SchemaModelMeta;
+  depends_on?: SchemaModelDependsOn;
   data_tests?: SchemaModelDataTests;
   materialization?: SchemaModelMaterialization;
   materialized?: SchemaModelMaterialized;

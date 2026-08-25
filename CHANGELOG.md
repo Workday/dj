@@ -1,5 +1,11 @@
 # Change Log
 
+## Next
+
+### Framework
+
+- **Force extra dbt model dependencies with `depends_on`.** On any `.model.json`, set `"depends_on": ["processed_orders", ...]` to emit `--depends_on: {{ ref('...') }}` comments in generated SQL so dbt can discover refs that are otherwise hidden at parse time (for example inside `{% if execute %}`).
+
 ## 2.2.1
 
 ### Security
