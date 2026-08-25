@@ -47,6 +47,22 @@ def get_namespace_name() -> str:
     return _require_variable(NAMESPACE_VARIABLE)
 
 
+def build_context_from_env() -> dict:
+    """Build Airflow run context from PYMODEL_* env vars (KPO pod or MWAA worker)."""
+    import json
+    import os
+
+    ds = os.environ.get("PYMODEL_DS") or ""
+    ctx: dict = {
+        "ds": ds,
+        "ds_nodash": os.environ.get("PYMODEL_DS_NODASH") or ds.replace("-", ""),
+    }
+    dates_raw = os.environ.get("PYMODEL_DATES")
+    if dates_raw:
+        ctx["dates"] = json.loads(dates_raw)
+    return ctx
+
+
 @dataclass(frozen=True)
 class PythonModelConfig:
     model_name: str
@@ -709,6 +725,12 @@ function buildScaffoldCodeCells(config: PythonModelConfig): PythonModelCell[] {
     '    cleanup(context)',
   ].join('\n');
 
+  const mainCell = [
+    'if __name__ == "__main__":',
+    '    from python_models._config import build_context_from_env',
+    '    run_etl(build_context_from_env())',
+  ].join('\n');
+
   return [
     makeCodeCell(headerCell),
     makeCodeCell(inputVarsCell),
@@ -716,6 +738,7 @@ function buildScaffoldCodeCells(config: PythonModelConfig): PythonModelCell[] {
     makeCodeCell(transformCell),
     makeCodeCell(cleanupCell),
     makeCodeCell(runEtlCell),
+    makeCodeCell(mainCell),
   ];
 }
 

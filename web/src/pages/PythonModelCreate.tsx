@@ -5,7 +5,7 @@ import {
 } from '@heroicons/react/24/outline';
 import type { Api } from '@shared/api/types';
 import type { DbtProject } from '@shared/dbt/types';
-import type { PythonModelGroup } from '@shared/framework/types';
+import type { KpoSizeSpec,PythonModelGroup } from '@shared/framework/types';
 import { EXTERNAL_LINKS } from '@shared/web/constants';
 import { useApp } from '@web/context/useApp';
 import { useEnvironment } from '@web/context/useEnvironment';
@@ -17,6 +17,7 @@ import {
   Switch,
   TagInput,
 } from '@web/elements';
+import { formatKpoSizeInfo } from '@web/features/PythonModel/formatKpoSizeInfo';
 import {
   Controller,
   FieldInputText,
@@ -79,6 +80,7 @@ export function PythonModelCreate() {
       value: g,
     })),
   );
+  const [kpoSizes, setKpoSizes] = useState<Record<string, KpoSizeSpec>>({});
 
   const projectName = watch('projectName');
   const name = watch('name');
@@ -86,6 +88,8 @@ export function PythonModelCreate() {
   const topic = watch('topic');
   const dags = watch('dags');
   const tags = watch('tags');
+  const compute = watch('compute');
+  const kpoSize = watch('kpo_size');
 
   const hasFormData = useMemo(() => {
     return !!(
@@ -112,6 +116,22 @@ export function PythonModelCreate() {
       !projectName || !name || !group || !topic || !dags || dags.length === 0
     );
   }, [projectName, name, group, topic, dags]);
+
+  const kpoSizeOptions = useMemo(
+    () =>
+      Object.keys(kpoSizes).map((size) => ({
+        label: size.charAt(0).toUpperCase() + size.slice(1),
+        value: size,
+      })),
+    [kpoSizes],
+  );
+
+  const kpoSizeInfo = useMemo(() => {
+    if (compute !== 'kpo' || !kpoSize || !kpoSizes[kpoSize]) {
+      return null;
+    }
+    return formatKpoSizeInfo(kpoSizes[kpoSize]);
+  }, [compute, kpoSize, kpoSizes]);
 
   const onClose = useCallback(async () => {
     try {
@@ -170,6 +190,8 @@ export function PythonModelCreate() {
           setValue('projectName', _projects[0].name);
         }
         setValue('model_type', 'python');
+        setValue('compute', 'kpo');
+        setValue('kpo_size', 'small');
         setValue('description', '');
         setValue('namespace', '');
         setValue('table_name', '');
@@ -201,6 +223,19 @@ export function PythonModelCreate() {
       }
     };
     void fetchGroups();
+
+    const fetchKpoSizes = async () => {
+      try {
+        const response = await api.post({
+          type: 'framework-get-kpo-sizes',
+          request: null,
+        });
+        setKpoSizes(response.sizes);
+      } catch {
+        // Form still works with schema defaults
+      }
+    };
+    void fetchKpoSizes();
   });
 
   // Fetch available DAGs when project changes
@@ -234,6 +269,8 @@ export function PythonModelCreate() {
       namespace: '',
       table_name: '',
       model_type: 'python',
+      compute: 'kpo',
+      kpo_size: 'small',
       dags: [],
       enable_notebook: true,
       tags: undefined,
@@ -428,6 +465,57 @@ export function PythonModelCreate() {
             />
           )}
         />
+
+        <Controller
+          control={control}
+          name="compute"
+          render={({ field }) => (
+            <FieldSelectSingle
+              {...field}
+              value={field.value ?? 'kpo'}
+              label="Compute"
+              options={[
+                { label: 'KPO (Kubernetes pod)', value: 'kpo' },
+                { label: 'Airflow worker', value: 'airflow' },
+              ]}
+              tooltipText="Where the Python model runs: KPO launches a pod on EKS (default); Airflow runs on the MWAA worker."
+            />
+          )}
+        />
+
+        {compute === 'kpo' && (
+          <>
+            <Controller
+              control={control}
+              name="kpo_size"
+              render={({ field }) => (
+                <FieldSelectSingle
+                  {...field}
+                  value={field.value ?? 'small'}
+                  label="Pod size"
+                  options={
+                    kpoSizeOptions.length > 0
+                      ? kpoSizeOptions
+                      : [
+                          { label: 'Small', value: 'small' },
+                          { label: 'Medium', value: 'medium' },
+                          { label: 'Large', value: 'large' },
+                          { label: 'Xlarge', value: 'xlarge' },
+                        ]
+                  }
+                  tooltipText="Kubernetes pod resource preset for this model when using KPO compute."
+                />
+              )}
+            />
+            {kpoSizeInfo && (
+              <Alert
+                variant="info"
+                label="Pod resources"
+                description={kpoSizeInfo}
+              />
+            )}
+          </>
+        )}
 
         <Controller
           control={control}

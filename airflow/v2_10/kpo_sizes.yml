@@ -1,0 +1,19 @@
+# Pod resource presets for KPO python models.
+# CPU requests == limits (Guaranteed QoS). CPU capped at 2 on shared EKS nodes.
+sizes:
+  small:
+    cpu: "1"
+    memory: "2Gi"
+    guidance: "Light jobs — small API responses, narrow CSV extracts, < ~500 MB processed in-memory."
+  medium:
+    cpu: "2"
+    memory: "4Gi"
+    guidance: "Typical ETL — moderate API pagination, joins on staging tables, ~500 MB–2 GB."
+  large:
+    cpu: "2"
+    memory: "8Gi"
+    guidance: "Heavier transforms — wider schemas, multi-step pandas work, ~2–8 GB."
+  xlarge:
+    cpu: "2"
+    memory: "16Gi"
+    guidance: "Large workloads — full-table scans, wide fin-style exports, ~8–16 GB."

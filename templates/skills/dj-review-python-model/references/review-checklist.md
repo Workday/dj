@@ -33,18 +33,13 @@ Extended explanations, code examples, and edge cases for each check in the DJ Py
 
 **Why it matters:** The framework regenerates `.python.py` from `cells`. If `cells` is empty/missing and `.python.py` exists, the sync service skips overwriting (safety valve) — but this means the JSON is no longer the source of truth.
 
-### F4: `run_etl` function
+### F4: `__main__` script entry
 
-**Pass condition:** `.python.py` contains `def run_etl(context)` (exact signature).
+**Pass condition:** `.python.py` contains `if __name__ == "__main__":` and uses `build_context_from_env()` from `_config.py` (scaffold default: `run_etl(build_context_from_env())`).
 
-**Why it matters:** Airflow's `etl_helper.py` scans for this function to discover executable models:
-```python
-# etl_helper.py discovery logic
-if hasattr(module, 'run_etl') and callable(module.run_etl):
-    # register as PythonOperator task
-```
+**Why it matters:** Airflow worker and KPO pods execute the script as `__main__` via `runpy.run_path` or `python <path>` — not import + callable lookup.
 
-**Common failure:** Function named `main()`, `run()`, or `etl()` instead of `run_etl`.
+**Common failure:** Missing `__main__` block after migrating from the old import-based execution model.
 
 ### F5: `_trino_io` usage
 
