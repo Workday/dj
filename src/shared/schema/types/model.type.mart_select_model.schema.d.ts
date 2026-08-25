@@ -54,6 +54,16 @@ export type SchemaModelTags = (
     }
 )[];
 /**
+ * Additional model names whose ref() edges should be forced in generated SQL via --depends_on comments (for refs hidden from dbt parse, e.g. inside {% if execute %})
+ *
+ * @minItems 1
+ */
+export type SchemaModelDependsOn = [SchemaModelRef, ...SchemaModelRef[]];
+/**
+ * Validate model ids
+ */
+export type SchemaModelRef = string;
+/**
  * Validate model group by
  */
 export type SchemaModelGroupBy =
@@ -113,10 +123,6 @@ export type SchemaModelExcludePortalSourceCount = boolean;
  * @minItems 1
  */
 export type SchemaModelCTEs = [SchemaModelCTE, ...SchemaModelCTE[]];
-/**
- * Validate model ids
- */
-export type SchemaModelRef = string;
 /**
  * Validates the join argument when joining multiple models or CTEs
  *
@@ -662,6 +668,7 @@ export interface SchemaModelTypeMartSelectModel {
   lightdash?: SchemaModelLightdash;
   tags?: SchemaModelTags;
   meta?: SchemaModelMeta;
+  depends_on?: SchemaModelDependsOn;
   group_by?: SchemaModelGroupBy;
   exclude_portal_partition_columns?: SchemaModelExcludePortalPartitionColumns;
   exclude_datetime?: SchemaModelExcludeDatetime;
