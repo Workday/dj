@@ -25,6 +25,8 @@ const CONFIG: PythonModelConfig = {
   dags: ['full_source_etl'],
   namespace: 'opus_python_source',
   table_name: 'my_model',
+  compute: 'kpo',
+  kpo_size: 'medium',
 };
 
 describe('parsePythonToCells / serializeCellsToPython', () => {
@@ -200,5 +202,19 @@ describe('.py -> notebook -> .py stability', () => {
     const py = generatePythonModelScaffoldPy(CONFIG);
     const cells = buildNotebookCells(py, CONFIG);
     expect(serializeCellsToPython(cells)).toBe(py);
+  });
+
+  test('compute and kpo_size survive scaffold generation', () => {
+    const py = generatePythonModelScaffoldPy(CONFIG);
+    expect(py).toContain('my_model');
+    expect(CONFIG.compute).toBe('kpo');
+    expect(CONFIG.kpo_size).toBe('medium');
+  });
+
+  test('scaffold includes __main__ entry with build_context_from_env', () => {
+    const py = generatePythonModelScaffoldPy(CONFIG);
+    expect(py).toContain('if __name__ == "__main__":');
+    expect(py).toContain('build_context_from_env');
+    expect(py).toContain('run_etl(build_context_from_env())');
   });
 });

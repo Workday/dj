@@ -47,7 +47,7 @@ Use this skill when the user mentions: review python model, audit python model, 
 | F1    | `.python.json` has required fields: `name`, `group`, `topic`                                                                                                                  |
 | F2    | Name/group/topic match pattern `^[a-z][a-z0-9_]*$`                                                                                                                            |
 | F3    | `cells` array is present and non-empty in JSON                                                                                                                                |
-| F4    | `.python.py` contains `def run_etl(context)` function                                                                                                                         |
+| F4    | `.python.py` contains `if __name__ == "__main__":` script entry (scaffold calls `run_etl(build_context_from_env())`)                                                                 |
 | F5    | Uses `_trino_io` helpers (`from python_models._trino_io import ...`) — no inline Trino connection code (`trino.dbapi.connect`, `create_engine`, raw `requests.post` to Trino) |
 | F6    | `OUTPUT_CONFIG` uses `PythonModelConfig` from `python_models._config`                                                                                                         |
 | F7    | `.python.py` content is derivable from JSON `cells` (no hand-edits that would be lost on next sync)                                                                           |
@@ -74,7 +74,7 @@ The review validates the **full chain**: JSON metadata → `PythonModelConfig` �
 | L6    | `dags` field is populated in JSON (model is scheduled, discoverable by Airflow DAG lineage). Empty `dags` = utility module, not a lineage participant                                                    |
 | L7    | `depends_on` correctly lists upstream Python models whose output tables this model reads (task dependency mirrors data dependency)                                                                       |
 | L8    | Model ID derivable from file path matches `python_model_name` in properties: `python__<group>__<topic>__<name>`                                                                                          |
-| L9    | Companion `.python.py` exists alongside `.python.json` (required for Airflow `etl_helper.py` discovery via `def run_etl(`)                                                                               |
+| L9    | Companion `.python.py` exists alongside `.python.json` (required for Airflow `etl_helper.py` discovery)                                                                               |
 | L10   | `OUTPUT_CONFIG.table_name` (or `model_name` fallback) matches the table name referenced in downstream `.source.json` files, if any exist in the project                                                  |
 
 ### 3. Downstream Integration (D)
@@ -164,7 +164,7 @@ Render the full report in this structure. Adapt headings to the actual model. Om
 
 | Priority | Criteria                                                                |
 | -------- | ----------------------------------------------------------------------- |
-| CRITICAL | Lineage broken (L2-L5 failures), missing `run_etl`, no partition column |
+| CRITICAL | Lineage broken (L2-L5 failures), missing `__main__` entry, no partition column |
 | HIGH     | Inline Trino code, missing cleanup, stale upstream_sources              |
 | MEDIUM   | Non-SQL-first transforms, missing batch staging, no error handling      |
 | LOW      | Naming style, column order, documentation gaps                          |
@@ -195,7 +195,8 @@ To validate upstream source completeness:
 - **Model ID:** `python__<group>__<topic>__<name>`
 - **Source of truth:** `.python.json` — never hand-edit `.python.py`
 - **`_trino_io.py` DML helpers:** `execute_trino`, `overwrite_partition` / `overwrite` (keyword `insert_sql=` or `source_query=` + optional `columns=`), `append`, `merge`, `delete`, `update`
-- **Required function:** `def run_etl(context)` — Airflow discovers models by scanning for this
+- **Script entry:** `if __name__ == "__main__":` with `build_context_from_env()` from `_config.py` — Airflow and KPO run the file as `__main__`
+- **Scaffold convention:** `def run_etl(context)` orchestrates extract/transform/cleanup; recommended but not enforced at discovery
 - **Partition contract:** downstream dbt models expect `portal_partition_daily` column in output
 - **Table properties for lineage:** `python_model_name`, `python_model_type`, `python_model_namespace`, `python_model_table`, `python_model_description`, `python_model_upstream_sources`
 

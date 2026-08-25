@@ -1862,6 +1862,26 @@ SELECT * FROM final`,
                     }),
                   );
                 }
+                case 'framework-get-kpo-sizes': {
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      sizes: {
+                        small: {
+                          cpu: '1',
+                          memory: '2Gi',
+                          guidance:
+                            'Light jobs — small API responses, narrow CSV extracts, < ~500 MB processed in-memory.',
+                        },
+                        medium: {
+                          cpu: '2',
+                          memory: '4Gi',
+                          guidance:
+                            'Typical ETL — moderate API pagination, joins on staging tables, ~500 MB–2 GB.',
+                        },
+                      },
+                    }),
+                  );
+                }
                 case 'query-draft-create': {
                   // Mock query draft creation for web development
                   const filepath = `.dj/drafts/${Date.now()}.draft.sql`;

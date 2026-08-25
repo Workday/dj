@@ -10,6 +10,10 @@
 
 - **Fix: Model Lineage opens the correct view on first use.** Opening Model Lineage from a model `.sql`, `.model.json`, or `.yml` file (context menu, editor title, or `Cmd+Shift+L`) now shows the model lineage graph in Data Explorer instead of Column Lineage the first time the panel opens.
 
+### Python models
+
+- **KPO compute is the default for new Python models.** Create Python Model lets you pick **Compute** (`kpo` or legacy `airflow` worker) and, for KPO, a **Pod size** (`small` through `xlarge`) with vCPU, memory, and workload guidance from `dags/_ext_/kpo_sizes.yml`. DJ ships `kpo_factory.py` and that YAML alongside `etl_helper.py`; set Airflow Variables `airflow_runner_cfg` (image/cluster) and `python_models_s3_bucket` (KPO S3 sync). Scaffolded `.python.py` files include `if __name__ == "__main__"`; Airflow and KPO both execute the script as `__main__` (not a fixed `run_etl` import). Until your KPO pipeline is ready, set `"compute": "airflow"` on existing models.
+
 ### Agent skills
 
 - **New `dj-migrate-notebook-to-pymodel`, `dj-verify-pymodel-parity`, and `dj-document-pymodels` skills.** Migrate a legacy Jupyter notebook into a python model with migration plan, generate Trino SQL to verify a python model's output table matches a legacy table, and generate/refresh a topic-level README for a `python_models/<group>/<topic>/` folder — rounding out the python model lifecycle alongside `dj-create-python-model` and `dj-review-python-model`.

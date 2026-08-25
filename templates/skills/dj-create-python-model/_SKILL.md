@@ -158,6 +158,21 @@ dags/python_models/<group>/<topic>/<name>.python.json
 
 Model ID convention: `python__<group>__<topic>__<name>`
 
+## Compute and KPO image naming
+
+New models default to **`compute: "kpo"`** (Kubernetes pod) instead of running on the MWAA worker. Set **`compute: "airflow"`** explicitly when the KPO image pipeline is not ready.
+
+| Field | Purpose |
+| ----- | ------- |
+| `compute` | `kpo` (default) or `airflow` |
+| `kpo_size` | Pod preset when `compute` is `kpo`: `small`, `medium`, `large`, `xlarge` |
+
+**KPO script path:** The `mwaa-opus-kpo-runner` image syncs `s3://<bucket>/dags/python_models/` into the pod and runs `python <group>/<topic>/<name>.python.py`. Airflow passes that relative path as the container argument. Set Airflow Variable **`python_models_s3_bucket`** (DAG bucket name) on KPO tasks; optional **`python_model_s3_region`** (default `us-west-2`).
+
+**Execution entry:** Scaffolded `.python.py` ends with `if __name__ == "__main__":` calling `run_etl(build_context_from_env())`. `build_context_from_env()` in `_config.py` reads `PYMODEL_DS`, `PYMODEL_DS_NODASH`, and `PYMODEL_DATES` from the environment. MWAA worker and KPO pod both run the file as `__main__` — `run_etl` is scaffold convention, not a framework-enforced function name.
+
+Configure **`airflow_runner_cfg`** (JSON: `image`, `tag`, `namespace`, `config_file`, `cluster_context`; optional `size_specs` override for pod presets in `dags/_ext_/kpo_sizes.yml`).
+
 ## Schema reference
 
 Before writing, read `.dj/schemas/python-model.schema.json` to validate field shapes. Required fields: `name`, `group`, `topic`.
@@ -191,7 +206,8 @@ Use this when data comes from an external source (API, CSV, S3) but all transfor
 6. **Transform + Load** — `def transform_and_load(context)` runs SQL `INSERT INTO ... SELECT` with all transformations, using `overwrite_partition()` or other DML helpers from `_trino_io`
 7. **Cleanup** — `def cleanup(context)` drops the temporary staging table via `execute_trino()`
 8. **Main** — `def run_etl(context)` calls extract -> transform_and_load -> cleanup
-9. **Runner** — notebook-only `run_etl(context)` call
+9. **Script entry** — `if __name__ == "__main__":` calls `run_etl(build_context_from_env())` (included in `.python.py`)
+10. **Runner** — notebook-only `run_etl(context)` call for interactive use
 
 ### `_trino_io.py` DML operations reference
 
@@ -303,7 +319,8 @@ The output table must be **registered as a `.source.json`** before a downstream 
 
 - **SQL-first** — prefer Trino SQL for all transformations that SQL can express. Use DataFrames only for external data ingestion and Python-only logic
 - **Only edit `.python.json`** — the extension regenerates `.python.py` (and `.python.ipynb`) from the `cells` array
-- **`run_etl()` is required** — Airflow's `etl_helper.py` scans for `def run_etl(` to discover models
+- **`if __name__ == "__main__"`** — scaffold includes this block in `.python.py`; Airflow and KPO execute the script as `__main__` (use `build_context_from_env()` from `_config.py` for partition dates)
+- **`run_etl()`** — scaffold convention for orchestrating extract/transform/cleanup; not required by discovery or execution
 - **`OUTPUT_CONFIG`** must use `PythonModelConfig` from `python_models/_config.py` — the extension auto-generates this file
 - **`portal_partition_daily`** must be set as a column (either via SQL `'{ds}' AS portal_partition_daily` or pandas assignment) for partition-based writes
 - **Always suggest optimizations** — partitioning strategy, column pruning, predicate pushdown, write mode selection

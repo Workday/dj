@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import importlib.util
 import json
 import logging
+import os
 import re
+import runpy
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -11,13 +12,13 @@ from pathlib import Path
 
 from airflow.exceptions import AirflowSkipException
 from airflow.models import Variable
+from airflow.models.dag import DagContext
 from airflow.operators.python import PythonOperator
 from airflow.utils.email import send_email
 from airflow.utils.task_group import TaskGroup
 
 from _ext_.services import trino_run
-# from airflow.providers.cncf.kubernetes.operators.kubernetes_pod import KubernetesPodOperator
-# from kubernetes.client import models as k8s
+from _ext_.kpo_factory import build_kpo_task
 
 log = logging.getLogger(__name__)
 
@@ -152,7 +153,7 @@ def _build_task_model_registry(
     dag_id: str,
     python_source_config: dict | None = None,
 ) -> dict[str, dict]:
-    """Map Airflow task_id to topic and model_ids for mapped python model tasks."""
+    """Map Airflow task_id to topic and model_ids for python model tasks."""
     if python_source_config is None:
         python_source_config = get_python_source_config()
 
@@ -166,11 +167,27 @@ def _build_task_model_registry(
         if python_source_config.get(topic, {}).get("skip", False):
             continue
         for model_tasks in _compute_model_tasks(topic_models):
-            task_name = "_".join(m["model_id"] for m in model_tasks)
-            registry[f"{topic}.{task_name}"] = {
-                "topic": topic,
-                "models": [m["model_id"] for m in model_tasks],
-            }
+            kpo_models = [m for m in model_tasks if _model_uses_kpo(m)]
+            airflow_models = [m for m in model_tasks if not _model_uses_kpo(m)]
+
+            if kpo_models:
+                for m in kpo_models:
+                    model_id = m["model_id"]
+                    registry[f"{topic}.kpo__{model_id}"] = {
+                        "topic": topic,
+                        "models": [model_id],
+                    }
+                    registry[f"{topic}.gate__{model_id}"] = {
+                        "topic": topic,
+                        "models": [model_id],
+                    }
+
+            if airflow_models:
+                task_name = "_".join(m["model_id"] for m in airflow_models)
+                registry[f"{topic}.{task_name}"] = {
+                    "topic": topic,
+                    "models": [m["model_id"] for m in airflow_models],
+                }
     return registry
 
 
@@ -516,7 +533,7 @@ def send_python_source_failure_notification(
 
 
 def discover_models(dag_id: str | None = None) -> list[dict]:
-    """Scan python/ for .python.json configs with run_etl() companion .py files.
+    """Scan python_models for .python.json configs with companion .python.py files.
 
     If dag_id is provided, only return models whose 'dags' field includes
     that DAG. Models with no dags (utility modules) are always skipped.
@@ -545,18 +562,16 @@ def discover_models(dag_id: str | None = None) -> list[dict]:
             print(f"Skipping {json_file.name} (no companion .python.py)")
             continue
 
-        text = py_file.read_text()
-        if "def run_etl(" not in text:
-            print(f"Skipping {py_file.name} (no run_etl function)")
-            continue
-
         model: dict = {
             "model_id": config.get("name", json_file.stem),
             "model_path": str(py_file),
+            "script_rel": str(py_file.relative_to(PYTHON_DIR)),
             "model_type": "python",
             "depends_on": config.get("depends_on", []),
             "task_group": config.get("task_group"),
             "topic": config.get("topic", ""),
+            "compute": config.get("compute", "kpo"),
+            "kpo_size": config.get("kpo_size", "small"),
         }
 
         if config.get("output"):
@@ -572,7 +587,7 @@ def discover_models(dag_id: str | None = None) -> list[dict]:
 
 
 def execute_model(model: dict, context: dict) -> None:
-    """Dynamically import a model file and call its run_etl(context)."""
+    """Run a model .python.py file as __main__ with PYMODEL_* env from context."""
     model_path = model["model_path"]
     model_id = model["model_id"]
 
@@ -581,14 +596,23 @@ def execute_model(model: dict, context: dict) -> None:
 
     print(f"Executing model: {model_id}")
 
-    spec = importlib.util.spec_from_file_location(model_id, model_path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    pymodel_keys = ("PYMODEL_DS", "PYMODEL_DS_NODASH", "PYMODEL_DATES")
+    prev = {k: os.environ.get(k) for k in pymodel_keys}
+    try:
+        os.environ["PYMODEL_DS"] = context["ds"]
+        os.environ["PYMODEL_DS_NODASH"] = context["ds_nodash"]
+        if "dates" in context:
+            os.environ["PYMODEL_DATES"] = json.dumps(context["dates"])
+        else:
+            os.environ.pop("PYMODEL_DATES", None)
+        runpy.run_path(model_path, run_name="__main__")
+    finally:
+        for key, value in prev.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
-    if not hasattr(module, "run_etl"):
-        raise AttributeError(f"Model missing run_etl() function: {model_path}")
-
-    module.run_etl(context)
     print(f"Completed model: {model_id}")
 
 
@@ -605,32 +629,79 @@ def register_python_model_tasks(dag_id: str, dag=None):
     if not models:
         return None, None
 
-    tasks = {}
-    for model in models:
-        build_kw = dict(
-            task_id=f"python_model__{model['model_id']}",
-            python_callable=execute_model,
-            op_kwargs={
-                "model": model,
-                "context": {"ds": "{{ ds }}", "ds_nodash": "{{ ds_nodash }}"},
-            },
-        )
-        if dag is not None:
-            build_kw["dag"] = dag
-        task = PythonOperator(**build_kw)
-        tasks[model["model_id"]] = task
+    if dag is None:
+        dag = _current_dag()
 
-    has_upstream = set()
-    is_depended_on = set()
+    gate_tasks: dict[str, PythonOperator] = {}
+    kpo_tasks: dict[str, object] = {}
+    airflow_tasks: dict[str, PythonOperator] = {}
+
     for model in models:
+        model_id = model["model_id"]
+        if _model_uses_kpo(model):
+            gate_task_id = f"gate__{model_id}"
+            gate_tasks[model_id] = PythonOperator(
+                task_id=gate_task_id,
+                python_callable=gate_model_run,
+                op_kwargs={"model": model},
+                dag=dag,
+                on_failure_callback=_record_airflow_task_failure,
+            )
+            kpo_tasks[model_id] = build_kpo_task(
+                task_id=f"kpo__{model_id}",
+                dag=dag,
+                python_model_name=model["script_rel"],
+                env_vars=build_kpo_env_vars(gate_task_id),
+                script_args=["--run-id", "{{ dag_run.run_id }}", "--logical-date", "{{ ds }}"],
+                size=model.get("kpo_size", "small"),
+                labels={"component": "python-model", "variant": model.get("topic", "")},
+                on_success_callback=_record_kpo_success,
+                on_failure_callback=_record_kpo_failure,
+            )
+            gate_tasks[model_id] >> kpo_tasks[model_id]
+        else:
+            airflow_tasks[model_id] = PythonOperator(
+                task_id=f"python_model__{model_id}",
+                python_callable=_execute_model_with_context,
+                op_kwargs={
+                    "model": model,
+                    "context": {"ds": "{{ ds }}", "ds_nodash": "{{ ds_nodash }}"},
+                },
+                dag=dag,
+            )
+
+    all_ids = {m["model_id"] for m in models}
+    for model in models:
+        model_id = model["model_id"]
         for dep_name in model.get("depends_on", []):
-            if dep_name in tasks:
-                tasks[dep_name] >> tasks[model["model_id"]]
-                has_upstream.add(model["model_id"])
+            if dep_name not in all_ids:
+                continue
+            if dep_name in kpo_tasks and model_id in gate_tasks:
+                kpo_tasks[dep_name] >> gate_tasks[model_id]
+            elif dep_name in airflow_tasks and model_id in airflow_tasks:
+                airflow_tasks[dep_name] >> airflow_tasks[model_id]
+
+    has_upstream: set[str] = set()
+    is_depended_on: set[str] = set()
+    for model in models:
+        model_id = model["model_id"]
+        for dep_name in model.get("depends_on", []):
+            if dep_name in all_ids:
+                has_upstream.add(model_id)
                 is_depended_on.add(dep_name)
 
-    entry_tasks = [t for name, t in tasks.items() if name not in has_upstream]
-    exit_tasks = [t for name, t in tasks.items() if name not in is_depended_on]
+    entry_tasks = []
+    exit_tasks = []
+    for model in models:
+        model_id = model["model_id"]
+        if model_id in gate_tasks and model_id not in has_upstream:
+            entry_tasks.append(gate_tasks[model_id])
+        if model_id in airflow_tasks and model_id not in has_upstream:
+            entry_tasks.append(airflow_tasks[model_id])
+        if model_id in kpo_tasks and model_id not in is_depended_on:
+            exit_tasks.append(kpo_tasks[model_id])
+        if model_id in airflow_tasks and model_id not in is_depended_on:
+            exit_tasks.append(airflow_tasks[model_id])
 
     return entry_tasks, exit_tasks
 
@@ -752,6 +823,283 @@ def resolve_dates_in(dates_in: str | list | dict, ds: str) -> list[str]:
         return dates
 
 
+def _model_uses_kpo(model: dict) -> bool:
+    return model.get("compute", "kpo") != "airflow"
+
+
+def _current_dag():
+    dag = DagContext.get_current_dag()
+    if dag is None:
+        raise RuntimeError(
+            "Python model task registration must run inside an active DAG context"
+        )
+    return dag
+
+
+def _resolve_model_run(
+    model: dict,
+    topic: str,
+    context: dict,
+    *,
+    record_fn=None,
+) -> tuple[dict, str, str] | None:
+    """Resolve partition context for a model run.
+
+    Returns ``(ctx, etl_date, model_group)`` or ``None`` when ``skip_model``
+    applies. Raises ``AirflowSkipException`` for topic-level skip / schedule gate.
+    """
+    model_name = model["model_id"]
+    model_group = topic or model.get("topic", "")
+    dates_in: str | list | dict = ""
+
+    if topic:
+        conf = (context.get("dag_run").conf or {}) if context.get("dag_run") else {}
+        runtime_config = conf.get("python_source_config") or get_python_source_config()
+        topic_cfg = runtime_config.get(topic, {})
+
+        if topic_cfg.get("skip", False):
+            if record_fn:
+                record_fn("skipped", 0.0, True)
+            raise AirflowSkipException(f"topic {topic} skip=True")
+
+        date_to_run = topic_cfg.get("date_to_run", "")
+        if not passes_schedule_gate(date_to_run, context["ds"]):
+            if record_fn:
+                record_fn("skipped", 0.0, True)
+            raise AirflowSkipException(
+                f"topic {topic} schedule gate '{date_to_run}' not met"
+            )
+
+        skip_models = topic_cfg.get("skip_model", [])
+        if isinstance(skip_models, str):
+            skip_models = [skip_models]
+        skip_models = [m for m in skip_models if m and str(m).strip()]
+        if model_name in skip_models:
+            if record_fn:
+                record_fn("skipped", 0.0, True)
+            return None
+
+        dates_in = topic_cfg.get("dates_in", "")
+
+    dates = resolve_dates_in(dates_in, context["ds"])
+    etl_date = dates[0]
+    ctx = {"ds": etl_date, "ds_nodash": etl_date.replace("-", "")}
+    if dates_in:
+        ctx["dates"] = dates
+    return ctx, etl_date, model_group
+
+
+def gate_model_run(model: dict, topic: str = "", **context) -> None:
+    """Resolve gating and push run context to XCom for a downstream KPO task."""
+    model_name = model["model_id"]
+    model_group = topic or model.get("topic", "")
+    etl_timestamp = _get_etl_timestamp_from_context(context)
+    etl_date = context["ds"]
+
+    def _record(
+        run_status: str,
+        run_seconds: float,
+        is_skipped: bool,
+        run_message: str | None = None,
+        record_etl_date: str | None = None,
+    ) -> None:
+        try:
+            record_python_model_run(
+                model_name=model_name,
+                model_group=model_group,
+                etl_date=record_etl_date or etl_date,
+                etl_timestamp=etl_timestamp or "",
+                run_status=run_status,
+                run_seconds=run_seconds,
+                is_skipped=is_skipped,
+                run_message=run_message,
+                context=context,
+            )
+        except Exception as exc:
+            log.warning("Failed to record python model run for %s: %s", model_name, exc)
+
+    resolved = _resolve_model_run(model, topic, context, record_fn=_record)
+    if resolved is None:
+        return
+
+    ctx, resolved_etl_date, resolved_group = resolved
+    ti = context["ti"]
+    ti.xcom_push(key="ds", value=ctx["ds"])
+    ti.xcom_push(key="ds_nodash", value=ctx["ds_nodash"])
+    if "dates" in ctx:
+        ti.xcom_push(key="dates_json", value=json.dumps(ctx["dates"]))
+    ti.xcom_push(key="etl_date", value=resolved_etl_date)
+    ti.xcom_push(key="model_group", value=resolved_group)
+
+
+def build_kpo_env_vars(gate_task_id: str) -> dict[str, str]:
+    """Build container env vars for a KPO task, pulling partition dates from gate XCom."""
+    env: dict[str, str] = {
+        "PYMODEL_DS": f"{{{{ ti.xcom_pull(task_ids='{gate_task_id}', key='ds') }}}}",
+        "PYMODEL_DS_NODASH": (
+            f"{{{{ ti.xcom_pull(task_ids='{gate_task_id}', key='ds_nodash') }}}}"
+        ),
+        "DJ_PYTHON_MODEL_CATALOG_NAME": (
+            "{{ var.value.get('dj_python_model_catalog_name', 'glue') }}"
+        ),
+        "python_models_s3_bucket": (
+            "{{ var.value.get('python_models_s3_bucket') }}"
+        ),
+        "python_model_s3_region": (
+            "{{ var.value.get('python_model_s3_region', 'us-west-2') }}"
+        ),
+        "OPUS-ETL-CLUSTER-HOST": "{{ var.value.get('opus-etl-cluster-host') }}",
+        "OPUS-ETL-USER-NAME": "{{ var.value.get('opus-etl-user-name') }}",
+        "OPUS-ETL-CLUSTER-PASSWORD": (
+            "{{ var.value.get('opus-etl-cluster-password') }}"
+        ),
+    }
+    env["PYMODEL_DATES"] = (
+        f"{{{{ ti.xcom_pull(task_ids='{gate_task_id}', key='dates_json') }}}}"
+    )
+    return env
+
+
+def _kpo_model_id_from_task_id(task_id: str) -> str | None:
+    marker = "kpo__"
+    if marker not in task_id:
+        return None
+    return task_id.rsplit(marker, 1)[-1]
+
+
+def _gate_task_id_for_kpo(task_id: str) -> str:
+    if "kpo__" in task_id:
+        return task_id.replace("kpo__", "gate__", 1)
+    return task_id
+
+
+def _record_kpo_success(context: dict) -> None:
+    _record_kpo_outcome(context, run_status="success")
+
+
+def _record_kpo_failure(context: dict) -> None:
+    ti = context.get("ti")
+    run_message = None
+    if ti is not None:
+        run_message = getattr(ti, "note", None) or "KPO task failed"
+    _record_kpo_outcome(context, run_status="error", run_message=run_message)
+
+
+def _record_kpo_outcome(
+    context: dict,
+    run_status: str,
+    run_message: str | None = None,
+) -> None:
+    try:
+        ti = context["ti"]
+        model_id = _kpo_model_id_from_task_id(ti.task_id)
+        if not model_id:
+            return
+
+        gate_task_id = _gate_task_id_for_kpo(ti.task_id)
+        etl_date = ti.xcom_pull(task_ids=gate_task_id, key="etl_date") or context["ds"]
+        model_group = ti.xcom_pull(task_ids=gate_task_id, key="model_group") or ""
+        etl_timestamp = _get_etl_timestamp_from_context(context)
+
+        started_at = ti.start_date
+        run_seconds = 0.0
+        if started_at is not None and ti.end_date is not None:
+            run_seconds = (ti.end_date - started_at).total_seconds()
+
+        record_python_model_run(
+            model_name=model_id,
+            model_group=model_group,
+            etl_date=etl_date,
+            etl_timestamp=etl_timestamp or "",
+            run_status=run_status,
+            run_seconds=run_seconds,
+            is_skipped=False,
+            run_message=run_message,
+            context=context,
+        )
+    except Exception as exc:
+        log.warning("Failed to record KPO model run: %s", exc)
+
+
+def _wire_kpo_batch_depends_on(
+    model_tasks: list[dict],
+    gate_tasks: dict[str, PythonOperator],
+    kpo_tasks: dict[str, object],
+) -> tuple[list[PythonOperator], list]:
+    """Wire depends_on across gate/KPO pairs; return entry gates and exit KPO tasks."""
+    model_ids = {m["model_id"] for m in model_tasks}
+    for m in model_tasks:
+        model_id = m["model_id"]
+        for dep_id in m.get("depends_on", []):
+            if dep_id in model_ids and dep_id in kpo_tasks:
+                kpo_tasks[dep_id] >> gate_tasks[model_id]
+
+    has_upstream: set[str] = set()
+    is_depended_on: set[str] = set()
+    for m in model_tasks:
+        model_id = m["model_id"]
+        for dep_id in m.get("depends_on", []):
+            if dep_id in model_ids:
+                has_upstream.add(model_id)
+                is_depended_on.add(dep_id)
+
+    entry_gates = [
+        gate_tasks[m["model_id"]]
+        for m in model_tasks
+        if m["model_id"] not in has_upstream
+    ]
+    exit_kpos = [
+        kpo_tasks[m["model_id"]]
+        for m in model_tasks
+        if m["model_id"] not in is_depended_on
+    ]
+    return entry_gates, exit_kpos
+
+
+def _register_kpo_model_batch(
+    dag,
+    topic: str,
+    model_tasks: list[dict],
+    prev_task,
+) -> object:
+    """Create gate + KPO task pairs for a homogeneous KPO model batch."""
+    gate_tasks: dict[str, PythonOperator] = {}
+    kpo_tasks: dict[str, object] = {}
+
+    for m in model_tasks:
+        model_id = m["model_id"]
+        gate_task_id = f"gate__{model_id}"
+        gate_tasks[model_id] = PythonOperator(
+            task_id=gate_task_id,
+            python_callable=gate_model_run,
+            op_kwargs={"model": m, "topic": topic},
+            dag=dag,
+            on_failure_callback=_record_airflow_task_failure,
+        )
+        kpo_tasks[model_id] = build_kpo_task(
+            task_id=f"kpo__{model_id}",
+            dag=dag,
+            python_model_name=m["script_rel"],
+            env_vars=build_kpo_env_vars(gate_task_id),
+            script_args=["--run-id", "{{ dag_run.run_id }}", "--logical-date", "{{ ds }}"],
+            size=m.get("kpo_size", "small"),
+            labels={"component": "python-model", "variant": topic},
+            on_success_callback=_record_kpo_success,
+            on_failure_callback=_record_kpo_failure,
+        )
+        gate_tasks[model_id] >> kpo_tasks[model_id]
+
+    entry_gates, exit_kpos = _wire_kpo_batch_depends_on(
+        model_tasks, gate_tasks, kpo_tasks
+    )
+    if prev_task is not None:
+        prev_task >> entry_gates
+
+    if len(exit_kpos) == 1:
+        return exit_kpos[0]
+    return exit_kpos
+
+
 def _execute_model_with_context(
     model: dict,
     topic: str = "",
@@ -776,7 +1124,6 @@ def _execute_model_with_context(
     model_group = topic or model.get("topic", "")
     etl_timestamp = _get_etl_timestamp_from_context(context)
     etl_date = context["ds"]
-    dates_in: str | list | dict = ""
     started_at: float | None = None
 
     def _record(
@@ -802,56 +1149,11 @@ def _execute_model_with_context(
             log.warning("Failed to record python model run for %s: %s", model_name, exc)
 
     try:
-        if topic:
-            conf = (context.get("dag_run").conf or {}) if context.get("dag_run") else {}
-            runtime_config = conf.get("python_source_config") or get_python_source_config()
-            topic_cfg = runtime_config.get(topic, {})
+        resolved = _resolve_model_run(model, topic, context, record_fn=_record)
+        if resolved is None:
+            return
 
-            if topic_cfg.get("skip", False):
-                log.info(
-                    "Skipping model %s (topic %s skip=True at runtime)",
-                    model_name,
-                    topic,
-                )
-                _record("skipped", 0.0, True)
-                raise AirflowSkipException(f"topic {topic} skip=True")
-
-            date_to_run = topic_cfg.get("date_to_run", "")
-            if not passes_schedule_gate(date_to_run, context["ds"]):
-                log.info(
-                    "Skipping model %s (topic %s schedule gate '%s' not met for ds %s)",
-                    model_name,
-                    topic,
-                    date_to_run,
-                    context["ds"],
-                )
-                _record("skipped", 0.0, True)
-                raise AirflowSkipException(
-                    f"topic {topic} schedule gate '{date_to_run}' not met"
-                )
-
-            skip_models = topic_cfg.get("skip_model", [])
-            if isinstance(skip_models, str):
-                skip_models = [skip_models]
-            skip_models = [m for m in skip_models if m and str(m).strip()]
-            if model_name in skip_models:
-                log.info(
-                    "Skipping model %s (topic %s skip_model=%s)",
-                    model_name,
-                    topic,
-                    skip_models,
-                )
-                _record("skipped", 0.0, True)
-                return
-
-            dates_in = topic_cfg.get("dates_in", "")
-
-        dates = resolve_dates_in(dates_in, context["ds"])
-        etl_date = dates[0]
-        ctx = {"ds": etl_date, "ds_nodash": etl_date.replace("-", "")}
-        if dates_in:
-            ctx["dates"] = dates
-
+        ctx, etl_date, _ = resolved
         started_at = time.perf_counter()
         execute_model(model, ctx)
         _record("success", time.perf_counter() - started_at, False)
@@ -861,6 +1163,43 @@ def _execute_model_with_context(
         elapsed = time.perf_counter() - started_at if started_at is not None else 0.0
         _record("error", elapsed, False, run_message=str(exc))
         raise
+
+
+def _register_model_task_batch(
+    dag,
+    topic: str,
+    model_tasks: list[dict],
+    prev_task,
+) -> object:
+    """Register a topological batch using KPO or Airflow worker compute per model."""
+    kpo_models = [m for m in model_tasks if _model_uses_kpo(m)]
+    airflow_models = [m for m in model_tasks if not _model_uses_kpo(m)]
+    batch_exit = prev_task
+
+    if kpo_models:
+        batch_exit = _register_kpo_model_batch(dag, topic, kpo_models, batch_exit)
+
+    if airflow_models:
+        task_name = "_".join(m["model_id"] for m in airflow_models)
+        op_kwargs_list = [
+            {
+                "model": m,
+                "model_id": m["model_id"],
+                **({"topic": topic} if topic else {}),
+            }
+            for m in airflow_models
+        ]
+        mapped_task = PythonOperator.partial(
+            task_id=task_name,
+            python_callable=_execute_model_with_context,
+            dag=dag,
+            on_failure_callback=_record_airflow_task_failure,
+        ).expand(op_kwargs=op_kwargs_list)
+        if batch_exit is not None:
+            batch_exit >> mapped_task
+        batch_exit = mapped_task
+
+    return batch_exit
 
 
 def register_python_model_mapped_tasks(dag_id: str, group_id: str | None = None):
@@ -883,20 +1222,12 @@ def register_python_model_mapped_tasks(dag_id: str, group_id: str | None = None)
         return None
 
     model_task_batches = _compute_model_tasks(models)
+    dag = _current_dag()
 
     with TaskGroup(group_id=group_id or dag_id) as tg:
         prev_task = None
         for model_tasks in model_task_batches:
-            task_name = "_".join(m["model_id"] for m in model_tasks)
-            mapped_task = PythonOperator.partial(
-                task_id=task_name,
-                python_callable=_execute_model_with_context,
-                on_failure_callback=_record_airflow_task_failure,
-            ).expand(op_kwargs=[{"model": m, "model_id": m["model_id"]} for m in model_tasks])
-
-            if prev_task is not None:
-                prev_task >> mapped_task
-            prev_task = mapped_task
+            prev_task = _register_model_task_batch(dag, "", model_tasks, prev_task)
 
     return tg
 
@@ -940,128 +1271,15 @@ def register_python_model_mapped_tasks_by_topic(
             continue
 
         model_task_batches = _compute_model_tasks(topic_models)
+        dag = _current_dag()
 
         with TaskGroup(group_id=topic) as tg:
             prev_task = None
             for model_tasks in model_task_batches:
-                task_name = "_".join(m["model_id"] for m in model_tasks)
-
-                op_kwargs_list = [
-                    {
-                        "model": m,
-                        "model_id": m["model_id"],
-                        "topic": topic,
-                    }
-                    for m in model_tasks
-                ]
-
-                mapped_task = PythonOperator.partial(
-                    task_id=task_name,
-                    python_callable=_execute_model_with_context,
-                    on_failure_callback=_record_airflow_task_failure,
-                ).expand(op_kwargs=op_kwargs_list)
-
-                if prev_task is not None:
-                    prev_task >> mapped_task
-                prev_task = mapped_task
+                prev_task = _register_model_task_batch(
+                    dag, topic, model_tasks, prev_task
+                )
 
         topic_groups.append(tg)
 
     return topic_groups if topic_groups else None
-
-
-# def register_k8s_model_tasks(
-#     dag_id: str,
-#     image: str,
-#     k8s_config_path: str,
-#     cluster_context: str,
-#     namespace: str = "mwaa",
-#     image_pull_secret: str = "wd-docker-artifactory-cred",
-#     dag=None,
-# ) -> tuple:
-#     """Create KubernetesPodOperator tasks for each Python model and wire depends_on.
-#
-#     Each pod runs dags/python_models/entrypoint.py inside the pymodels image.
-#     Airflow context (ds) and Trino credentials are injected as env vars via
-#     Jinja templates so values are resolved at execution time, not parse time.
-#
-#     Returns (entry_tasks, exit_tasks) for chaining into the parent DAG.
-#     Returns (None, None) if no models are found.
-#     """
-#     models = discover_models(dag_id)
-#     if not models:
-#         return None, None
-#
-#     # Group models by task_group; models without one form solo groups keyed by model_id.
-#     groups: dict = {}
-#     for m in models:
-#         key = m.get("task_group") or m["model_id"]
-#         groups.setdefault(key, []).append(m)
-#
-#     # model_id → group_key for cross-group dependency wiring
-#     model_to_group: dict = {m["model_id"]: (m.get("task_group") or m["model_id"]) for m in models}
-#
-#     _shared_env = [
-#         k8s.V1EnvVar(name="PYMODEL_DS", value="{{ ds }}"),
-#         k8s.V1EnvVar(
-#             name="OPUS-ETL-CLUSTER-HOST",
-#             value="{{ var.value.get('opus-etl-cluster-host') }}",
-#         ),
-#         k8s.V1EnvVar(
-#             name="OPUS-ETL-USER-NAME",
-#             value="{{ var.value.get('opus-etl-user-name') }}",
-#         ),
-#         k8s.V1EnvVar(
-#             name="OPUS-ETL-CLUSTER-PASSWORD",
-#             value="{{ var.value.get('opus-etl-cluster-password') }}",
-#         ),
-#         k8s.V1EnvVar(
-#             name="DJ_PYTHON_MODEL_CATALOG_NAME",
-#             value="{{ var.value.get('dj_python_model_catalog_name', 'glue') }}",
-#         ),
-#     ]
-#
-#     tasks: dict = {}
-#     for group_key, group_models in groups.items():
-#         if len(group_models) == 1:
-#             m = group_models[0]
-#             task_id = f"python_model__{m['model_id']}"
-#             group_env = [k8s.V1EnvVar(name="PYMODEL_MODEL_ID", value=m["model_id"])]
-#         else:
-#             task_id = f"python_model_group__{group_key}"
-#             ids = ",".join(m["model_id"] for m in group_models)
-#             group_env = [k8s.V1EnvVar(name="PYMODEL_MODEL_IDS", value=ids)]
-#
-#         build_kw = dict(
-#             task_id=task_id,
-#             namespace=namespace,
-#             image=image,
-#             image_pull_secrets=[k8s.V1LocalObjectReference(name=image_pull_secret)],
-#             cmds=["python3.11", "/opt/py_models/entrypoint.py"],
-#             env_vars=_shared_env + group_env,
-#             is_delete_operator_pod=True,
-#             get_logs=True,
-#             config_file=k8s_config_path,
-#             in_cluster=False,
-#             cluster_context=cluster_context,
-#             startup_timeout_seconds=300,
-#         )
-#         if dag is not None:
-#             build_kw["dag"] = dag
-#         tasks[group_key] = KubernetesPodOperator(**build_kw)
-#
-#     # Wire cross-group Airflow dependencies.
-#     has_upstream: set = set()
-#     is_depended_on: set = set()
-#     for m in models:
-#         group_key = model_to_group[m["model_id"]]
-#         for dep_model_id in m.get("depends_on", []):
-#             dep_group = model_to_group.get(dep_model_id)
-#             if dep_group and dep_group != group_key and dep_group in tasks:
-#                 tasks[dep_group] >> tasks[group_key]
-#                 has_upstream.add(group_key)
-#                 is_depended_on.add(dep_group)
-#
-#     entry_tasks = [t for k, t in tasks.items() if k not in has_upstream]
-#     exit_tasks = [t for k, t in tasks.items() if k not in is_depended_on]
-#     return entry_tasks, exit_tasks

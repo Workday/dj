@@ -41,6 +41,18 @@
       "default": [],
       "description": "Names of other Python models that must complete before this model runs"
     },
+    "compute": {
+      "type": "string",
+      "enum": ["kpo", "airflow"],
+      "default": "kpo",
+      "description": "Execution backend: kpo (Kubernetes pod, default) or airflow (MWAA worker)"
+    },
+    "kpo_size": {
+      "type": "string",
+      "enum": ["small", "medium", "large", "xlarge"],
+      "default": "small",
+      "description": "KPO pod resource preset (only when compute is kpo)"
+    },
     "output_type": {
       "type": "string",
       "enum": ["iceberg", "s3"],

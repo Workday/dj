@@ -56,6 +56,15 @@ export interface PythonModelCell {
   execution_count?: number | null;
 }
 
+export type PythonModelCompute = 'kpo' | 'airflow';
+export type PythonModelKpoSize = 'small' | 'medium' | 'large' | 'xlarge';
+
+export interface KpoSizeSpec {
+  cpu: string;
+  memory: string;
+  guidance: string;
+}
+
 export interface PythonModelConfig {
   name: string;
   group: PythonModelGroup;
@@ -64,6 +73,8 @@ export interface PythonModelConfig {
   model_type: 'python';
   dags?: string[];
   depends_on?: string[];
+  compute?: PythonModelCompute;
+  kpo_size?: PythonModelKpoSize;
   output_type?: PythonModelOutputType;
   output?: PythonModelOutputConfig;
   enable_notebook?: boolean;
@@ -388,6 +399,8 @@ export type FrameworkApi =
         model_type: 'python';
         dags?: string[];
         depends_on?: string[];
+        compute?: PythonModelCompute;
+        kpo_size?: PythonModelKpoSize;
         output_type?: PythonModelOutputType;
         enable_notebook?: boolean;
         tags?: string[];
@@ -427,6 +440,14 @@ export type FrameworkApi =
       service: 'framework';
       request: null;
       response: { groups: string[] };
+    }
+  | {
+      type: 'framework-get-kpo-sizes';
+      service: 'framework';
+      request: null;
+      response: {
+        sizes: Record<string, KpoSizeSpec>;
+      };
     }
   | {
       /**
@@ -548,6 +569,10 @@ async function apiHandler(p: {
   type: 'framework-get-python-model-groups';
   request: ApiRequest<'framework-get-python-model-groups'>;
 }): Promise<ApiResponse<'framework-get-python-model-groups'>>;
+async function apiHandler(p: {
+  type: 'framework-get-kpo-sizes';
+  request: ApiRequest<'framework-get-kpo-sizes'>;
+}): Promise<ApiResponse<'framework-get-kpo-sizes'>>;
 async function apiHandler(p: {
   type: 'framework-model-cte-analysis';
   request: ApiRequest<'framework-model-cte-analysis'>;

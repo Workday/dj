@@ -47,6 +47,14 @@ export interface SchemaPythonModel {
    */
   depends_on?: string[];
   /**
+   * Execution backend: kpo (Kubernetes pod, default) or airflow (MWAA worker)
+   */
+  compute?: 'kpo' | 'airflow';
+  /**
+   * KPO pod resource preset (only when compute is kpo)
+   */
+  kpo_size?: 'small' | 'medium' | 'large' | 'xlarge';
+  /**
    * Output backend type for data writes
    */
   output_type?: 'iceberg' | 's3';

@@ -74,6 +74,10 @@ import {
   generateTrinoIoPy,
   workspaceHasPythonModels,
 } from './utils';
+import {
+  ETL_HELPER_BUNDLE_FILES,
+  readKpoSizesTemplate,
+} from './utils/kpo-sizes';
 
 /**
  * Dependencies required by the Framework service.
@@ -337,6 +341,8 @@ export class Framework implements ApiEnabledService<'framework'> {
           tags,
           namespace: reqNamespace,
           table_name: reqTableName,
+          compute: reqCompute,
+          kpo_size: reqKpoSize,
           create_dag: createDag,
           dag_config: dagConfig,
         } = payload.request;
@@ -384,6 +390,10 @@ export class Framework implements ApiEnabledService<'framework'> {
           ...(description && { description }),
           model_type,
           dags,
+          compute: reqCompute ?? 'kpo',
+          ...(reqCompute === 'kpo' || reqCompute === undefined
+            ? { kpo_size: reqKpoSize ?? 'small' }
+            : {}),
           ...(enable_notebook && { enable_notebook }),
           tags: tags && tags.length > 0 ? tags : ['python-model', group],
           ...(reqNamespace && { namespace: reqNamespace }),
@@ -515,6 +525,8 @@ export class Framework implements ApiEnabledService<'framework'> {
 
       case 'framework-get-python-model-groups':
         return { groups: getDjConfig().pythonModelGroups };
+      case 'framework-get-kpo-sizes':
+        return { sizes: await readKpoSizesTemplate() };
       case 'framework-model-cte-analysis':
         return await this.cteAnalysisHandlers.handleCteAnalysis(payload);
 
@@ -2090,6 +2102,8 @@ export class Framework implements ApiEnabledService<'framework'> {
     const { airflowDagsPath } = getDjConfig();
     const scaffoldingPaths = [
       path.join(WORKSPACE_ROOT, 'dags', '_ext_', 'etl_helper.py'),
+      path.join(WORKSPACE_ROOT, 'dags', '_ext_', 'kpo_factory.py'),
+      path.join(WORKSPACE_ROOT, 'dags', '_ext_', 'kpo_sizes.yml'),
       path.join(WORKSPACE_ROOT, 'dags', 'python_models', '_config.py'),
       path.join(WORKSPACE_ROOT, 'dags', 'python_models', '_trino_io.py'),
       path.join(WORKSPACE_ROOT, 'dags', 'python_models', '_model_tasks.py'),
@@ -2097,6 +2111,8 @@ export class Framework implements ApiEnabledService<'framework'> {
     if (airflowDagsPath) {
       scaffoldingPaths.push(
         path.join(WORKSPACE_ROOT, airflowDagsPath, 'etl_helper.py'),
+        path.join(WORKSPACE_ROOT, airflowDagsPath, 'kpo_factory.py'),
+        path.join(WORKSPACE_ROOT, airflowDagsPath, 'kpo_sizes.yml'),
       );
     }
 
@@ -2172,21 +2188,27 @@ export class Framework implements ApiEnabledService<'framework'> {
   }
 
   /**
-   * Read the etl_helper.py template for the configured Airflow version.
-   * Used both to seed the file and to revert unauthorized edits.
+   * Read an Airflow template file for the configured target version.
    */
-  private async readEtlHelperTemplate(): Promise<string> {
+  private async readAirflowTemplate(fileName: string): Promise<string> {
     const { airflowTargetVersion } = getDjConfig();
     const versionFolder = airflowTargetVersion === '2.10' ? 'v2_10' : 'v2_7';
     const templatePath = path.join(
       BASE_AIRFLOW_PATH,
       versionFolder,
-      'etl_helper.py',
+      fileName,
     );
     const content = await vscode.workspace.fs.readFile(
       vscode.Uri.file(templatePath),
     );
     return Buffer.from(content).toString();
+  }
+
+  /**
+   * Read the etl_helper.py template for the configured Airflow version.
+   */
+  private async readEtlHelperTemplate(): Promise<string> {
+    return this.readAirflowTemplate('etl_helper.py');
   }
 
   /**
@@ -2219,6 +2241,16 @@ export class Framework implements ApiEnabledService<'framework'> {
         glob: '**/etl_helper.py',
         generate: () => this.readEtlHelperTemplate(),
         label: 'etl_helper.py',
+      },
+      {
+        glob: '**/kpo_factory.py',
+        generate: () => this.readAirflowTemplate('kpo_factory.py'),
+        label: 'kpo_factory.py',
+      },
+      {
+        glob: '**/kpo_sizes.yml',
+        generate: () => this.readAirflowTemplate('kpo_sizes.yml'),
+        label: 'kpo_sizes.yml',
       },
     ];
 
@@ -2255,6 +2287,7 @@ export class Framework implements ApiEnabledService<'framework'> {
     '_model_tasks.py',
     '__init__.py',
     'etl_helper.py',
+    'kpo_factory.py',
   ]);
 
   /** Whether a path is a python model file that the SQL guard should scan. */
@@ -2392,50 +2425,49 @@ export class Framework implements ApiEnabledService<'framework'> {
   private async ensureEtlHelperFile(): Promise<void> {
     const { airflowDagsPath, airflowTargetVersion } = getDjConfig();
 
-    // Check possible locations for etl_helper.py
     const possibleTargets: string[] = [];
 
     if (airflowDagsPath) {
-      possibleTargets.push(
-        path.join(WORKSPACE_ROOT, airflowDagsPath, 'etl_helper.py'),
-      );
+      possibleTargets.push(path.join(WORKSPACE_ROOT, airflowDagsPath));
     }
-    possibleTargets.push(
-      path.join(WORKSPACE_ROOT, 'dags', '_ext_', 'etl_helper.py'),
-    );
+    possibleTargets.push(path.join(WORKSPACE_ROOT, 'dags', '_ext_'));
 
-    // Determine best target: overwrite an existing file wherever it lives,
-    // otherwise prefer airflowDagsPath, then workspace dags/_ext_/.
-    let targetPath = possibleTargets[0];
+    let targetDir = possibleTargets[0];
     for (const target of possibleTargets) {
       try {
-        await vscode.workspace.fs.stat(vscode.Uri.file(target));
-        targetPath = target;
+        await vscode.workspace.fs.stat(
+          vscode.Uri.file(path.join(target, 'etl_helper.py')),
+        );
+        targetDir = target;
         break;
       } catch {
         // Not found, continue
       }
     }
 
-    // Determine source template
     const versionFolder = airflowTargetVersion === '2.10' ? 'v2_10' : 'v2_7';
-    const templatePath = path.join(
-      BASE_AIRFLOW_PATH,
-      versionFolder,
-      'etl_helper.py',
-    );
 
     try {
-      const content = await vscode.workspace.fs.readFile(
-        vscode.Uri.file(templatePath),
-      );
-      // Ensure target directory exists
-      const targetDir = path.dirname(targetPath);
       await vscode.workspace.fs.createDirectory(vscode.Uri.file(targetDir));
-      await vscode.workspace.fs.writeFile(vscode.Uri.file(targetPath), content);
-      this.log.info(`Generated etl_helper.py at: ${targetPath}`);
+
+      for (const fileName of ETL_HELPER_BUNDLE_FILES) {
+        const templatePath = path.join(
+          BASE_AIRFLOW_PATH,
+          versionFolder,
+          fileName,
+        );
+        const content = await vscode.workspace.fs.readFile(
+          vscode.Uri.file(templatePath),
+        );
+        const targetPath = path.join(targetDir, fileName);
+        await vscode.workspace.fs.writeFile(
+          vscode.Uri.file(targetPath),
+          content,
+        );
+        this.log.info(`Generated ${fileName} at: ${targetPath}`);
+      }
     } catch (err) {
-      this.log.warn(`Could not generate etl_helper.py: ${String(err)}`);
+      this.log.warn(`Could not generate etl helper bundle: ${String(err)}`);
     }
   }
 
