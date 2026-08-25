@@ -468,22 +468,9 @@ export class ModelLineage {
               .filter(Boolean)
           : [];
 
-        const pythonModelTable = props['python_model_table'] ?? pythonModelName;
-        const pythonModelId = `python.${pythonModelTable}`;
-        const pythonModelNode: LineageNode = {
-          id: pythonModelId,
-          name: pythonModelTable,
-          type: 'python',
-          description:
-            props['python_model_description'] ??
-            `Python model: ${pythonModelName}`,
-          tags: ['python'],
-          path: '',
-          schema,
-          database: catalog,
-          hasOwnUpstream: upstreamSources.length > 0,
-          hasOwnDownstream: true,
-        };
+        if (upstreamSources.length === 0) {
+          return null;
+        }
 
         const upstreamSourceNodes: LineageNode[] = [];
         for (const sourceId of upstreamSources) {
@@ -506,8 +493,11 @@ export class ModelLineage {
           }
         }
 
+        if (upstreamSourceNodes.length === 0) {
+          return null;
+        }
+
         return {
-          pythonModelNode,
           sourceNodeId: sourceNode.id,
           upstreamSourceNodes,
         };
@@ -522,20 +512,15 @@ export class ModelLineage {
     const results = await Promise.all(queries);
 
     for (const result of results) {
-      if (result) {
-        pythonModelNodes.push(result.pythonModelNode);
+      if (!result) {
+        continue;
+      }
+      for (const upstreamNode of result.upstreamSourceNodes) {
+        pythonModelNodes.push(upstreamNode);
         pythonModelEdges.push({
-          pythonModelNodeId: result.pythonModelNode.id,
+          pythonModelNodeId: upstreamNode.id,
           sourceNodeId: result.sourceNodeId,
         });
-
-        for (const upstreamNode of result.upstreamSourceNodes) {
-          pythonModelNodes.push(upstreamNode);
-          pythonModelEdges.push({
-            pythonModelNodeId: upstreamNode.id,
-            sourceNodeId: result.pythonModelNode.id,
-          });
-        }
       }
     }
 

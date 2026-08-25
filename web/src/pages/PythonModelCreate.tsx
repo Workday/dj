@@ -5,7 +5,7 @@ import {
 } from '@heroicons/react/24/outline';
 import type { Api } from '@shared/api/types';
 import type { DbtProject } from '@shared/dbt/types';
-import type { KpoSizeSpec,PythonModelGroup } from '@shared/framework/types';
+import type { KpoSizeSpec } from '@shared/framework/types';
 import { EXTERNAL_LINKS } from '@shared/web/constants';
 import { useApp } from '@web/context/useApp';
 import { useEnvironment } from '@web/context/useEnvironment';
@@ -29,11 +29,10 @@ import _ from 'lodash';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { usePersistedForm } from '../hooks/usePersistedForm';
+import { generateGroupOptions } from '../utils/formOptions';
 import { stateSync } from '../utils/stateSync';
 
 type Values = Api<'framework-python-model-create'>['request'];
-
-const DEFAULT_GROUPS: string[] = ['ml', 'etl', 'analytics', 'others'];
 
 const PREDEFINED_TAGS = [
   'python-model',
@@ -72,14 +71,6 @@ export function PythonModelCreate() {
   const [isProjectsLoading, setIsProjectsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [availableDags, setAvailableDags] = useState<string[]>([]);
-  const [groupOptions, setGroupOptions] = useState<
-    { label: string; value: PythonModelGroup }[]
-  >(
-    DEFAULT_GROUPS.map((g) => ({
-      label: g.charAt(0).toUpperCase() + g.slice(1),
-      value: g,
-    })),
-  );
   const [kpoSizes, setKpoSizes] = useState<Record<string, KpoSizeSpec>>({});
 
   const projectName = watch('projectName');
@@ -109,6 +100,15 @@ export function PythonModelCreate() {
         return { label: value, value };
       }),
     [projects],
+  );
+
+  const selectedProject = useMemo(
+    () => projects?.find((p) => p.name === projectName) ?? null,
+    [projects, projectName],
+  );
+  const groupOptions = useMemo(
+    () => generateGroupOptions(selectedProject),
+    [selectedProject],
   );
 
   const disableSubmit = useMemo(() => {
@@ -203,26 +203,6 @@ export function PythonModelCreate() {
       }
     };
     void fetchProjects();
-
-    const fetchGroups = async () => {
-      try {
-        const response = await api.post({
-          type: 'framework-get-python-model-groups',
-          request: null,
-        });
-        if (response.groups.length > 0) {
-          setGroupOptions(
-            response.groups.map((g) => ({
-              label: g.charAt(0).toUpperCase() + g.slice(1),
-              value: g,
-            })),
-          );
-        }
-      } catch {
-        // Fall back to defaults
-      }
-    };
-    void fetchGroups();
 
     const fetchKpoSizes = async () => {
       try {

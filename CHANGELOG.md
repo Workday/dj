@@ -1,5 +1,16 @@
 # Change Log
 
+## 2.2.2
+
+### Model Lineage
+
+- **Cleaner lineage for Python models.** Python models now show their real upstream sources in the lineage graph, without the extra placeholder node that used to appear.
+
+### Create Python Model
+
+- **Group options match your project.** The Create Python Model form now lists the groups from the project you've selected, and refreshes when you switch projects.
+- **Fix: creating a Python model works reliably.** Creating a Python model and loading its DAG and group options now work as expected.
+
 ## 2.2.1
 
 ### Security

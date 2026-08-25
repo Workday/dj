@@ -491,7 +491,7 @@ function makeMarkdownCell(
  */
 function isNotebookOnlyCell(cell: PythonModelCell): boolean {
   const meta = cell.metadata;
-  if (meta && meta.dj_notebook_only === true) {
+  if (meta?.dj_notebook_only === true) {
     return true;
   }
   return cellText(cell).startsWith('# Python Model:');
