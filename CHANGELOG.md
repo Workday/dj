@@ -19,15 +19,17 @@
 
 - **Dependency upgrades for Snyk findings.** Bumps `fast-uri` and `brace-expansion` to patched versions that address reported URI-parsing, ReDoS, and uncontrolled-recursion vulnerabilities.
 
-### Model Lineage
+### Python models
 
+- **Declare upstream lineage in `.python.json`.** Add `"upstream_sources": [{ "type": "trino"|"external", "value": "..." }]` on any Python model; after each successful Airflow or KPO run, DJ writes `python_model_name` and the structured `python_model_upstream_sources` property to the output Iceberg table — no manual `ALTER TABLE` in your `.python.py`.
+- **Model Lineage walks the full Python chain.** When a downstream dbt model sources a Python output table, Data Explorer recursively reads each upstream table's Iceberg properties until it reaches roots (external sources or tables with no further upstream), so a chain like D → C → B, A renders in one view.
 - **Cleaner lineage for Python models.** Python models now show their real upstream sources in the lineage graph, without the extra placeholder node that used to appear.
+- **One Airflow task per KPO Python model.** Models with `compute: kpo` appear as a single task named after the model (e.g. `kpo_infra`), not separate gate/KPO steps — DJ runs gating and the pod inside that task.
 
 ### Create Python Model
 
 - **Group options match your project.** The Create Python Model form now lists the groups from the project you've selected, and refreshes when you switch projects.
 - **Fix: creating a Python model works reliably.** Creating a Python model and loading its DAG and group options now work as expected.
-- **One Airflow task per KPO Python model.** Models with `compute: kpo` appear as a single task named after the model (e.g. `kpo_infra`), not separate gate/KPO steps — DJ runs gating and the pod inside that task.
 
 ## 2.3.0
 

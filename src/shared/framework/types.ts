@@ -67,6 +67,13 @@ export interface KpoSizeSpec {
   guidance: string;
 }
 
+export type PythonModelUpstreamSourceType = 'trino' | 'external';
+
+export interface PythonModelUpstreamSource {
+  type: PythonModelUpstreamSourceType;
+  value: string;
+}
+
 export interface PythonModelConfig {
   name: string;
   group: PythonModelGroup;
@@ -87,6 +94,7 @@ export interface PythonModelConfig {
   table_name?: string;
   cells?: PythonModelCell[];
   variables?: Record<string, string>;
+  upstream_sources?: PythonModelUpstreamSource | PythonModelUpstreamSource[];
 }
 
 export type ModelCreateResponse = {

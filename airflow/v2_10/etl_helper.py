@@ -561,6 +561,8 @@ def discover_models(dag_id: str | None = None) -> list[dict]:
         model: dict = {
             "model_id": config.get("name", json_file.stem),
             "model_path": str(py_file),
+            "json_path": str(json_file),
+            "config": config,
             "script_rel": str(py_file.relative_to(PYTHON_DIR)),
             "model_type": "python",
             "depends_on": config.get("depends_on", []),
@@ -610,6 +612,18 @@ def execute_model(model: dict, context: dict) -> None:
                 os.environ[key] = value
 
     print(f"Completed model: {model_id}")
+
+    json_path = model.get("json_path")
+    config = model.get("config")
+    if json_path and config:
+        try:
+            from python_models._config import apply_table_properties_from_json  # noqa: PLC0415
+
+            apply_table_properties_from_json(config)
+        except Exception as exc:
+            print(
+                f"WARNING: Could not apply table properties for {model_id}: {exc}"
+            )
 
 
 def register_python_model_tasks(dag_id: str, dag=None):

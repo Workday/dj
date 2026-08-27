@@ -120,4 +120,23 @@ export interface SchemaPythonModel {
   variables?: {
     [k: string]: string | undefined;
   };
+  /**
+   * Upstream lineage sources written to Iceberg table properties after each run
+   */
+  upstream_sources?:
+    | SchemaPythonModelUpstreamSource
+    | [SchemaPythonModelUpstreamSource, ...SchemaPythonModelUpstreamSource[]];
+}
+/**
+ * A single upstream lineage source for a Python model output table
+ */
+export interface SchemaPythonModelUpstreamSource {
+  /**
+   * trino = Iceberg/Hive table (schema.table); external = non-Trino source
+   */
+  type: 'trino' | 'external';
+  /**
+   * trino: schema.table; external: free-form identifier (API name, S3 path, etc.)
+   */
+  value: string;
 }
