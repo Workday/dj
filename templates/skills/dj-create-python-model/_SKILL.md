@@ -116,6 +116,13 @@ Ask about:
 
 **Governance metadata is optional — offer, never require.** Alongside `owner`, offer to tag `owner_slack`, `pii`, `classification`, and `compliance` in `meta` (see `.agents/dj/reference/meta-and-governance.md`), matching the keys sibling models in the project already use. If the user skips, write nothing and do not re-ask.
 
+### Step 7: Task compute
+
+Confirm `compute` and, if `kpo`, pick a `kpo_size` — see the KPO-vs-Airflow decision tree in the [Task Compute and KPO](#task-compute-and-kpo) section for the routing rules.
+
+- Default `compute: "kpo"`; override to `"airflow"` only for thin wrappers (a few HTTP calls, a dbt trigger, or a Trino DML dispatch) with sub-500-MB, sub-few-minute footprint.
+- When `compute: "kpo"`, pick `kpo_size` from the preset table in [Task Compute and KPO](#task-compute-and-kpo). Default `small`; upsize based on peak memory of the pandas transforms or API pagination window.
+
 ## Optimization guidance
 
 **Proactively suggest these optimizations** to the user while building the model. Do not wait for the user to ask — surface relevant advice based on the model's source type, transformation needs, and data volume.
@@ -158,22 +165,73 @@ dags/python_models/<group>/<topic>/<name>.python.json
 
 Model ID convention: `python__<group>__<topic>__<name>`
 
-## Compute and KPO image naming
+## Task Compute and KPO
 
-New models default to **`compute: "kpo"`** (Kubernetes pod) instead of running on the MWAA worker. Set **`compute: "airflow"`** explicitly when the KPO image pipeline is not ready.
+**Purpose.** Heavy Python ETL runs on a dedicated pod on EKS via `KubernetesPodOperator` (KPO) instead of the shared MWAA worker, unblocking OOM-prone or long-running jobs without disrupting other DAGs.
+
+**Runtime stack** (pinned in the deployed KPO image):
+
+```
+apache-airflow-providers-cncf-kubernetes==7.6.0
+kubernetes==23.6.0
+```
+
+**Compute selection.** New models default to `compute: "kpo"`. Set `compute: "airflow"` only when the KPO image pipeline isn't ready or the task fits the airflow-worker profile below.
 
 | Field | Purpose |
 | ----- | ------- |
 | `compute` | `kpo` (default) or `airflow` |
 | `kpo_size` | Pod preset when `compute` is `kpo`: `small`, `medium`, `large`, `xlarge` |
 
-**KPO script path:** The `mwaa-opus-kpo-runner` image syncs `s3://<bucket>/dags/python_models/` into the pod and runs `python <group>/<topic>/<name>.python.py`. Airflow passes that relative path as the container argument. Set Airflow Variable **`python_models_s3_bucket`** (DAG bucket name) on KPO tasks; optional **`python_model_s3_region`** (default `us-west-2`).
+**Decision tree — KPO vs Airflow worker.** Override to `airflow` only when the Python task is a thin wrapper (a few HTTP calls, a dbt trigger, or a Trino DML dispatch) with a sub-500-MB, sub-few-minute footprint.
 
-**Execution entry:** Scaffolded `.python.py` ends with `if __name__ == "__main__":` calling `run_etl(build_context_from_env())`. `build_context_from_env()` in `_config.py` reads `PYMODEL_DS`, `PYMODEL_DS_NODASH`, and `PYMODEL_DATES` from the environment. MWAA worker and KPO pod both run the file as `__main__` — `run_etl` is scaffold convention, not a framework-enforced function name.
+| Prefer `kpo` (default) | Prefer `airflow` (opt-in) |
+| ---------------------- | ------------------------- |
+| Heavy Python ETL — pandas transforms, wide schemas, big joins | Simple REST API fetch with a small response body |
+| Dynamic logic that needs more compute or memory than MWAA can spare | dbt run/test dispatch |
+| Multi-page API pagination that stages into Trino | Trino-DML-only models where Python is just a trigger |
+| ML preprocessing or feature engineering | Utility / library modules with no data movement |
+| Anything at risk of OOM or long wall time on shared workers | Small metadata/config pulls (< a few MB) |
 
-**Airflow UI:** Each KPO model is **one task** named after the model `name` field (e.g. `kpo_infra`). Gating and pod launch run inside that task — there are no separate gate/KPO tasks.
+**When in doubt, stay on `kpo`.** Isolation is cheap; a shared-worker OOM is expensive and disrupts every other DAG on the cluster.
 
-Configure **`airflow_runner_cfg`** (JSON: `image`, `tag`, `namespace`, `config_file`, `cluster_context`; optional `size_specs` override for pod presets in `dags/_ext_/kpo_sizes.yml`).
+**Pod size presets.** Each `kpo_size` is a preset in `dags/_ext_/kpo_sizes.yml`; override via the optional `size_specs` key inside `airflow_runner_cfg`.
+
+| Field | Purpose |
+| ----- | ------- |
+| `name` | Preset key: `small`, `medium`, `large`, `xlarge` |
+| `cpu` | Pod CPU request/limit (capped at `"2"` on shared EKS nodes) |
+| `memory` | Pod memory request/limit (e.g. `"4Gi"`) |
+
+**Required Airflow Variables.**
+
+| Variable | Purpose |
+| -------- | ------- |
+| `airflow_runner_cfg` | JSON of `image`, `tag`, `namespace`, `config_file`, `cluster_context`; optional `size_specs` presets override |
+| `python_models_s3_bucket` | S3 bucket that holds the `dags/python_models/` tree the pod entrypoint syncs |
+| `python_model_s3_region` | AWS region for that bucket (default `us-west-2`) |
+
+**Infrastructure (project fill-in).** MWAA reaches EKS cluster `{{EKS_CLUSTER_NAME}}` using `{{AIRFLOW_EXECUTION_ROLE_ARN}}`. Inside EKS, the system user `{{SYSTEM_USER_NAME}}` is scoped to pod create/delete only; role bindings are synced via ArgoCD.
+
+Pods run under service account `{{EKS_SERVICE_ACCOUNT_NAME}}`, bound (IRSA) to `{{MWAA_OPUS_EKS_ROLE_ARN}}` for AWS resource access. Multiple service accounts can be defined for scoped permissions — pass a non-default one via `service_account_name` on `build_kpo_task`.
+
+**Container image.** Pods use `{{KPO_CONTAINER_IMAGE}}` (built by the KPO image pipeline, pushed to Artifactory). The image ships only the Python + system packages needed to run python models; bump `airflow_runner_cfg.tag` whenever the image adds packages. Entrypoint behavior:
+
+1. Downloads `s3://<python_models_s3_bucket>/dags/python_models/` into the pod.
+2. Runs `python <relative-model-path>` where `<relative-model-path>` is passed as the container argument by Airflow — e.g. `example_foo/example_baz.python.py`. The entrypoint normalizes the path and executes it.
+
+**Execution entry.** Scaffolded `.python.py` ends with `if __name__ == "__main__":` calling `run_etl(build_context_from_env())`. `build_context_from_env()` in `_config.py` reads `PYMODEL_DS`, `PYMODEL_DS_NODASH`, and `PYMODEL_DATES` from the environment. MWAA worker and KPO pod both run the file as `__main__` — `run_etl` is scaffold convention, not a framework-enforced function name.
+
+**Airflow UI.** Each KPO model is **one task** named after the model `name` field (e.g. `kpo_infra`). Gating and pod launch run inside that task — there are no separate gate/KPO tasks.
+
+**Logs.** KPO streams pod stdout into the Airflow task log; if FluentBit is configured on the cluster, the same logs also land in CloudWatch.
+
+**Failure semantics.** Force-terminations (OOM kill, eviction, node lost) surface as task failures via the KPO library.
+
+**Environment variables and secrets.**
+
+- Pass per-run non-sensitive configuration through `env_vars`; that is where `build_context_from_env()` reads partition context from.
+- **Never put secrets in `env_vars`.** Store them in AWS Secrets Manager and fetch them inside the python model. The IRSA role on `{{EKS_SERVICE_ACCOUNT_NAME}}` grants Secrets Manager access.
 
 ## Schema reference
 
@@ -187,10 +245,11 @@ Before writing, read `.dj/schemas/python-model.schema.json` to validate field sh
 - [ ] Step 4: Determine transformation needs (SQL-first decision tree)
 - [ ] Step 5: Confirm output config (defaults to `glue_development` / `opus_python_source`)
 - [ ] Step 6: Collect dependencies and optional fields
-- [ ] Step 7: Suggest performance optimizations based on source type and data volume
-- [ ] Step 8: Read `.dj/schemas/python-model.schema.json` for validation
-- [ ] Step 9: Write `.python.json` at `dags/python_models/<group>/<topic>/<name>.python.json`
-- [ ] Step 10: Verify the file matches the schema
+- [ ] Step 7: Confirm compute (`kpo` default) and `kpo_size` when applicable
+- [ ] Step 8: Suggest performance optimizations based on source type and data volume
+- [ ] Step 9: Read `.dj/schemas/python-model.schema.json` for validation
+- [ ] Step 10: Write `.python.json` at `dags/python_models/<group>/<topic>/<name>.python.json`
+- [ ] Step 11: Verify the file matches the schema
 
 ## ETL cell structure
 
