@@ -151,6 +151,17 @@
       "additionalProperties": { "type": "string" },
       "default": {},
       "description": "Environment variables (e.g., S3 bucket, API endpoints)"
+    },
+    "upstream_sources": {
+      "description": "Upstream lineage sources written to Iceberg table properties after each run",
+      "oneOf": [
+        { "$ref": "python-model.upstream_source.schema.json" },
+        {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "python-model.upstream_source.schema.json" }
+        }
+      ]
     }
   }
 }

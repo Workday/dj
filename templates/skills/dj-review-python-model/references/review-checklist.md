@@ -144,45 +144,26 @@ def table_properties(self) -> dict[str, str]:
 
 **How to check:** Verify `OUTPUT_CONFIG` fields populate all five keys. Missing `description` is a warning (lineage node renders without description).
 
-### L2: `python_model_upstream_sources` is set
+### L2: `upstream_sources` is set in `.python.json`
 
-**Pass condition:** The code explicitly sets `python_model_upstream_sources` on the output table via one of:
+**Pass condition:** The `.python.json` file includes an `upstream_sources` array (or single object) with `{ "type": "trino"|"external", "value": "..." }` entries. DJ writes these to the output Iceberg table as `python_model_upstream_sources` after each successful run — authors do not need manual `ALTER TABLE` code in `.python.py`.
 
-**Option A — ALTER TABLE SET PROPERTIES (Trino SQL):**
-```python
-execute_trino(f"""
-    ALTER TABLE {OUTPUT_CONFIG.full_table_id}
-    SET PROPERTIES extra_properties = MAP(
-        ARRAY['python_model_upstream_sources'],
-        ARRAY['opus_python_source.raw_events,analytics.user_sessions']
-    )
-""")
+**Example (preferred):**
+```json
+"upstream_sources": [
+  { "type": "trino", "value": "opus_python_source.raw_events" },
+  { "type": "external", "value": "backstage_api" }
+]
 ```
 
-**Option B — PyIceberg catalog API:**
-```python
-table = catalog.load_table(OUTPUT_CONFIG.table_id)
-with table.update_properties() as update:
-    update.set("python_model_upstream_sources", "schema.table1,schema.table2")
-```
-
-**Option C — Set via `PythonModelConfig.table_properties` extension:**
-```python
-OUTPUT_CONFIG = PythonModelConfig(
-    ...,
-    upstream_sources=["opus_python_source.raw_events", "analytics.user_sessions"],
-)
-# table_properties includes python_model_upstream_sources automatically
-```
-
-**Fail:** No code path sets `python_model_upstream_sources` — lineage graph will show the Python model node but no upstream edges.
+**Fail:** `upstream_sources` is missing or empty — lineage will show the Python model node but no upstream edges beyond the immediate source.
 
 ### L3: Format validation
 
-**Pass condition:** Each entry in `python_model_upstream_sources` is `schema.table` format.
+**Pass condition:** Each `trino` entry's `value` is `schema.table` format. Each `external` entry's `value` is the intended identifier (API name, S3 path, etc.).
 
-**Pass:** `opus_python_source.raw_events`, `analytics.user_sessions`
-**Fail:** `iceberg_catalog.opus_python_source.raw_events` (includes catalog — lineage parser splits on first dot only), `raw_events` (missing schema)
+**Pass (trino):** `{ "type": "trino", "value": "opus_python_source.raw_events" }`
+**Fail (trino):** `{ "type": "trino", "value": "iceberg_catalog.opus_python_source.raw_events" }` (includes catalog — lineage uses schema.table only), `{ "type": "trino", "value": "raw_events" }` (missing schema)
 
 ### L4: Completeness — no missing upstream edges
 
@@ -204,7 +185,7 @@ OUTPUT_CONFIG = PythonModelConfig(
    - Staging tables (`stg_tmp_*`, `tmp_*`)
    - Inline CTEs (WITH clause names)
 
-4. Every remaining table must appear in `python_model_upstream_sources`.
+4. Every remaining table must appear in `upstream_sources` (as a `trino` entry).
 
 **Example finding:**
 ```
@@ -215,7 +196,7 @@ Missing from upstream_sources: reference.countries
 
 ### L5: Accuracy — no stale entries
 
-**Procedure:** Every entry in `python_model_upstream_sources` must correspond to a table actually referenced in the model's SQL.
+**Procedure:** Every entry in `upstream_sources` must correspond to a source actually read by the model.
 
 **Example finding:**
 ```

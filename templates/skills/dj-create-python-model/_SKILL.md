@@ -110,6 +110,7 @@ Ask about:
 
 - **Python packages** needed beyond the defaults (e.g., `requests>=2.28.0`, `boto3`)
 - **depends_on** — other Python models that must complete first
+- **upstream_sources** — upstream lineage for the output table (written to Iceberg properties after each run). Each entry is `{ "type": "trino"|"external", "value": "..." }` where `trino` values are `schema.table` and `external` values are free-form identifiers (API names, S3 paths, etc.)
 - **tags** — organizational tags (predefined: `python-model`, `api`, `csv`, `s3`, `trino`, `snapshot`, `iceberg`)
 - **owner** — team or individual
 - **enable_notebook** — generate companion `.python.ipynb` (default: `true`)

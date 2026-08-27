@@ -1,0 +1,20 @@
+{
+  "$id": "python-model.upstream_source.schema.json",
+  "title": "Schema Python Model Upstream Source",
+  "description": "A single upstream lineage source for a Python model output table",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["type", "value"],
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": ["trino", "external"],
+      "description": "trino = Iceberg/Hive table (schema.table); external = non-Trino source"
+    },
+    "value": {
+      "type": "string",
+      "minLength": 1,
+      "description": "trino: schema.table; external: free-form identifier (API name, S3 path, etc.)"
+    }
+  }
+}

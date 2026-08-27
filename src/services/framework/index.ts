@@ -2193,11 +2193,7 @@ export class Framework implements ApiEnabledService<'framework'> {
   private async readAirflowTemplate(fileName: string): Promise<string> {
     const { airflowTargetVersion } = getDjConfig();
     const versionFolder = airflowTargetVersion === '2.10' ? 'v2_10' : 'v2_7';
-    const templatePath = path.join(
-      BASE_AIRFLOW_PATH,
-      versionFolder,
-      fileName,
-    );
+    const templatePath = path.join(BASE_AIRFLOW_PATH, versionFolder, fileName);
     const content = await vscode.workspace.fs.readFile(
       vscode.Uri.file(templatePath),
     );

@@ -60,17 +60,17 @@ The DJ lineage engine discovers Python models by querying Iceberg `$properties` 
 
 - `python_model_name` — model identity
 - `python_model_table` — output table name
-- `python_model_upstream_sources` — comma-separated `schema.table` pairs for upstream lineage edges
+- `python_model_upstream_sources` — JSON array of `{ "type": "trino"|"external", "value": "..." }` entries for upstream lineage edges
 
-The review validates the **full chain**: JSON metadata → `PythonModelConfig` → Iceberg table properties → lineage discoverability.
+The review validates the **full chain**: JSON metadata → post-run Iceberg table properties → lineage discoverability (including recursive walks to root).
 
 | Check | What to validate                                                                                                                                                                                         |
 | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| L1    | `PythonModelConfig` instantiation emits all required properties: `python_model_name`, `python_model_type`, `python_model_namespace`, `python_model_table`, `python_model_description`                    |
-| L2    | `python_model_upstream_sources` is set on the output table — code must call `ALTER TABLE ... SET PROPERTIES` or use PyIceberg catalog API to write this key listing all source tables the ETL reads from |
-| L3    | Each entry in `python_model_upstream_sources` follows `schema.table` format (dot-separated, matching actual source tables)                                                                               |
-| L4    | **Completeness** — every table referenced in `extract()` / `transform_and_load()` SQL (FROM/JOIN clauses) appears in `python_model_upstream_sources` (no missing upstream edges)                         |
-| L5    | **Accuracy** — every entry in `python_model_upstream_sources` corresponds to a table actually queried in the model (no stale/phantom entries)                                                            |
+| L1    | `.python.json` includes `name` (written as `python_model_name` on the output table after each run) plus `description`, `namespace` / `output.schema`, and `table_name` / `output.table` as applicable   |
+| L2    | `upstream_sources` is set in `.python.json` (DJ writes `python_model_upstream_sources` to the output table after each run — no manual `ALTER TABLE` in `.python.py`)                                     |
+| L3    | Each `trino` entry's `value` follows `schema.table` format; `external` entries use the intended free-form identifier                                                                                      |
+| L4    | **Completeness** — every table referenced in `extract()` / `transform_and_load()` SQL (FROM/JOIN clauses) appears in `upstream_sources` (no missing upstream edges)                                     |
+| L5    | **Accuracy** — every entry in `upstream_sources` corresponds to a source actually read by the model (no stale/phantom entries)                                                                          |
 | L6    | `dags` field is populated in JSON (model is scheduled, discoverable by Airflow DAG lineage). Empty `dags` = utility module, not a lineage participant                                                    |
 | L7    | `depends_on` correctly lists upstream Python models whose output tables this model reads (task dependency mirrors data dependency)                                                                       |
 | L8    | Model ID derivable from file path matches `python_model_name` in properties: `python__<group>__<topic>__<name>`                                                                                          |

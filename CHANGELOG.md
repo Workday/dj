@@ -1,5 +1,12 @@
 # Change Log
 
+## 2.4.0
+
+### Python models
+
+- **Declare upstream lineage in `.python.json`.** Add `"upstream_sources": [{ "type": "trino"|"external", "value": "..." }]` on any Python model; after each successful Airflow or KPO run, DJ writes `python_model_name` and the structured `python_model_upstream_sources` property to the output Iceberg table — no manual `ALTER TABLE` in your `.python.py`.
+- **Model Lineage walks the full Python chain.** When a downstream dbt model sources a Python output table, Data Explorer recursively reads each upstream table's Iceberg properties until it reaches roots (external sources or tables with no further upstream), so a chain like D → C → B, A renders in one view.
+
 ## 2.3.0
 
 ### Framework

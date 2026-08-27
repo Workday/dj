@@ -22,6 +22,7 @@ import type {
   ReverseLineageData,
 } from '@shared/modellineage/types';
 import { quoteTrinoIdentifier } from '@shared/sql/identifier';
+import { buildPythonUpstreamGraph } from '@shared/pymodel/python-model-lineage';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -416,115 +417,46 @@ export class ModelLineage {
     nodes: LineageNode[];
     edges: { pythonModelNodeId: string; sourceNodeId: string }[];
   }> {
-    const pythonModelNodes: LineageNode[] = [];
-    const pythonModelEdges: {
-      pythonModelNodeId: string;
-      sourceNodeId: string;
-    }[] = [];
     const sourceNodes = upstreamNodes.filter((n) => n.type === 'source');
 
     if (sourceNodes.length === 0) {
-      return { nodes: pythonModelNodes, edges: pythonModelEdges };
+      return { nodes: [], edges: [] };
     }
 
-    const queries = sourceNodes.map(async (sourceNode) => {
-      const catalog = sourceNode.database;
-      const schema = sourceNode.schema;
-      const tableName = sourceNode.name;
+    const fetchProperties = async (
+      catalog: string,
+      schema: string,
+      table: string,
+    ): Promise<Record<string, string>> => {
+      const sql = `SELECT key, value FROM ${quoteTrinoIdentifier(catalog)}.${quoteTrinoIdentifier(schema)}.${quoteTrinoIdentifier(`${table}$properties`)} WHERE key LIKE 'python_model_%'`;
+      this.coder.log.info(`[Lineage] Querying python model properties: ${sql}`);
 
-      if (!catalog || !schema || !tableName) {
-        return null;
+      const rows = await this.coder.trino.handleQuery(sql, {
+        filename: 'data-explorer-query.sql',
+      });
+
+      if (!rows || rows.length === 0) {
+        throw new Error('No python model properties');
       }
 
-      try {
-        const sql = `SELECT key, value FROM ${quoteTrinoIdentifier(catalog)}.${quoteTrinoIdentifier(schema)}.${quoteTrinoIdentifier(`${tableName}$properties`)} WHERE key LIKE 'python_model_%'`;
-        this.coder.log.info(
-          `[Lineage] Querying python model properties: ${sql}`,
-        );
-
-        const rows = await this.coder.trino.handleQuery(sql, {
-          filename: 'data-explorer-query.sql',
-        });
-
-        if (!rows || rows.length === 0) {
-          return null;
-        }
-
-        const props: Record<string, string> = {};
-        for (const row of rows) {
-          props[row['key']] = row['value'];
-        }
-
-        const pythonModelName = props['python_model_name'];
-        if (!pythonModelName) {
-          return null;
-        }
-
-        const upstreamSourcesStr = props['python_model_upstream_sources'];
-        const upstreamSources = upstreamSourcesStr
-          ? upstreamSourcesStr
-              .split(',')
-              .map((s) => s.trim())
-              .filter(Boolean)
-          : [];
-
-        if (upstreamSources.length === 0) {
-          return null;
-        }
-
-        const upstreamSourceNodes: LineageNode[] = [];
-        for (const sourceId of upstreamSources) {
-          const parts = sourceId.split('.');
-          if (parts.length >= 2) {
-            const sourceSchema = parts[0];
-            const sourceTable = parts[1];
-            upstreamSourceNodes.push({
-              id: `python.${sourceId}`,
-              name: sourceTable,
-              type: 'python',
-              description: sourceId,
-              tags: ['python'],
-              path: '',
-              schema: sourceSchema,
-              database: catalog,
-              hasOwnUpstream: false,
-              hasOwnDownstream: true,
-            });
-          }
-        }
-
-        if (upstreamSourceNodes.length === 0) {
-          return null;
-        }
-
-        return {
-          sourceNodeId: sourceNode.id,
-          upstreamSourceNodes,
-        };
-      } catch (error) {
-        this.coder.log.info(
-          `[Lineage] No python model properties for ${catalog}.${schema}.${tableName}: ${error}`,
-        );
-        return null;
+      const props: Record<string, string> = {};
+      for (const row of rows) {
+        props[row['key']] = row['value'];
       }
-    });
+      return props;
+    };
 
-    const results = await Promise.all(queries);
-
-    for (const result of results) {
-      if (!result) {
-        continue;
-      }
-      for (const upstreamNode of result.upstreamSourceNodes) {
-        pythonModelNodes.push(upstreamNode);
-        pythonModelEdges.push({
-          pythonModelNodeId: upstreamNode.id,
-          sourceNodeId: result.sourceNodeId,
-        });
-      }
+    try {
+      return await buildPythonUpstreamGraph({
+        startSourceNodes: sourceNodes,
+        fetchProperties,
+      });
+    } catch (error) {
+      this.coder.log.info(
+        `[Lineage] Python model upstream discovery failed: ${error}`,
+      );
+      return { nodes: [], edges: [] };
     }
-
-    return { nodes: pythonModelNodes, edges: pythonModelEdges };
   }
 
   /**

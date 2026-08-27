@@ -80,6 +80,65 @@ class PythonModelConfig:
             "python_model_table": self.table_name or self.model_name,
             "python_model_description": self.description,
         }
+
+
+def normalize_upstream_sources(raw) -> list[dict]:
+    """Normalize upstream_sources from .python.json (single object or array)."""
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        return [e for e in raw if isinstance(e, dict) and e.get("type") and e.get("value")]
+    if isinstance(raw, dict) and raw.get("type") and raw.get("value"):
+        return [raw]
+    return []
+
+
+def serialize_upstream_sources_for_property(entries: list[dict]) -> str:
+    """Serialize upstream sources for the Iceberg python_model_upstream_sources property."""
+    import json
+    return json.dumps(entries, separators=(",", ":"))
+
+
+def table_properties_from_json(config: dict) -> dict[str, str]:
+    """Build Iceberg extra_properties from a .python.json config dict."""
+    output = config.get("output") or {}
+    namespace = config.get("namespace") or output.get("schema") or ""
+    table_name = config.get("table_name") or output.get("table") or config.get("name", "")
+    props = {
+        "python_model_name": config.get("name", ""),
+        "python_model_type": "python",
+        "python_model_namespace": namespace,
+        "python_model_table": table_name,
+        "python_model_description": config.get("description") or "",
+    }
+    upstream = normalize_upstream_sources(config.get("upstream_sources"))
+    if upstream:
+        props["python_model_upstream_sources"] = serialize_upstream_sources_for_property(upstream)
+    return props
+
+
+def resolve_output_table_fqn(config: dict) -> str:
+    """Resolve catalog.schema.table for the model output from .python.json."""
+    output = config.get("output") or {}
+    catalog = output.get("database") or get_catalog_name()
+    schema = output.get("schema") or config.get("namespace") or get_namespace_name()
+    table = output.get("table") or config.get("table_name") or config.get("name", "")
+    return f'"{catalog}"."{schema}"."{table}"'
+
+
+def apply_table_properties_from_json(config: dict) -> None:
+    """Write python_model_* Iceberg table properties after a successful model run."""
+    import logging
+    from python_models._trino_io import set_extra_properties  # noqa: PLC0415
+
+    log = logging.getLogger(__name__)
+    props = table_properties_from_json(config)
+    if not props.get("python_model_name"):
+        return
+    table_fqn = resolve_output_table_fqn(config)
+    items = list(props.items())
+    log.info("apply_table_properties_from_json: %s (%d properties)", table_fqn, len(items))
+    set_extra_properties(table_fqn, items)
 `;
 }
 
