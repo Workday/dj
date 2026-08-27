@@ -1,16 +1,10 @@
 # Change Log
 
-## 2.2.2
+## 2.3.0
 
-### Model Lineage
+### Framework
 
-- **Cleaner lineage for Python models.** Python models now show their real upstream sources in the lineage graph, without the extra placeholder node that used to appear.
-
-### Create Python Model
-
-- **Group options match your project.** The Create Python Model form now lists the groups from the project you've selected, and refreshes when you switch projects.
-- **Fix: creating a Python model works reliably.** Creating a Python model and loading its DAG and group options now work as expected.
-- **One Airflow task per KPO Python model.** Models with `compute: kpo` appear as a single task named after the model (e.g. `kpo_infra`), not separate gate/KPO steps — DJ runs gating and the pod inside that task.
+- **Force extra dbt model dependencies with `depends_on`.** On any `.model.json`, set `"depends_on": ["processed_orders", ...]` to emit `--depends_on: {{ ref('...') }}` comments in generated SQL so dbt can discover refs that are otherwise hidden at parse time (for example inside `{% if execute %}`).
 
 ## 2.2.1
 
