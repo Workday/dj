@@ -116,6 +116,153 @@ def _env_var_list(env: Mapping[str, str]) -> list[k8s.V1EnvVar]:
     return [k8s.V1EnvVar(name=name, value=value) for name, value in env.items()]
 
 
+class GatedKubernetesPodOperator(KubernetesPodOperator):
+    """KubernetesPodOperator that runs DJ gating in execute() before launching the pod."""
+
+    def __init__(self, *, model: dict, topic: str, **kwargs):
+        self._dj_model = model
+        self._dj_topic = topic
+        super().__init__(**kwargs)
+
+    def execute(self, context):
+        from _ext_.etl_helper import prepare_gated_kpo_run
+
+        env_map = prepare_gated_kpo_run(self._dj_model, self._dj_topic, context)
+        self.env_vars = _env_var_list(env_map)
+        return super().execute(context)
+
+
+def _build_kpo_operator_kwargs(
+    *,
+    task_id: str,
+    dag: DAG,
+    python_model_name: str,
+    env_vars: Mapping[str, str],
+    script_args: Sequence[str] | None,
+    size: PodSize,
+    image_pull_policy: str,
+    image_pull_secrets: Sequence[str],
+    service_account_name: str,
+    retries: int,
+    retry_delay: timedelta,
+    retry_exponential_backoff: bool,
+    startup_timeout_seconds: int,
+    on_finish_action: str,
+    deferrable: bool,
+    logging_interval: int | None,
+    do_xcom_push: bool,
+    labels: Mapping[str, str] | None,
+    annotations: Mapping[str, str] | None,
+    on_success_callback,
+    on_failure_callback,
+) -> dict:
+    env_map: dict[str, str] = {"PYTHONUNBUFFERED": "1"}
+    env_map.update(env_vars)
+
+    dag_labels: dict[str, str] = {
+        "dag_id": dag.dag_id,
+        "task_id": task_id,
+        "run_id": "{{ dag_run.run_id | truncate(63, true, '') }}",
+        "component": "airflow-kpo",
+        "variant": dag.dag_id,
+    }
+    if labels:
+        dag_labels.update(labels)
+
+    arguments = [python_model_name, *(list(script_args) if script_args else [])]
+
+    deferred_log_kwargs: dict[str, int] = {}
+    if deferrable and logging_interval is not None:
+        deferred_log_kwargs["logging_interval"] = logging_interval
+
+    return {
+        "task_id": task_id,
+        "dag": dag,
+        "image": _IMAGE_REF,
+        "image_pull_policy": image_pull_policy,
+        "image_pull_secrets": [
+            k8s.V1LocalObjectReference(name=n) for n in image_pull_secrets
+        ],
+        "in_cluster": False,
+        "config_file": _CONFIG_FILE_TPL,
+        "cluster_context": _CLUSTER_CONTEXT_TPL,
+        "namespace": _NAMESPACE_TPL,
+        "name": _sanitize_pod_name(dag.dag_id, task_id),
+        "arguments": arguments,
+        "env_vars": _env_var_list(env_map),
+        "container_resources": _container_resources(size),
+        "service_account_name": service_account_name,
+        "get_logs": True,
+        "log_events_on_failure": True,
+        "on_finish_action": on_finish_action,
+        "do_xcom_push": do_xcom_push,
+        "deferrable": deferrable,
+        **deferred_log_kwargs,
+        "retries": retries,
+        "retry_delay": retry_delay,
+        "retry_exponential_backoff": retry_exponential_backoff,
+        "startup_timeout_seconds": startup_timeout_seconds,
+        "reattach_on_restart": True,
+        "labels": dag_labels,
+        "annotations": dict(annotations or {}),
+        "on_success_callback": on_success_callback,
+        "on_failure_callback": on_failure_callback,
+    }
+
+
+def build_gated_kpo_task(
+    *,
+    task_id: str,
+    dag: DAG,
+    model: dict,
+    topic: str,
+    python_model_name: str,
+    script_args: Sequence[str] | None = None,
+    size: PodSize = "small",
+    image_pull_policy: str = "IfNotPresent",
+    image_pull_secrets: Sequence[str] = _DEFAULT_IMAGE_PULL_SECRETS,
+    service_account_name: str = "default",
+    retries: int = 1,
+    retry_delay: timedelta = timedelta(minutes=5),
+    retry_exponential_backoff: bool = True,
+    startup_timeout_seconds: int = 600,
+    on_finish_action: str = "delete_pod",
+    deferrable: bool = False,
+    logging_interval: int | None = 10,
+    do_xcom_push: bool = False,
+    labels: Mapping[str, str] | None = None,
+    annotations: Mapping[str, str] | None = None,
+    on_success_callback=None,
+    on_failure_callback=None,
+) -> GatedKubernetesPodOperator:
+    """Build a gated KPO task: gating + env resolution in execute(), then pod launch."""
+    kwargs = _build_kpo_operator_kwargs(
+        task_id=task_id,
+        dag=dag,
+        python_model_name=python_model_name,
+        env_vars={},
+        script_args=script_args,
+        size=size,
+        image_pull_policy=image_pull_policy,
+        image_pull_secrets=image_pull_secrets,
+        service_account_name=service_account_name,
+        retries=retries,
+        retry_delay=retry_delay,
+        retry_exponential_backoff=retry_exponential_backoff,
+        startup_timeout_seconds=startup_timeout_seconds,
+        on_finish_action=on_finish_action,
+        deferrable=deferrable,
+        logging_interval=logging_interval,
+        do_xcom_push=do_xcom_push,
+        labels=labels,
+        annotations=annotations,
+        on_success_callback=on_success_callback,
+        on_failure_callback=on_failure_callback,
+    )
+    kwargs["env_vars"] = _env_var_list({"PYTHONUNBUFFERED": "1"})
+    return GatedKubernetesPodOperator(model=model, topic=topic, **kwargs)
+
+
 def build_kpo_task(
     *,
     task_id: str,
@@ -141,55 +288,27 @@ def build_kpo_task(
     on_failure_callback=None,
 ) -> KubernetesPodOperator:
     """Build a KubernetesPodOperator that invokes the image ENTRYPOINT."""
-    env_map: dict[str, str] = {"PYTHONUNBUFFERED": "1"}
-    env_map.update(env_vars)
-
-    dag_labels: dict[str, str] = {
-        "dag_id": dag.dag_id,
-        "task_id": task_id,
-        "run_id": "{{ dag_run.run_id | truncate(63, true, '') }}",
-        "component": "airflow-kpo",
-        "variant": dag.dag_id,
-    }
-    if labels:
-        dag_labels.update(labels)
-
-    arguments = [python_model_name, *(list(script_args) if script_args else [])]
-
-    deferred_log_kwargs: dict[str, int] = {}
-    if deferrable and logging_interval is not None:
-        deferred_log_kwargs["logging_interval"] = logging_interval
-
-    return KubernetesPodOperator(
+    kwargs = _build_kpo_operator_kwargs(
         task_id=task_id,
         dag=dag,
-        image=_IMAGE_REF,
+        python_model_name=python_model_name,
+        env_vars=env_vars,
+        script_args=script_args,
+        size=size,
         image_pull_policy=image_pull_policy,
-        image_pull_secrets=[
-            k8s.V1LocalObjectReference(name=n) for n in image_pull_secrets
-        ],
-        in_cluster=False,
-        config_file=_CONFIG_FILE_TPL,
-        cluster_context=_CLUSTER_CONTEXT_TPL,
-        namespace=_NAMESPACE_TPL,
-        name=_sanitize_pod_name(dag.dag_id, task_id),
-        arguments=arguments,
-        env_vars=_env_var_list(env_map),
-        container_resources=_container_resources(size),
+        image_pull_secrets=image_pull_secrets,
         service_account_name=service_account_name,
-        get_logs=True,
-        log_events_on_failure=True,
-        on_finish_action=on_finish_action,
-        do_xcom_push=do_xcom_push,
-        deferrable=deferrable,
-        **deferred_log_kwargs,
         retries=retries,
         retry_delay=retry_delay,
         retry_exponential_backoff=retry_exponential_backoff,
         startup_timeout_seconds=startup_timeout_seconds,
-        reattach_on_restart=True,
-        labels=dag_labels,
-        annotations=dict(annotations or {}),
+        on_finish_action=on_finish_action,
+        deferrable=deferrable,
+        logging_interval=logging_interval,
+        do_xcom_push=do_xcom_push,
+        labels=labels,
+        annotations=annotations,
         on_success_callback=on_success_callback,
         on_failure_callback=on_failure_callback,
     )
+    return KubernetesPodOperator(**kwargs)

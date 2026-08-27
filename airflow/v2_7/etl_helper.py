@@ -18,7 +18,7 @@ from airflow.utils.email import send_email
 from airflow.utils.task_group import TaskGroup
 
 from _ext_.services import trino_run
-from _ext_.kpo_factory import build_kpo_task
+from _ext_.kpo_factory import build_gated_kpo_task
 
 log = logging.getLogger(__name__)
 
@@ -173,18 +173,14 @@ def _build_task_model_registry(
             if kpo_models:
                 for m in kpo_models:
                     model_id = m["model_id"]
-                    registry[f"{topic}.kpo__{model_id}"] = {
-                        "topic": topic,
-                        "models": [model_id],
-                    }
-                    registry[f"{topic}.gate__{model_id}"] = {
+                    registry[model_id] = {
                         "topic": topic,
                         "models": [model_id],
                     }
 
             if airflow_models:
                 task_name = "_".join(m["model_id"] for m in airflow_models)
-                registry[f"{topic}.{task_name}"] = {
+                registry[task_name] = {
                     "topic": topic,
                     "models": [m["model_id"] for m in airflow_models],
                 }
@@ -632,33 +628,24 @@ def register_python_model_tasks(dag_id: str, dag=None):
     if dag is None:
         dag = _current_dag()
 
-    gate_tasks: dict[str, PythonOperator] = {}
     kpo_tasks: dict[str, object] = {}
     airflow_tasks: dict[str, PythonOperator] = {}
 
     for model in models:
         model_id = model["model_id"]
         if _model_uses_kpo(model):
-            gate_task_id = f"gate__{model_id}"
-            gate_tasks[model_id] = PythonOperator(
-                task_id=gate_task_id,
-                python_callable=gate_model_run,
-                op_kwargs={"model": model},
+            kpo_tasks[model_id] = build_gated_kpo_task(
+                task_id=model_id,
                 dag=dag,
-                on_failure_callback=_record_airflow_task_failure,
-            )
-            kpo_tasks[model_id] = build_kpo_task(
-                task_id=f"kpo__{model_id}",
-                dag=dag,
+                model=model,
+                topic=model.get("topic", ""),
                 python_model_name=model["script_rel"],
-                env_vars=build_kpo_env_vars(gate_task_id),
                 script_args=["--run-id", "{{ dag_run.run_id }}", "--logical-date", "{{ ds }}"],
                 size=model.get("kpo_size", "small"),
                 labels={"component": "python-model", "variant": model.get("topic", "")},
                 on_success_callback=_record_kpo_success,
                 on_failure_callback=_record_kpo_failure,
             )
-            gate_tasks[model_id] >> kpo_tasks[model_id]
         else:
             airflow_tasks[model_id] = PythonOperator(
                 task_id=f"python_model__{model_id}",
@@ -676,8 +663,8 @@ def register_python_model_tasks(dag_id: str, dag=None):
         for dep_name in model.get("depends_on", []):
             if dep_name not in all_ids:
                 continue
-            if dep_name in kpo_tasks and model_id in gate_tasks:
-                kpo_tasks[dep_name] >> gate_tasks[model_id]
+            if dep_name in kpo_tasks and model_id in kpo_tasks:
+                kpo_tasks[dep_name] >> kpo_tasks[model_id]
             elif dep_name in airflow_tasks and model_id in airflow_tasks:
                 airflow_tasks[dep_name] >> airflow_tasks[model_id]
 
@@ -694,8 +681,8 @@ def register_python_model_tasks(dag_id: str, dag=None):
     exit_tasks = []
     for model in models:
         model_id = model["model_id"]
-        if model_id in gate_tasks and model_id not in has_upstream:
-            entry_tasks.append(gate_tasks[model_id])
+        if model_id in kpo_tasks and model_id not in has_upstream:
+            entry_tasks.append(kpo_tasks[model_id])
         if model_id in airflow_tasks and model_id not in has_upstream:
             entry_tasks.append(airflow_tasks[model_id])
         if model_id in kpo_tasks and model_id not in is_depended_on:
@@ -889,8 +876,35 @@ def _resolve_model_run(
     return ctx, etl_date, model_group
 
 
-def gate_model_run(model: dict, topic: str = "", **context) -> None:
-    """Resolve gating and push run context to XCom for a downstream KPO task."""
+def _airflow_var(name: str, default: str = "") -> str:
+    try:
+        value = Variable.get(name, default_var=default)
+        return value if value is not None else default
+    except Exception:
+        return default
+
+
+def build_kpo_env_vars_from_context(ctx: dict) -> dict[str, str]:
+    """Build pod env vars from a resolved partition context dict."""
+    env: dict[str, str] = {
+        "PYMODEL_DS": ctx["ds"],
+        "PYMODEL_DS_NODASH": ctx["ds_nodash"],
+        "DJ_PYTHON_MODEL_CATALOG_NAME": _airflow_var(
+            "dj_python_model_catalog_name", "glue"
+        ),
+        "python_models_s3_bucket": _airflow_var("python_models_s3_bucket"),
+        "python_model_s3_region": _airflow_var("python_model_s3_region", "us-west-2"),
+        "OPUS-ETL-CLUSTER-HOST": _airflow_var("opus-etl-cluster-host"),
+        "OPUS-ETL-USER-NAME": _airflow_var("opus-etl-user-name"),
+        "OPUS-ETL-CLUSTER-PASSWORD": _airflow_var("opus-etl-cluster-password"),
+    }
+    if "dates" in ctx:
+        env["PYMODEL_DATES"] = json.dumps(ctx["dates"])
+    return env
+
+
+def prepare_gated_kpo_run(model: dict, topic: str, context: dict) -> dict[str, str]:
+    """Run gating for a KPO model, push tracking XCom, return pod env vars."""
     model_name = model["model_id"]
     model_group = topic or model.get("topic", "")
     etl_timestamp = _get_etl_timestamp_from_context(context)
@@ -920,57 +934,13 @@ def gate_model_run(model: dict, topic: str = "", **context) -> None:
 
     resolved = _resolve_model_run(model, topic, context, record_fn=_record)
     if resolved is None:
-        return
+        raise AirflowSkipException(f"model {model_name} skipped (skip_model)")
 
     ctx, resolved_etl_date, resolved_group = resolved
     ti = context["ti"]
-    ti.xcom_push(key="ds", value=ctx["ds"])
-    ti.xcom_push(key="ds_nodash", value=ctx["ds_nodash"])
-    if "dates" in ctx:
-        ti.xcom_push(key="dates_json", value=json.dumps(ctx["dates"]))
     ti.xcom_push(key="etl_date", value=resolved_etl_date)
     ti.xcom_push(key="model_group", value=resolved_group)
-
-
-def build_kpo_env_vars(gate_task_id: str) -> dict[str, str]:
-    """Build container env vars for a KPO task, pulling partition dates from gate XCom."""
-    env: dict[str, str] = {
-        "PYMODEL_DS": f"{{{{ ti.xcom_pull(task_ids='{gate_task_id}', key='ds') }}}}",
-        "PYMODEL_DS_NODASH": (
-            f"{{{{ ti.xcom_pull(task_ids='{gate_task_id}', key='ds_nodash') }}}}"
-        ),
-        "DJ_PYTHON_MODEL_CATALOG_NAME": (
-            "{{ var.value.get('dj_python_model_catalog_name', 'glue') }}"
-        ),
-        "python_models_s3_bucket": (
-            "{{ var.value.get('python_models_s3_bucket') }}"
-        ),
-        "python_model_s3_region": (
-            "{{ var.value.get('python_model_s3_region', 'us-west-2') }}"
-        ),
-        "OPUS-ETL-CLUSTER-HOST": "{{ var.value.get('opus-etl-cluster-host') }}",
-        "OPUS-ETL-USER-NAME": "{{ var.value.get('opus-etl-user-name') }}",
-        "OPUS-ETL-CLUSTER-PASSWORD": (
-            "{{ var.value.get('opus-etl-cluster-password') }}"
-        ),
-    }
-    env["PYMODEL_DATES"] = (
-        f"{{{{ ti.xcom_pull(task_ids='{gate_task_id}', key='dates_json') }}}}"
-    )
-    return env
-
-
-def _kpo_model_id_from_task_id(task_id: str) -> str | None:
-    marker = "kpo__"
-    if marker not in task_id:
-        return None
-    return task_id.rsplit(marker, 1)[-1]
-
-
-def _gate_task_id_for_kpo(task_id: str) -> str:
-    if "kpo__" in task_id:
-        return task_id.replace("kpo__", "gate__", 1)
-    return task_id
+    return build_kpo_env_vars_from_context(ctx)
 
 
 def _record_kpo_success(context: dict) -> None:
@@ -992,13 +962,9 @@ def _record_kpo_outcome(
 ) -> None:
     try:
         ti = context["ti"]
-        model_id = _kpo_model_id_from_task_id(ti.task_id)
-        if not model_id:
-            return
-
-        gate_task_id = _gate_task_id_for_kpo(ti.task_id)
-        etl_date = ti.xcom_pull(task_ids=gate_task_id, key="etl_date") or context["ds"]
-        model_group = ti.xcom_pull(task_ids=gate_task_id, key="model_group") or ""
+        model_id = ti.task_id
+        etl_date = ti.xcom_pull(key="etl_date") or context["ds"]
+        model_group = ti.xcom_pull(key="model_group") or ""
         etl_timestamp = _get_etl_timestamp_from_context(context)
 
         started_at = ti.start_date
@@ -1023,16 +989,15 @@ def _record_kpo_outcome(
 
 def _wire_kpo_batch_depends_on(
     model_tasks: list[dict],
-    gate_tasks: dict[str, PythonOperator],
     kpo_tasks: dict[str, object],
-) -> tuple[list[PythonOperator], list]:
-    """Wire depends_on across gate/KPO pairs; return entry gates and exit KPO tasks."""
+) -> tuple[list, list]:
+    """Wire depends_on across KPO tasks; return entry and exit tasks for the batch."""
     model_ids = {m["model_id"] for m in model_tasks}
     for m in model_tasks:
         model_id = m["model_id"]
         for dep_id in m.get("depends_on", []):
             if dep_id in model_ids and dep_id in kpo_tasks:
-                kpo_tasks[dep_id] >> gate_tasks[model_id]
+                kpo_tasks[dep_id] >> kpo_tasks[model_id]
 
     has_upstream: set[str] = set()
     is_depended_on: set[str] = set()
@@ -1043,17 +1008,17 @@ def _wire_kpo_batch_depends_on(
                 has_upstream.add(model_id)
                 is_depended_on.add(dep_id)
 
-    entry_gates = [
-        gate_tasks[m["model_id"]]
+    entry_tasks = [
+        kpo_tasks[m["model_id"]]
         for m in model_tasks
         if m["model_id"] not in has_upstream
     ]
-    exit_kpos = [
+    exit_tasks = [
         kpo_tasks[m["model_id"]]
         for m in model_tasks
         if m["model_id"] not in is_depended_on
     ]
-    return entry_gates, exit_kpos
+    return entry_tasks, exit_tasks
 
 
 def _register_kpo_model_batch(
@@ -1062,42 +1027,31 @@ def _register_kpo_model_batch(
     model_tasks: list[dict],
     prev_task,
 ) -> object:
-    """Create gate + KPO task pairs for a homogeneous KPO model batch."""
-    gate_tasks: dict[str, PythonOperator] = {}
+    """Create one gated KPO task per model in a homogeneous KPO batch."""
     kpo_tasks: dict[str, object] = {}
 
     for m in model_tasks:
         model_id = m["model_id"]
-        gate_task_id = f"gate__{model_id}"
-        gate_tasks[model_id] = PythonOperator(
-            task_id=gate_task_id,
-            python_callable=gate_model_run,
-            op_kwargs={"model": m, "topic": topic},
+        kpo_tasks[model_id] = build_gated_kpo_task(
+            task_id=model_id,
             dag=dag,
-            on_failure_callback=_record_airflow_task_failure,
-        )
-        kpo_tasks[model_id] = build_kpo_task(
-            task_id=f"kpo__{model_id}",
-            dag=dag,
+            model=m,
+            topic=topic,
             python_model_name=m["script_rel"],
-            env_vars=build_kpo_env_vars(gate_task_id),
             script_args=["--run-id", "{{ dag_run.run_id }}", "--logical-date", "{{ ds }}"],
             size=m.get("kpo_size", "small"),
             labels={"component": "python-model", "variant": topic},
             on_success_callback=_record_kpo_success,
             on_failure_callback=_record_kpo_failure,
         )
-        gate_tasks[model_id] >> kpo_tasks[model_id]
 
-    entry_gates, exit_kpos = _wire_kpo_batch_depends_on(
-        model_tasks, gate_tasks, kpo_tasks
-    )
+    entry_tasks, exit_tasks = _wire_kpo_batch_depends_on(model_tasks, kpo_tasks)
     if prev_task is not None:
-        prev_task >> entry_gates
+        prev_task >> entry_tasks
 
-    if len(exit_kpos) == 1:
-        return exit_kpos[0]
-    return exit_kpos
+    if len(exit_tasks) == 1:
+        return exit_tasks[0]
+    return exit_tasks
 
 
 def _execute_model_with_context(
@@ -1224,7 +1178,7 @@ def register_python_model_mapped_tasks(dag_id: str, group_id: str | None = None)
     model_task_batches = _compute_model_tasks(models)
     dag = _current_dag()
 
-    with TaskGroup(group_id=group_id or dag_id) as tg:
+    with TaskGroup(group_id=group_id or dag_id, prefix_group_id=False) as tg:
         prev_task = None
         for model_tasks in model_task_batches:
             prev_task = _register_model_task_batch(dag, "", model_tasks, prev_task)
@@ -1273,7 +1227,7 @@ def register_python_model_mapped_tasks_by_topic(
         model_task_batches = _compute_model_tasks(topic_models)
         dag = _current_dag()
 
-        with TaskGroup(group_id=topic) as tg:
+        with TaskGroup(group_id=topic, prefix_group_id=False) as tg:
             prev_task = None
             for model_tasks in model_task_batches:
                 prev_task = _register_model_task_batch(
