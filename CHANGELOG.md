@@ -10,6 +10,7 @@
 
 - **Group options match your project.** The Create Python Model form now lists the groups from the project you've selected, and refreshes when you switch projects.
 - **Fix: creating a Python model works reliably.** Creating a Python model and loading its DAG and group options now work as expected.
+- **One Airflow task per KPO Python model.** Models with `compute: kpo` appear as a single task named after the model (e.g. `kpo_infra`), not separate gate/KPO steps — DJ runs gating and the pod inside that task.
 
 ## 2.2.1
 

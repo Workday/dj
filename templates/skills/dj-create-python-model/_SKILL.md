@@ -171,6 +171,8 @@ New models default to **`compute: "kpo"`** (Kubernetes pod) instead of running o
 
 **Execution entry:** Scaffolded `.python.py` ends with `if __name__ == "__main__":` calling `run_etl(build_context_from_env())`. `build_context_from_env()` in `_config.py` reads `PYMODEL_DS`, `PYMODEL_DS_NODASH`, and `PYMODEL_DATES` from the environment. MWAA worker and KPO pod both run the file as `__main__` — `run_etl` is scaffold convention, not a framework-enforced function name.
 
+**Airflow UI:** Each KPO model is **one task** named after the model `name` field (e.g. `kpo_infra`). Gating and pod launch run inside that task — there are no separate gate/KPO tasks.
+
 Configure **`airflow_runner_cfg`** (JSON: `image`, `tag`, `namespace`, `config_file`, `cluster_context`; optional `size_specs` override for pod presets in `dags/_ext_/kpo_sizes.yml`).
 
 ## Schema reference
