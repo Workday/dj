@@ -1,7 +1,10 @@
 import type { PythonModelUpstreamSource } from '@shared/framework/types';
 import type { LineageNode } from '@shared/modellineage/types';
 
-import { parseUpstreamSourcesProperty } from './python-upstream-sources';
+import {
+  parseTrinoUpstreamValue,
+  parseUpstreamSourcesProperty,
+} from './python-upstream-sources';
 
 export interface PythonModelTableProps {
   pythonModelName: string;
@@ -82,7 +85,7 @@ function makeTrinoRefNode(
     id: nodeId,
     name: table,
     type: 'python',
-    description: `${schema}.${table}`,
+    description: `${catalog}.${schema}.${table}`,
     tags: ['python', 'trino-ref'],
     path: '',
     schema,
@@ -206,15 +209,15 @@ export async function buildPythonUpstreamGraph(params: {
       }
 
       if (entry.type === 'trino') {
-        const dotIdx = entry.value.indexOf('.');
-        if (dotIdx === -1) {
+        const parsedRef = parseTrinoUpstreamValue(entry.value, item.catalog);
+        if (!parsedRef) {
           continue;
         }
         hasTrinoUpstream = true;
         queue.push({
-          catalog: item.catalog,
-          schema: entry.value.slice(0, dotIdx),
-          table: entry.value.slice(dotIdx + 1),
+          catalog: parsedRef.catalog,
+          schema: parsedRef.schema,
+          table: parsedRef.table,
           attachToNodeId: nodeId,
         });
       }

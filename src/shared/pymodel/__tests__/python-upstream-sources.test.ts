@@ -2,6 +2,7 @@ import { describe, expect, test } from '@jest/globals';
 
 import {
   normalizeUpstreamSources,
+  parseTrinoUpstreamValue,
   parseUpstreamSourcesProperty,
   serializeUpstreamSourcesForProperty,
 } from '@shared/pymodel/python-upstream-sources';
@@ -76,5 +77,60 @@ describe('parseUpstreamSourcesProperty', () => {
   test('returns empty for blank input', () => {
     expect(parseUpstreamSourcesProperty('')).toEqual([]);
     expect(parseUpstreamSourcesProperty(undefined)).toEqual([]);
+  });
+
+  test('accepts an already-parsed array (Trino CSV reader pre-parses JSON cells)', () => {
+    // parseTrinoValue JSON.parses any cell starting with '[' or '{', so the
+    // property can surface as a real array rather than a string.
+    expect(
+      parseUpstreamSourcesProperty([
+        { type: 'trino', value: 'glue_development.opus_python_sources.wpc_slavepool_details' },
+        { type: 'external', value: 'jenkins::dcim_inventory_csv' },
+      ]),
+    ).toEqual([
+      { type: 'trino', value: 'glue_development.opus_python_sources.wpc_slavepool_details' },
+      { type: 'external', value: 'jenkins::dcim_inventory_csv' },
+    ]);
+  });
+
+  test('accepts an already-parsed single object', () => {
+    expect(
+      parseUpstreamSourcesProperty({
+        type: 'trino',
+        value: 'glue_development.opus_python_sources.wpc_slavepool_details',
+      }),
+    ).toEqual([
+      { type: 'trino', value: 'glue_development.opus_python_sources.wpc_slavepool_details' },
+    ]);
+  });
+
+  test('ignores non-string non-object scalars', () => {
+    expect(parseUpstreamSourcesProperty(42)).toEqual([]);
+    expect(parseUpstreamSourcesProperty(null)).toEqual([]);
+  });
+});
+
+describe('parseTrinoUpstreamValue', () => {
+  test('parses 3-part catalog.schema.table', () => {
+    expect(
+      parseTrinoUpstreamValue(
+        'glue_development.opus_python_source.model_c',
+        'glue',
+      ),
+    ).toEqual({
+      catalog: 'glue_development',
+      schema: 'opus_python_source',
+      table: 'model_c',
+    });
+  });
+
+  test('parses 2-part schema.table with fallback catalog', () => {
+    expect(parseTrinoUpstreamValue('opus_python_source.model_c', 'glue')).toEqual(
+      {
+        catalog: 'glue',
+        schema: 'opus_python_source',
+        table: 'model_c',
+      },
+    );
   });
 });

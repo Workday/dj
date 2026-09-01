@@ -455,7 +455,21 @@ export class ModelLineage {
   }> {
     const sourceNodes = upstreamNodes.filter((n) => n.type === 'source');
 
+    this.coder.log.info(
+      `[Lineage] discoverPythonModelUpstream: ${upstreamNodes.length} upstream node(s), ${sourceNodes.length} source node(s) to seed the python walk`,
+    );
+    for (const n of sourceNodes) {
+      this.coder.log.info(
+        `[Lineage] seed source node: id=${n.id} database=${JSON.stringify(
+          n.database,
+        )} schema=${JSON.stringify(n.schema)} name=${JSON.stringify(n.name)}`,
+      );
+    }
+
     if (sourceNodes.length === 0) {
+      this.coder.log.info(
+        '[Lineage] No source nodes among upstream -> skipping python model discovery',
+      );
       return { nodes: [], edges: [] };
     }
 
@@ -467,9 +481,25 @@ export class ModelLineage {
       const sql = `SELECT key, value FROM ${quoteTrinoIdentifier(catalog)}.${quoteTrinoIdentifier(schema)}.${quoteTrinoIdentifier(`${table}$properties`)} WHERE key LIKE 'python_model_%'`;
       this.coder.log.info(`[Lineage] Querying python model properties: ${sql}`);
 
-      const rows = await this.coder.trino.handleQuery(sql, {
-        filename: 'data-explorer-query.sql',
-      });
+      let rows: Record<string, any>[];
+      try {
+        rows = await this.coder.trino.handleQuery(sql, {
+          filename: 'data-explorer-query.sql',
+        });
+      } catch (queryError) {
+        this.coder.log.error(
+          `[Lineage] $properties query FAILED for ${catalog}.${schema}.${table}: ${
+            queryError instanceof Error ? queryError.stack : queryError
+          }`,
+        );
+        throw queryError;
+      }
+
+      this.coder.log.info(
+        `[Lineage] $properties query for ${catalog}.${schema}.${table} returned ${
+          rows?.length ?? 0
+        } row(s)`,
+      );
 
       if (!rows || rows.length === 0) {
         throw new Error('No python model properties');
@@ -479,17 +509,28 @@ export class ModelLineage {
       for (const row of rows) {
         props[row['key']] = row['value'];
       }
+      this.coder.log.info(
+        `[Lineage] parsed python_model_* props for ${catalog}.${schema}.${table}: ${JSON.stringify(
+          props,
+        )}`,
+      );
       return props;
     };
 
     try {
-      return await buildPythonUpstreamGraph({
+      const result = await buildPythonUpstreamGraph({
         startSourceNodes: sourceNodes,
         fetchProperties,
       });
-    } catch (error) {
       this.coder.log.info(
-        `[Lineage] Python model upstream discovery failed: ${error}`,
+        `[Lineage] python model discovery produced ${result.nodes.length} node(s) and ${result.edges.length} edge(s)`,
+      );
+      return result;
+    } catch (error) {
+      this.coder.log.error(
+        `[Lineage] Python model upstream discovery failed: ${
+          error instanceof Error ? error.stack : error
+        }`,
       );
       return { nodes: [], edges: [] };
     }

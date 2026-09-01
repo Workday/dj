@@ -71,6 +71,7 @@ export function PythonModelCreate() {
   const [isProjectsLoading, setIsProjectsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [availableDags, setAvailableDags] = useState<string[]>([]);
+  const [isDagsLoading, setIsDagsLoading] = useState(false);
   const [kpoSizes, setKpoSizes] = useState<Record<string, KpoSizeSpec>>({});
 
   const projectName = watch('projectName');
@@ -112,10 +113,11 @@ export function PythonModelCreate() {
   );
 
   const disableSubmit = useMemo(() => {
-    return (
-      !projectName || !name || !group || !topic || !dags || dags.length === 0
-    );
-  }, [projectName, name, group, topic, dags]);
+    if (isDagsLoading || !projectName || !group || !topic || !dags?.length) {
+      return true;
+    }
+    return !name;
+  }, [isDagsLoading, projectName, name, group, topic, dags]);
 
   const kpoSizeOptions = useMemo(
     () =>
@@ -223,8 +225,11 @@ export function PythonModelCreate() {
     const fetchAvailableDags = async () => {
       if (!projectName) {
         setAvailableDags([]);
+        setIsDagsLoading(false);
         return;
       }
+      setAvailableDags([]);
+      setIsDagsLoading(true);
       try {
         const response = await api.post({
           type: 'framework-get-available-dags',
@@ -234,6 +239,8 @@ export function PythonModelCreate() {
       } catch (err) {
         console.error('Error fetching available DAGs:', err);
         setAvailableDags([]);
+      } finally {
+        setIsDagsLoading(false);
       }
     };
     void fetchAvailableDags();
@@ -441,6 +448,10 @@ export function PythonModelCreate() {
               error={errors.dags as any}
               label="Select DAG"
               options={availableDags.map((d) => ({ label: d, value: d }))}
+              disabled={isDagsLoading || !projectName}
+              placeholder={
+                isDagsLoading ? 'Loading DAGs...' : 'Select a DAG'
+              }
               tooltipText="The DAG where this model will run. The model will execute as part of the run_python_models task in the selected DAG."
             />
           )}

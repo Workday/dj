@@ -12,115 +12,130 @@ Extended explanations, code examples, and edge cases for each check in the DJ Py
 
 ```json
 {
-  "name": "backstage_catalogs",
+  "name": "tenant_events",
   "group": "etl",
-  "topic": "api_data"
+  "topic": "tenant_status"
 }
 ```
 
-**Fail example:** Missing `topic` field — model cannot be discovered by Airflow or synced by the framework.
+**Fail:** Missing `topic` — model cannot be discovered by Airflow or synced by the framework.
 
 ### F2: Naming convention
 
 **Pattern:** `^[a-z][a-z0-9_]*$`
 
-**Pass:** `backstage_catalogs`, `user_embeddings`, `daily_snapshot`
-**Fail:** `BackstageCatalogs` (PascalCase), `backstage-catalogs` (hyphens), `2024_snapshot` (starts with digit)
+**Pass:** `tenant_events`, `user_embeddings`, `daily_snapshot`
+**Fail:** `TenantEvents` (PascalCase), `tenant-events` (hyphens), `2024_snapshot` (starts with digit)
 
-### F3: Cells array
+### F3: Code source of truth
 
-**Pass condition:** `cells` array exists and has at least one code cell.
+**Pass condition:** `.python.json` is valid with the required metadata, and a companion `.python.py` exists with authored code.
 
-**Why it matters:** The framework regenerates `.python.py` from `cells`. If `cells` is empty/missing and `.python.py` exists, the sync service skips overwriting (safety valve) — but this means the JSON is no longer the source of truth.
+`.python.py` is the source of truth for code. The `cells` array in `.python.json` is an optional, non-authoritative snapshot of the last notebook save — it may be empty when the model is authored by editing `.python.py` directly, which is fine and not a failure.
 
 ### F4: `__main__` script entry
 
-**Pass condition:** `.python.py` contains `if __name__ == "__main__":` and uses `build_context_from_env()` from `_config.py` (scaffold default: `run_etl(build_context_from_env())`).
+**Pass condition:** `.python.py` contains:
 
-**Why it matters:** Airflow worker and KPO pods execute the script as `__main__` via `runpy.run_path` or `python <path>` — not import + callable lookup.
+```python
+if __name__ == "__main__":
+    from python_models._config import build_context_from_env
+    run_etl(build_context_from_env())
+```
 
-**Common failure:** Missing `__main__` block after migrating from the old import-based execution model.
+**Why it matters:** Airflow worker and KPO pods execute the script as `__main__` via `python <path>` — not import + callable lookup. `build_context_from_env()` reads `PYMODEL_DS`, `PYMODEL_DS_NODASH`, `PYMODEL_DATES` and configures stdout logging for KPO.
 
 ### F5: `_trino_io` usage
 
 **Pass condition:** All Trino operations use imports from `python_models._trino_io`.
 
-**Fail patterns to flag:**
+**Fail patterns:**
+
 ```python
-# INLINE CONNECTION — violates framework
+# INLINE CONNECTION
 from trino.dbapi import connect
-conn = connect(host='trino-host', port=8080, ...)
+conn = connect(host="trino-host", port=8080, ...)
 
-# RAW HTTP — violates framework
-import requests
-response = requests.post('http://trino:8080/v1/statement', ...)
+# DEPRECATED API NAME
+from python_models._trino_io import execute_trino
 
-# SQLALCHEMY — violates framework
-from sqlalchemy import create_engine
-engine = create_engine('trino://...')
+# RAW HTTP
+response = requests.post("http://trino:8080/v1/statement", ...)
 ```
 
-**Correct pattern:**
+**Correct patterns:**
+
 ```python
-from python_models._trino_io import execute_trino, overwrite_partition
+# SQL path
+from python_models._trino_io import execute_sql, fetch_value, overwrite_partition
+
+# Pandas path
+from python_models._trino_io import read_partition_to_dataframe, overwrite_partition_from_dataframe
 ```
 
 ### F6: OUTPUT_CONFIG
 
-**Pass condition:** Code contains `OUTPUT_CONFIG = PythonModelConfig(...)` with import from `python_models._config`.
+**Pass condition:**
 
 ```python
 from python_models._config import PythonModelConfig
 
 OUTPUT_CONFIG = PythonModelConfig(
-    model_name="backstage_catalogs",
+    model_name="tenant_events",
     model_type="python",
-    namespace="python",
-    description="Fetches catalog data from Backstage API",
+    namespace="opus_python_source",
+    table_name="tenant_events",
+    description="Daily tenant events from API",
 )
 ```
 
-**Fail:** Custom dataclass, plain dict, or missing `OUTPUT_CONFIG` variable entirely.
+**Fail:** Custom dataclass, plain dict, or missing `OUTPUT_CONFIG`.
 
-### F7: Sync drift detection
+### F7: Code source of truth (no JSON overwrite)
 
-**How to check:** Compare the cells in `.python.json` against the content of `.python.py`. The framework generates `.py` by concatenating code cells (excluding the runner cell) separated by `\n\n\n`.
+`.python.py` is the source of truth for code; DJ never rewrites it from `.python.json`. Hand-edited code is **expected and preserved** — it is not lost on sync. (The `cells` array in JSON is only a snapshot written when the notebook is saved.)
 
-**Warning condition:** `.python.py` contains code not derivable from JSON cells — indicates hand-edits that will be lost on next sync.
+**Pass condition:** `.python.py` is present and contains the authored ETL code.
 
-### F8: Runner cell position
+### F8: Import safety
 
-**Pass condition:** The last code cell in the `cells` array is the notebook runner:
+**Pass condition:** `.python.py` has no side-effectful top-level statements — e.g. no bare `run_etl(context)` at module scope (which would execute on import). Execution goes through the `__main__` block.
+
 ```python
+# FAIL — runs on import
 run_etl(context)
+
+# PASS — script entry only
+if __name__ == "__main__":
+    from python_models._config import build_context_from_env
+    run_etl(build_context_from_env())
 ```
 
-**Why it matters:** This cell is stripped when generating `.python.py` (it's notebook-only for interactive execution). If it's not last, other cells after it would also be stripped.
+**Why it matters:** Airflow workers import the module and KPO runs `python <file>` — a top-level runner call would fire at import time. Only the derived `# Python Model: …` header is notebook-only; all other code in the notebook view is real module code.
 
-### F9: Standard function structure
+### F9: Orchestrator structure
 
-**Pass condition:** Code follows the ETL function contract:
+**Pass — pandas path:**
+
 ```python
-def extract(context):
-    """Fetch data from external source."""
-    ...
-
-def transform_and_load(context):
-    """Transform and write to Iceberg."""
-    ...
-
-def cleanup(context):
-    """Drop staging tables."""
-    ...
-
-def run_etl(context):
-    """Orchestrate the ETL."""
-    extract(context)
-    transform_and_load(context)
-    cleanup(context)
+def extract(context): ...
+def transform(df, context): ...
+def load(df, context): ...
+def run_etl(context): ...
 ```
 
-**Warning:** Missing `cleanup()` (staging tables may leak). Missing `extract()` is acceptable if data comes directly from existing Trino tables.
+**Pass — SQL path:**
+
+```python
+def extract(context): ...       # optional
+def transform_and_load(context): ...
+def cleanup(context): ...
+def run_etl(context): ...
+```
+
+**Pass — mixed:** Documented combination (e.g. pandas extract + SQL transform_and_load).
+
+**Warning:** SQL path with staging but no `cleanup()`. Missing `extract()` is acceptable when data is already in Trino.
 
 ---
 
@@ -128,120 +143,139 @@ def run_etl(context):
 
 ### L1: Table properties emission
 
-**Pass condition:** `PythonModelConfig` class (from `_config.py`) has a `table_properties` property that returns all required keys:
+DJ writes Iceberg properties after each successful MWAA or KPO run from `.python.json` metadata:
 
-```python
-@property
-def table_properties(self) -> dict[str, str]:
-    return {
-        "python_model_name": self.model_name,
-        "python_model_type": self.model_type,
-        "python_model_namespace": self.namespace,
-        "python_model_table": self.table_name or self.model_name,
-        "python_model_description": self.description,
-    }
-```
+- `python_model_name` ← `name`
+- `python_model_namespace` ← `namespace` / `output.schema`
+- `python_model_table` ← `table_name` / `output.table`
+- `python_model_description` ← `description`
+- `python_model_upstream_sources` ← `upstream_sources`
 
-**How to check:** Verify `OUTPUT_CONFIG` fields populate all five keys. Missing `description` is a warning (lineage node renders without description).
+Authors do not need `set_extra_properties` calls in model code for lineage.
 
-### L2: `upstream_sources` is set in `.python.json`
+### L2: `upstream_sources` when model reads upstream data
 
-**Pass condition:** The `.python.json` file includes an `upstream_sources` array (or single object) with `{ "type": "trino"|"external", "value": "..." }` entries. DJ writes these to the output Iceberg table as `python_model_upstream_sources` after each successful run — authors do not need manual `ALTER TABLE` code in `.python.py`.
+**Pass condition:** `.python.json` includes `upstream_sources` when the model reads Trino tables or external systems.
 
-**Example (preferred):**
 ```json
 "upstream_sources": [
-  { "type": "trino", "value": "opus_python_source.raw_events" },
-  { "type": "external", "value": "backstage_api" }
+  { "type": "trino", "value": "glue_development.opus_python_source.tenant_events" },
+  { "type": "external", "value": "api::backstage_tenant_events" }
 ]
 ```
 
-**Fail:** `upstream_sources` is missing or empty — lineage will show the Python model node but no upstream edges beyond the immediate source.
+**Fail:** Model reads upstream data but `upstream_sources` is missing or empty — lineage shows the Python node with no upstream edges.
 
-### L3: Format validation
+**N/A:** Model with no upstream reads (pure external generate with no declared source) — rare; confirm with author.
 
-**Pass condition:** Each `trino` entry's `value` is `schema.table` format. Each `external` entry's `value` is the intended identifier (API name, S3 path, etc.).
+### L3: Trino format validation
 
-**Pass (trino):** `{ "type": "trino", "value": "opus_python_source.raw_events" }`
-**Fail (trino):** `{ "type": "trino", "value": "iceberg_catalog.opus_python_source.raw_events" }` (includes catalog — lineage uses schema.table only), `{ "type": "trino", "value": "raw_events" }` (missing schema)
+**Pass (canonical):**
 
-### L4: Completeness — no missing upstream edges
+```json
+{ "type": "trino", "value": "glue_development.opus_python_source.tenant_events" }
+```
+
+**Warning (legacy 2-part):**
+
+```json
+{ "type": "trino", "value": "opus_python_source.tenant_events" }
+```
+
+Still parsed with catalog from parent context — recommend migrating to 3-part FQN.
+
+**Fail:**
+
+```json
+{ "type": "trino", "value": "tenant_events" }
+```
+
+Missing schema — cannot resolve table location.
+
+### L4: External format validation
+
+**Pass:**
+
+```json
+{ "type": "external", "value": "s3::data-lake/tenant_migrations/{ds}/migrations.csv" }
+{ "type": "external", "value": "api::backstage_tenant_events" }
+{ "type": "external", "value": "jenkins::nightly-export-job" }
+```
+
+**Warning:** Free-form string with no prefix convention — acceptable if stable and documented.
+
+### L5: Completeness — no missing upstream edges
 
 **Procedure:**
 
-1. Extract all table references from SQL in code cells:
-   ```sql
-   -- These patterns indicate source tables:
-   FROM catalog.schema.table
-   JOIN catalog.schema.table
-   FROM schema.table
-   JOIN schema.table
-   ```
-
-2. Normalize to `schema.table` (strip catalog prefix).
-
-3. Exclude:
-   - The model's own output table
-   - Staging tables (`stg_tmp_*`, `tmp_*`)
-   - Inline CTEs (WITH clause names)
-
-4. Every remaining table must appear in `upstream_sources` (as a `trino` entry).
+1. Extract Trino tables from:
+   - SQL strings: `FROM catalog.schema.table`, `JOIN schema.table`
+   - `read_partition_to_dataframe("catalog.schema.table", …)`
+   - F-strings building FQNs from `get_catalog_name()`
+2. Normalize to `catalog.schema.table`.
+3. Exclude: own output table, `stg_tmp_*` tables, CTE aliases.
+4. Every remaining table must match a `trino` entry in `upstream_sources`.
 
 **Example finding:**
+
 ```
-Tables in SQL: <python_output_schema>.raw_events, analytics.user_sessions, reference.countries
-Tables in upstream_sources: <python_output_schema>.raw_events, analytics.user_sessions
-Missing from upstream_sources: reference.countries
+Tables read in code: glue_development.opus_python_source.tenant_events, glue_development.analytics.user_sessions
+upstream_sources trino entries: glue_development.opus_python_source.tenant_events
+Missing: glue_development.analytics.user_sessions
 ```
 
-### L5: Accuracy — no stale entries
+### L6: Accuracy — no stale entries
 
-**Procedure:** Every entry in `upstream_sources` must correspond to a source actually read by the model.
+Every `upstream_sources` entry must correspond to a source actually read.
 
 **Example finding:**
+
 ```
-Tables in upstream_sources: <python_output_schema>.raw_events, <python_output_schema>.old_events
-Tables in SQL: <python_output_schema>.raw_events
-Stale in upstream_sources: <python_output_schema>.old_events
+upstream_sources: tenant_events, old_events_table
+Tables read in code: tenant_events only
+Stale: old_events_table
 ```
 
-**Severity:** Warning (stale entries don't break lineage but create misleading edges in the graph).
-
-### L6: DAG assignment
-
-**Pass:** `"dags": ["daily_etl_dag"]` — model is scheduled.
-**Warning:** `"dags": []` — model is a utility module. Lineage still works via table properties, but there's no Airflow task node in the DAG graph.
+**Severity:** Warning — misleading graph edges.
 
 ### L7: `depends_on` alignment
 
-**Pass condition:** If model A reads from the output table of model B, then model A's `depends_on` should include model B's name.
+**Pass condition:** When model A reads the output table of Python model B, model A's `depends_on` includes B's `name`.
 
-**Example:**
 ```json
-// Model: user_features.python.json
 {
-  "depends_on": ["user_embeddings"],  // user_embeddings writes to python.user_embeddings
-  ...
+  "name": "tenant_migration_status",
+  "depends_on": ["tenant_events", "tenant_migrations"],
+  "upstream_sources": [
+    { "type": "trino", "value": "glue_development.opus_python_source.tenant_events" },
+    { "type": "trino", "value": "glue_development.opus_python_source.tenant_migrations" }
+  ]
 }
 ```
 
-**Why it matters:** `depends_on` wires Airflow task dependencies. Without it, model A may execute before model B finishes writing, reading stale/empty data.
+**Why both matter:**
 
-### L8: Model ID consistency
+- `depends_on` — Airflow waits for upstream tasks
+- `upstream_sources` — Model Lineage draws edges
 
-**Pass condition:** File path `dags/python_models/etl/api_data/backstage_catalogs.python.json` → model ID `python__etl__api_data__backstage_catalogs` → matches `python_model_name` in table properties.
+DJ may auto-infer trino `upstream_sources` from `depends_on` — inferred entries are valid. Missing `depends_on` when reading a sibling Python output is an **issue** (race condition).
 
-### L9: Companion `.python.py` exists
+### L8: DAG assignment
 
-**Pass condition:** For file `<name>.python.json`, the file `<name>.python.py` exists in the same directory.
+**Pass:** `"dags": ["daily_etl_dag"]`
+**Warning:** `"dags": []` — utility module; lineage via table properties only, no Airflow task node.
 
-**Fail:** Airflow cannot discover or execute the model without the `.py` file.
+### L9: Model ID consistency
 
-### L10: Downstream source reference match
+File path `dags/python_models/etl/tenant_status/tenant_events.python.json` → `python__etl__tenant_status__tenant_events` → matches `python_model_name` in Iceberg properties.
 
-**Pass condition:** If any `.source.json` in the project references this Python model's output table, the table name must match `OUTPUT_CONFIG.table_name` (or `model_name` fallback).
+### L10: Companion `.python.py` exists
 
-**How to check:** Search project for `.source.json` files containing the model's output table name in their `tables` array.
+**Fail:** Missing `.python.py` — Airflow cannot execute the model.
+
+### L11: Downstream source reference match
+
+If `.source.json` files reference this model's output, table name must match `OUTPUT_CONFIG.table_name` (or `model_name` fallback).
 
 ---
 
@@ -249,180 +283,140 @@ Stale in upstream_sources: <python_output_schema>.old_events
 
 ### D1: Standard catalog/schema
 
-**Pass condition:** Output table uses the project-standard catalog and schema for Python model outputs.
+**Default:** `glue_development.opus_python_source.<table_name>`
 
-**Default convention:** `<dev_catalog>.<python_output_schema>.<table_name>`
-
-**When to flag:** Custom schema is acceptable but should be documented in `description` or `variables`. Flag if namespace doesn't match any known project convention.
+Custom schema is acceptable when documented. Flag unknown namespaces.
 
 ### D2: Partition column emission
 
-**Pass condition:** Output INSERT SQL includes `portal_partition_daily` column:
+**Pass (SQL):**
 
 ```sql
-INSERT INTO {table}
-SELECT
-    col_a,
-    col_b,
-    '{ds}' AS portal_partition_daily
-FROM ...
+SELECT col_a, '{ds}' AS portal_partition_daily FROM ...
 ```
 
-**Why it matters:** Downstream dbt models and the DJ framework expect this column for incremental processing. Without it, `overwrite_partition` DML will fail.
+**Pass (pandas):**
 
-**Exception:** Models with `output.write_mode: "overwrite"` (full table refresh) may omit partition columns — flag as suggestion, not issue.
+```python
+df["portal_partition_daily"] = context["ds"]
+```
+
+**Exception:** `output.write_mode: "overwrite"` full refresh — suggestion only.
 
 ### D3: Column naming
 
-**Pass condition:** All output column names in the INSERT SQL follow `snake_case`:
-- `user_id` (pass)
-- `created_at` (pass)
-- `userId` (fail — camelCase)
-- `Created At` (fail — spaces)
+All output columns in `snake_case`. Flag `userId`, `Created At`.
 
 ### D4: No `SELECT *`
 
-**Pass condition:** Production INSERT statements enumerate columns explicitly.
-
 ```sql
--- FAIL:
-INSERT INTO {table} SELECT * FROM staging
+-- FAIL
+INSERT INTO target SELECT * FROM staging
 
--- PASS:
-INSERT INTO {table}
-SELECT user_id, email, created_at, portal_partition_daily
-FROM staging
+-- PASS
+INSERT INTO target SELECT user_id, email, portal_partition_daily FROM staging
 ```
-
-**Why it matters:** `SELECT *` makes the output schema dependent on upstream schema changes. A column added upstream silently changes the downstream contract.
 
 ### D5: Table name matches model name
 
-**Pass condition:** `OUTPUT_CONFIG.table_name` (or `model_name` fallback) matches what downstream consumers reference.
-
-Convention: `python__<group>__<topic>__<name>` → table `<name>` in namespace `python`.
+Convention: table `<name>` in output schema matches model `name` unless `table_name` override is intentional and documented.
 
 ### D6: Deterministic output
 
-**Warning conditions:**
-- Non-deterministic functions without ORDER BY (e.g., `ROW_NUMBER()` without deterministic tie-breaking)
-- UNION without explicit column ordering
-- JSON field extraction where key order varies
+**Warning:** `ROW_NUMBER()` without deterministic tie-break, `NOW()` as data column, non-deterministic UDFs.
 
 ---
 
 ## 4. Performance & Best Practices (P)
 
-### P1: SQL-first adherence
+### P1: Orchestrator consistency (not SQL-first)
 
-**Flag these as violations:**
+**Accept — pandas end-to-end:**
 
 ```python
-# VIOLATION: filtering in pandas instead of SQL WHERE
-df = df[df['status'] == 'active']
-
-# VIOLATION: aggregation in pandas instead of SQL GROUP BY
-result = df.groupby('category').agg({'amount': 'sum'})
-
-# VIOLATION: join in pandas instead of SQL JOIN
-merged = pd.merge(df1, df2, on='user_id')
-
-# VIOLATION: dedup in pandas instead of SQL ROW_NUMBER
-df = df.drop_duplicates(subset=['user_id'])
-
-# VIOLATION: type casting in pandas instead of SQL CAST
-df['amount'] = df['amount'].astype(float)
+df = extract(context)
+df = transform(df, context)
+load(df, context)  # overwrite_partition_from_dataframe
 ```
 
-**Acceptable pandas usage:**
+**Accept — SQL end-to-end:**
+
 ```python
-# OK: parsing API JSON response into rows
-df = pd.json_normalize(api_response['data'])
-
-# OK: chunking for batch INSERT staging
-for chunk in np.array_split(df, num_batches):
-    stage_to_trino(chunk)
+extract(context)
+transform_and_load(context)  # overwrite_partition
+cleanup(context)
 ```
+
+**Accept — mixed** when documented.
+
+**Flag as warning — inconsistency only:**
+
+```python
+# Author chose SQL path but filters in pandas after staging unnecessarily
+df = df[df["status"] == "active"]  # could be SQL WHERE
+```
+
+Do **not** fail solely because pandas is used. Fail only when the chosen style is contradicted without justification.
 
 ### P2: Staging table cleanup
 
-**Pass condition:** `cleanup()` function drops all staging tables:
+**SQL path pass:**
 
 ```python
 def cleanup(context):
-    execute_trino("DROP TABLE IF EXISTS iceberg_catalog.stg_tmp.backstage_raw")
+    execute_sql(f"DROP TABLE IF EXISTS {staging_fqn}")
 ```
 
-**Fail:** No `cleanup()` function, or staging tables created in `extract()` not referenced in `cleanup()`.
-
-**Impact:** Orphaned staging tables accumulate storage costs and namespace pollution.
+**Fail:** Staging tables created but never dropped.
 
 ### P3: Partition predicate pushdown
 
-**Pass condition:** Queries against large source tables include partition column in WHERE:
-
 ```sql
--- PASS: partition filter enables pushdown
-SELECT * FROM source_table
-WHERE portal_partition_daily = '{ds}'
+-- PASS
+SELECT * FROM source WHERE portal_partition_daily = '{ds}'
 
--- FAIL: full table scan
-SELECT * FROM source_table
+-- FAIL on large partitioned tables
+SELECT * FROM source WHERE name = 'foo'
 ```
 
-### P4: Batch staging
+Also applies to `read_partition_to_dataframe` — should pass partition column and value.
 
-**Pass condition:** For large datasets, staging uses batched inserts:
+### P4: Batch staging / writes
+
+**Pass:**
 
 ```python
-BATCH_SIZE = 10000
-for i in range(0, len(df), BATCH_SIZE):
-    batch = df.iloc[i:i+BATCH_SIZE]
-    values = format_values(batch)
-    execute_trino(f"INSERT INTO staging_table VALUES {values}")
+overwrite_partition_from_dataframe(..., batch_size=1000)
 ```
 
-**Warning trigger:** Single INSERT with > 100,000 rows or no batching visible for API pagination results.
+**Warning:** Single unbounded INSERT of millions of rows.
 
 ### P5: Write mode appropriateness
 
-| Data pattern | Correct write mode | Incorrect |
-|-------------|-------------------|-----------|
-| Daily snapshot, rerun-safe | `overwrite_partition` | `append` (duplicates on rerun) |
-| Event stream, never reprocess | `append` | `overwrite_partition` (loses history) |
-| Full refresh, small table | `overwrite(..., "true", insert_sql=...)` | `overwrite_partition` (unnecessary complexity) |
-| Upsert by key | `merge` | `overwrite(..., "true", ...)` (loses unmatched rows) |
+| Pattern | Correct | Incorrect |
+| ------- | ------- | --------- |
+| Daily idempotent | `overwrite_partition` / `overwrite_partition_from_dataframe` | `append` |
+| Event stream | `append` | `overwrite_partition` |
+| Full refresh | `overwrite(…, "true", …)` | unnecessary partition logic |
 
 ### P6: Partition filters on large tables
 
-**Flag:** Any FROM/JOIN against a known large table (Iceberg table with partitions) without a WHERE clause filtering on partition columns.
+Flag FROM/JOIN against partitioned Iceberg tables without partition predicates.
 
-### P7: DataFrame restriction
+### P7: Correct API names
 
-**Pass condition:** pandas/polars usage is limited to:
-- API response parsing (`pd.json_normalize`, `pd.DataFrame(response_data)`)
-- CSV/file reading (`pd.read_csv`)
-- Batch chunking for staging
-- Data that cannot exist in Trino yet (external ingestion)
+| Wrong | Correct |
+| ----- | ------- |
+| `execute_trino(sql)` | `execute_sql(sql)` |
+| `execute_trino(sql, return_result=True)` | `fetch_value(sql)` |
+| `delete(table, where)` | `overwrite_partition(…)` or `overwrite(…)` |
 
-**Fail:** Using DataFrame operations on data already in Trino (pull → transform → push back).
+### P8: Type safety
 
-### P8: Explicit CAST
-
-**Pass condition:** Type conversions in SQL INSERT use explicit CAST:
-
-```sql
-SELECT
-    CAST(raw_amount AS DECIMAL(18,2)) AS amount,
-    CAST(event_date AS DATE) AS event_date
-FROM staging
-```
-
-**Fail:** Relying on implicit coercion or pandas `.astype()` for data that lands in Trino.
+**SQL path:** `CAST(raw_amount AS DECIMAL(18,2))`
+**Pandas path:** appropriate dtypes before `overwrite_partition_from_dataframe`
 
 ### P9: Error handling
-
-**Pass condition:** `run_etl()` ensures cleanup runs even on failure:
 
 ```python
 def run_etl(context):
@@ -433,34 +427,34 @@ def run_etl(context):
         cleanup(context)
 ```
 
-**Fail:** Linear call without try/finally — staging tables leak on transform failure.
-
 ### P10: Idempotency
 
-**Pass condition:** For `overwrite_partition` models, re-running with the same `ds` produces identical output (DELETE + INSERT pattern).
-
-**Warning conditions:**
-- `append` mode used with partition-based data (duplicates on rerun)
-- Non-deterministic expressions in SELECT without dedup logic
-- Timestamp-based columns that change on each execution (e.g., `NOW()` as `loaded_at`)
+For partition-based models, rerun with same `ds` replaces the partition — no duplicate rows.
 
 ---
 
 ## Edge Cases
 
-### Models without SQL (pure Python-to-S3)
+### Models without SQL (pure pandas)
 
-If `output_type: "s3"`, several checks become N/A:
-- D2 (partition column) — S3 models may use Hive-style partitioning differently
-- P3/P6 (partition pushdown) — no Trino source queries
-- L2 (upstream_sources) — may not be discoverable via Iceberg properties
+Checks D4, P3, P6 may be N/A. `upstream_sources` with `external` entries still required when reading external systems. Trino reads via `read_partition_to_dataframe` still need `trino` entries.
 
-Mark these as `N/A (S3 output model)` in the report.
+### Models without Trino (S3 output)
+
+When `output_type: "s3"`:
+
+- D2, P3, P6 — N/A
+- L2 — external `upstream_sources` still recommended
+- F5 — `_trino_io` may be unused — N/A with reason
 
 ### Utility modules (empty `dags`)
 
-Models with `"dags": []` are importable Python utilities, not scheduled ETL. Checks L6, L7, L9 become N/A. Framework compliance checks still apply.
+L8, L7 (scheduling) become N/A. Framework compliance still applies.
 
-### Models reading from other Python model outputs
+### Auto-inferred upstream_sources
 
-If this model reads from another Python model's output table (not an external source), `depends_on` is critical (L7) and the upstream table should appear in `python_model_upstream_sources` (L4).
+When `depends_on` is set and trino entries were auto-inferred at create time, L5 may pass even if the author did not hand-write `upstream_sources`. Verify inferred FQNs match actual output tables of upstream models.
+
+### Topic pipelines
+
+Review each model in the topic. Cross-check that integration models list all sibling `depends_on` entries and that `upstream_sources` trino FQNs use `catalog.schema.table`.

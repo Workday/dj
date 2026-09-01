@@ -542,7 +542,6 @@ export type FrameworkApi =
         description?: string;
         model_type: 'python';
         dags?: string[];
-        depends_on?: string[];
         compute?: PythonModelCompute;
         kpo_size?: PythonModelKpoSize;
         output_type?: PythonModelOutputType;

@@ -21,15 +21,19 @@
 
 ### Python models
 
-- **Declare upstream lineage in `.python.json`.** Add `"upstream_sources": [{ "type": "trino"|"external", "value": "..." }]` on any Python model; after each successful Airflow or KPO run, DJ writes `python_model_name` and the structured `python_model_upstream_sources` property to the output Iceberg table — no manual `ALTER TABLE` in your `.python.py`.
+- **Declare upstream lineage in `.python.json`.** Add `"upstream_sources": [{ "type": "trino"|"external", "value": "..." }]` on any Python model; DJ auto-suggests trino entries from `depends_on` on JSON sync when omitted. After each successful Airflow or KPO run, DJ writes `python_model_name` and the structured `python_model_upstream_sources` property to the output Iceberg table — no manual `ALTER TABLE` in your `.python.py`.
 - **Model Lineage walks the full Python chain.** When a downstream dbt model sources a Python output table, Data Explorer recursively reads each upstream table's Iceberg properties until it reaches roots (external sources or tables with no further upstream), so a chain like D → C → B, A renders in one view.
 - **Cleaner lineage for Python models.** Python models now show their real upstream sources in the lineage graph, without the extra placeholder node that used to appear.
+- **Model Lineage distinguishes external vs Trino upstream nodes.** External sources (`s3::`, API, Jenkins) and Trino table refs render with distinct badges in the lineage graph.
 - **One Airflow task per KPO Python model.** Models with `compute: kpo` appear as a single task named after the model (e.g. `kpo_infra`), not separate gate/KPO steps — DJ runs gating and the pod inside that task.
+- **KPO runs write Iceberg lineage properties.** Post-run `python_model_*` table properties (including `python_model_upstream_sources`) are applied after successful KPO tasks, not only MWAA worker runs.
+- **`_trino_io` pandas helpers for python-path models.** Use `read_partition_to_dataframe` and `overwrite_partition_from_dataframe` when you choose a pandas orchestrator; existing SQL helpers are unchanged.
 
 ### Create Python Model
 
 - **Group options match your project.** The Create Python Model form now lists the groups from the project you've selected, and refreshes when you switch projects.
 - **Fix: creating a Python model works reliably.** Creating a Python model and loading its DAG and group options now work as expected.
+- **Faster, clearer DAG selection.** Select DAG shows a loading state while options load; **`source_etl`** is omitted from the list because DJ manages that DAG via its generated template; creating a model no longer prompts to modify the selected DAG — task wiring is applied automatically.
 
 ## 2.3.0
 

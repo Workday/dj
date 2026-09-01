@@ -206,4 +206,48 @@ describe('buildPythonUpstreamGraph', () => {
       ]),
     );
   });
+
+  test('walks 3-part catalog.schema.table trino upstream values', async () => {
+    const source: LineageNode = {
+      id: 'source.s.out',
+      name: 'out',
+      type: 'source',
+      path: '',
+      schema: 'opus_python_source',
+      database: 'glue_development',
+    };
+
+    const propsByTable: Record<string, Record<string, string>> = {
+      'glue_development.opus_python_source.out': {
+        python_model_name: 'out_model',
+        python_model_upstream_sources:
+          '[{"type":"trino","value":"glue_development.opus_python_source.upstream"}]',
+      },
+      'glue_development.opus_python_source.upstream': {
+        python_model_name: 'upstream_model',
+      },
+    };
+
+    const { nodes, edges } = await buildPythonUpstreamGraph({
+      startSourceNodes: [source],
+      fetchProperties: async (catalog, schema, table) => {
+        const key = `${catalog}.${schema}.${table}`;
+        const props = propsByTable[key];
+        if (!props) {
+          throw new Error(`missing ${key}`);
+        }
+        return props;
+      },
+    });
+
+    expect(nodes.map((n) => n.id)).toContain('python.upstream_model');
+    expect(edges).toEqual(
+      expect.arrayContaining([
+        {
+          pythonModelNodeId: 'python.upstream_model',
+          sourceNodeId: 'python.out_model',
+        },
+      ]),
+    );
+  });
 });

@@ -39,12 +39,27 @@ export function serializeUpstreamSourcesForProperty(
 
 /**
  * Parse `python_model_upstream_sources` from Iceberg table properties.
- * Falls back to legacy comma-separated `schema.table` strings when JSON parse fails.
+ *
+ * The raw value may arrive as a JSON string (e.g. read verbatim from the
+ * property) OR as an already-parsed array/object: the Trino CSV reader
+ * (`parseTrinoValue`) eagerly `JSON.parse`s any cell starting with `[`/`{`,
+ * so the property surfaces as a structured value rather than a string.
+ * Both shapes are handled. Falls back to legacy comma-separated
+ * `schema.table` strings when a string fails JSON parsing.
  */
 export function parseUpstreamSourcesProperty(
-  raw: string | undefined,
+  raw: unknown,
 ): PythonModelUpstreamSource[] {
-  if (!raw?.trim()) {
+  if (raw == null) {
+    return [];
+  }
+
+  // Already parsed into an array/object by the Trino CSV reader.
+  if (typeof raw !== 'string') {
+    return normalizeUpstreamSources(raw);
+  }
+
+  if (!raw.trim()) {
     return [];
   }
 
@@ -63,4 +78,40 @@ export function parseUpstreamSourcesProperty(
     .map((s) => s.trim())
     .filter(Boolean)
     .map((value) => ({ type: 'trino' as const, value }));
+}
+
+export interface ParsedTrinoUpstreamRef {
+  catalog: string;
+  schema: string;
+  table: string;
+}
+
+/**
+ * Parse a trino upstream_sources value as catalog.schema.table (3-part)
+ * or schema.table (2-part, using fallbackCatalog).
+ */
+export function parseTrinoUpstreamValue(
+  value: string,
+  fallbackCatalog: string,
+): ParsedTrinoUpstreamRef | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const parts = trimmed.split('.');
+  if (parts.length >= 3) {
+    return {
+      catalog: parts[0]!,
+      schema: parts[1]!,
+      table: parts.slice(2).join('.'),
+    };
+  }
+  if (parts.length === 2) {
+    return {
+      catalog: fallbackCatalog,
+      schema: parts[0]!,
+      table: parts[1]!,
+    };
+  }
+  return null;
 }

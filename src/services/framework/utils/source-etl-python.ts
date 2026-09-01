@@ -8,6 +8,7 @@
 
 import * as path from 'path';
 
+export const SOURCE_ETL_DAG_ID = 'source_etl';
 export const SOURCE_ETL_OUTPUT_FILE = 'source_etl.py';
 export const SOURCE_ETL_NO_PYTHON_TEMPLATE = 'source_etl.py';
 export const SOURCE_ETL_WITH_PYTHON_TEMPLATE = 'source_etl_py_template.py';

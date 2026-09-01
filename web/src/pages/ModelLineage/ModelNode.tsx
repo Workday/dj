@@ -1,4 +1,5 @@
 import {
+  ArrowDownTrayIcon,
   CircleStackIcon,
   CodeBracketIcon,
   CogIcon,
@@ -26,6 +27,39 @@ const TYPE_LABELS = {
   source: 'SRC',
   seed: 'SEED',
   python: 'PY',
+};
+
+type PythonLineageKind = 'model' | 'trino-ref' | 'external';
+
+function getPythonLineageKind(tags?: string[]): PythonLineageKind | null {
+  if (!tags?.includes('python')) {
+    return null;
+  }
+  if (tags.includes('external')) {
+    return 'external';
+  }
+  if (tags.includes('trino-ref')) {
+    return 'trino-ref';
+  }
+  return 'model';
+}
+
+const PYTHON_KIND_ICONS: Record<PythonLineageKind, typeof CodeBracketIcon> = {
+  model: CodeBracketIcon,
+  'trino-ref': CircleStackIcon,
+  external: ArrowDownTrayIcon,
+};
+
+const PYTHON_KIND_LABELS: Record<PythonLineageKind, string> = {
+  model: 'PY',
+  'trino-ref': 'TRINO',
+  external: 'EXT',
+};
+
+const PYTHON_KIND_BADGE_STYLES: Record<PythonLineageKind, string> = {
+  model: 'bg-surface border-neutral',
+  'trino-ref': 'bg-cyan-600/15 border-cyan-600/40',
+  external: 'bg-amber-600/15 border-amber-600/40',
 };
 
 const MATERIALIZATION_LABELS: Record<MaterializationType, string> = {
@@ -67,14 +101,21 @@ export default function ModelNode({ data }: { data: ModelNodeData }) {
     onExpandUpstream,
     onExpandDownstream,
     onViewColumns,
+    tags,
   } = data;
+
+  const pythonKind = type === 'python' ? getPythonLineageKind(tags) : null;
 
   // Determine if we need to compile before running
   // Compile if: model is outdated (source changed) OR no compiled file exists
   const needsCompilation = isOutdated === true || hasCompiledFile === false;
 
-  const TypeIcon = TYPE_ICONS[type];
-  const typeLabel = TYPE_LABELS[type];
+  const TypeIcon =
+    pythonKind != null ? PYTHON_KIND_ICONS[pythonKind] : TYPE_ICONS[type];
+  const typeLabel =
+    pythonKind != null ? PYTHON_KIND_LABELS[pythonKind] : TYPE_LABELS[type];
+  const pythonBadgeStyle =
+    pythonKind != null ? PYTHON_KIND_BADGE_STYLES[pythonKind] : '';
 
   // Build title with name and description
   const nodeTitle = description ? `${name}\n\n${description}` : name;
@@ -156,7 +197,12 @@ export default function ModelNode({ data }: { data: ModelNodeData }) {
     !isStale && hasDownstream && !isDownstreamExpanded && onExpandDownstream;
 
   const isClickable = !isStale && type !== 'python';
-  const displayName = type === 'python' && description ? description : name;
+  const displayName =
+    pythonKind === 'trino-ref' && description
+      ? description
+      : type === 'python' && description && pythonKind === 'model'
+        ? description
+        : name;
 
   return (
     <div
@@ -177,7 +223,9 @@ export default function ModelNode({ data }: { data: ModelNodeData }) {
       {/* Header */}
       <div className="px-2 py-1.5 flex items-center gap-2">
         {/* Type icon and label */}
-        <div className="flex flex-col items-center flex-shrink-0 px-1.5 py-1 rounded bg-surface border border-neutral">
+        <div
+          className={`flex flex-col items-center flex-shrink-0 px-1.5 py-1 rounded border ${pythonBadgeStyle || 'bg-surface border-neutral'}`}
+        >
           <TypeIcon className="w-3 h-3 text-surface-contrast" />
           <span className="font-mono text-[7px] font-semibold text-surface-contrast opacity-70">
             {typeLabel}

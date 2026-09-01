@@ -62,7 +62,6 @@ import { PreferencesHandler } from './handlers/preferences-handler';
 import { SourceHandler } from './handlers/source-handler';
 import { UIHandlers } from './handlers/ui-handlers';
 import {
-  buildDagInjectionPreview,
   buildInjectedDagSource,
   findDangerousSqlStatements,
   frameworkGetModelId,
@@ -73,6 +72,7 @@ import {
   generatePythonModelScaffoldPy,
   generatePythonModelTasksPy,
   generateTrinoIoPy,
+  SOURCE_ETL_DAG_ID,
   workspaceHasPythonModels,
 } from './utils';
 import {
@@ -426,7 +426,6 @@ export class Framework implements ApiEnabledService<'framework'> {
           throw new Error('Project not found');
         }
 
-        // Create directory structure: dags/python_models/<group>/<topic>/
         const pythonModelDir = path.join(
           WORKSPACE_ROOT,
           'dags',
@@ -437,78 +436,77 @@ export class Framework implements ApiEnabledService<'framework'> {
         await vscode.workspace.fs.createDirectory(
           vscode.Uri.file(pythonModelDir),
         );
-
-        // Ensure __init__.py files exist for Python package structure
         await this.ensurePythonModelsInitFiles(group, topic);
 
-        // Check if python model file already exists
-        const pythonJsonFileName = `${name}.python.json`;
-        const pythonJsonPath = path.join(pythonModelDir, pythonJsonFileName);
-        const pythonJsonUri = vscode.Uri.file(pythonJsonPath);
-        try {
-          await vscode.workspace.fs.stat(pythonJsonUri);
-          throw new Error(
-            `Python model '${name}' already exists in ${group}/${topic}`,
-          );
-        } catch (err) {
-          // File doesn't exist, which is expected - continue with creation
-          if (err instanceof Error && err.message.includes('already exists')) {
-            throw err;
-          }
-        }
+        const baseTags =
+          tags && tags.length > 0 ? tags : ['python-model', group];
+        const compute = reqCompute ?? 'kpo';
+        const kpoFields =
+          compute === 'kpo' || reqCompute === undefined
+            ? { kpo_size: reqKpoSize ?? 'small' }
+            : {};
 
         const pythonModelConfig: PythonModelConfig = {
           name,
           group,
           topic,
-          ...(description && { description }),
           model_type,
           dags,
-          compute: reqCompute ?? 'kpo',
-          ...(reqCompute === 'kpo' || reqCompute === undefined
-            ? { kpo_size: reqKpoSize ?? 'small' }
-            : {}),
+          compute,
+          ...kpoFields,
+          ...(description && { description }),
           ...(enable_notebook && { enable_notebook }),
-          tags: tags && tags.length > 0 ? tags : ['python-model', group],
+          tags: baseTags,
           ...(reqNamespace && { namespace: reqNamespace }),
           ...(reqTableName && { table_name: reqTableName }),
           variables: {},
         };
 
-        // Write metadata-only JSON (the .python.py is the source of truth).
+        const pythonJsonPath = path.join(
+          pythonModelDir,
+          `${pythonModelConfig.name}.python.json`,
+        );
+        const pythonJsonUri = vscode.Uri.file(pythonJsonPath);
+        try {
+          await vscode.workspace.fs.stat(pythonJsonUri);
+          throw new Error(
+            `Python model '${pythonModelConfig.name}' already exists in ${group}/${topic}`,
+          );
+        } catch (err) {
+          if (
+            err instanceof Error &&
+            err.message.includes('already exists')
+          ) {
+            throw err;
+          }
+        }
+
         await vscode.workspace.fs.writeFile(
           pythonJsonUri,
           Buffer.from(JSON.stringify(pythonModelConfig, null, '    ')),
         );
 
-        // Scaffold a clean, marker-delimited .python.py source of truth
-        const modelContent = generatePythonModelScaffoldPy(pythonModelConfig);
-        const modelFileName = `${name}.python.py`;
         const modelUri = vscode.Uri.file(
-          path.join(pythonModelDir, modelFileName),
+          path.join(pythonModelDir, `${pythonModelConfig.name}.python.py`),
         );
         await vscode.workspace.fs.writeFile(
           modelUri,
-          Buffer.from(modelContent),
+          Buffer.from(generatePythonModelScaffoldPy(pythonModelConfig)),
         );
 
-        // Ensure shared scaffolding and refresh source_etl when Python models exist
         await this.ensurePythonModelInfrastructure();
         await this.dbt.writeAirflowDags();
 
-        // Generate new DAG file if requested
         if (createDag && dagConfig?.name) {
           await this.generateDagFile(project, dagConfig);
         }
 
-        // Modify selected DAGs to add register_python_model_tasks (with confirm)
         if (dags && dags.length > 0) {
           for (const dagName of dags) {
             await this.injectPythonModelTasksIntoDag(project, dagName);
           }
         }
 
-        // Clear form state
         try {
           await this.getApi().handleApi({
             type: 'state-clear',
@@ -521,8 +519,7 @@ export class Framework implements ApiEnabledService<'framework'> {
           );
         }
 
-        // Open the created file
-        vscode.window.showTextDocument(pythonJsonUri);
+        void vscode.window.showTextDocument(pythonJsonUri);
 
         return 'Python model created';
       }
@@ -2110,6 +2107,12 @@ export class Framework implements ApiEnabledService<'framework'> {
 
         for (const [fileName] of pyFiles) {
           const dagName = fileName.replace('.py', '');
+          if (dagName === SOURCE_ETL_DAG_ID) {
+            this.log.info(
+              `[DAG Discovery]   Skip ${dagName} (DJ-managed template)`,
+            );
+            continue;
+          }
           if (seenDags.has(dagName)) {
             this.log.info(`[DAG Discovery]   Skip duplicate: ${dagName}`);
             continue;
@@ -2841,8 +2844,7 @@ with DAG(
   /**
    * Inject register_python_model_tasks wiring into an existing DAG file.
    * Called when a Python model is created and mapped to a DAG.
-   * Shows a confirm modal with a short preview before writing.
-   * @param dagName - Can be a simple name (e.g., "source_etl") or a relative path (e.g., "_ext_/source_etl")
+   * @param dagName - Can be a simple name (e.g., "my_dag") or a relative path (e.g., "_ext_/my_dag")
    */
   private async injectPythonModelTasksIntoDag(
     project: DbtProject,
@@ -2914,18 +2916,6 @@ with DAG(
       this.log.info(
         `[DAG Injection] Prepared ${built.style} injection for: ${dagName}`,
       );
-    }
-
-    const preview = buildDagInjectionPreview(dagFilePath, dagName);
-    const choice = await vscode.window.showWarningMessage(
-      `Modify DAG "${dagName}" to register Python model tasks?`,
-      { modal: true, detail: preview },
-      'Apply',
-      'Skip',
-    );
-    if (choice !== 'Apply') {
-      this.log.info(`DAG injection skipped by user for: ${dagName}`);
-      return;
     }
 
     await vscode.workspace.fs.writeFile(

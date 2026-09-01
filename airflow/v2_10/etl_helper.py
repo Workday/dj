@@ -959,6 +959,31 @@ def prepare_gated_kpo_run(model: dict, topic: str, context: dict) -> dict[str, s
 
 def _record_kpo_success(context: dict) -> None:
     _record_kpo_outcome(context, run_status="success")
+    _apply_kpo_table_properties(context)
+
+
+def _apply_kpo_table_properties(context: dict) -> None:
+    """Write python_model_* Iceberg properties after a successful KPO run."""
+    try:
+        dag = context.get("dag")
+        ti = context.get("ti")
+        if dag is None or ti is None:
+            return
+        model_id = ti.task_id
+        models = discover_models(dag.dag_id)
+        model = next((m for m in models if m.get("model_id") == model_id), None)
+        config = model.get("config") if model else None
+        if not config:
+            return
+        from python_models._config import apply_table_properties_from_json  # noqa: PLC0415
+
+        apply_table_properties_from_json(config)
+    except Exception as exc:
+        log.warning(
+            "Could not apply table properties after KPO success for %s: %s",
+            context.get("ti", {}).task_id if context.get("ti") else "?",
+            exc,
+        )
 
 
 def _record_kpo_failure(context: dict) -> None:

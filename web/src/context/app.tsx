@@ -1861,7 +1861,7 @@ SELECT * FROM final`,
                 case 'framework-get-available-dags': {
                   return resolve(
                     apiResponse<typeof payloadType>({
-                      dags: ['source_etl', 'cloud_dir_dag', 'data_pipeline'],
+                      dags: ['cloud_dir_dag', 'data_pipeline'],
                     }),
                   );
                 }
