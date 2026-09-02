@@ -23,3 +23,8 @@ Essentials:
 2. **Run from the dbt project directory** (the one with `dbt_project.yml`), not necessarily the workspace root. If more than one project exists, confirm which one.
 3. **Sync before compiling.** dbt reads the generated `.sql`, not the `.model.json`. After a JSON edit, ask the user to run `DJ: Sync to SQL and YML` first.
 4. **Read-only by default.** `parse` / `compile` / `ls` / `deps` / `docs generate` / `test` are safe. `run` / `build` / `seed` / `snapshot` / `run-operation` write to the warehouse — get explicit per-command confirmation and never target production. See **Command & Query Execution Safety** in `.agents/dj/AGENTS.md`.
+
+## DJ CLI (preferred when DJ is running)
+
+When `.dj/bin/dj system.ping` succeeds, use: `dbt.compile`, `dbt.parse`, `dbt.run`, `dbt.compile-logs` instead of raw `dbt` CLI.
+The bridge routes through the extension's configured Python venv. Invocation patterns and fallbacks → `dj-cli`. Full skill/CLI routing → `dj-cli-registry`.

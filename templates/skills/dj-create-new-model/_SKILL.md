@@ -67,37 +67,28 @@ One clarifying question if source vs existing model is unclear.
 6. **Write the `.model.json`** at the derived path in **JSONC** (comments and trailing commas allowed; preserve existing comments).
 7. **Verify** via the editor's bound schema and DJ's on-save regeneration/diagnostics (Problems tab) — do not assume standalone validators (`jsonschema`, `pyyaml`, `pip`) are installed (see [references/mart-lightdash-recipes.md](references/mart-lightdash-recipes.md) §4).
 
-## Creating the model: DJ CLI bridge (preferred when DJ is running)
+## DJ CLI (preferred when DJ is running)
 
-When the DJ extension is running, prefer creating the model through the **CLI bridge** instead of hand-writing the file and asking the user to sync. It runs the **same engine as the Create Model form** (`Api.handleApi`), so it derives the path, enforces the "already exists" guard, writes the `.model.json`, and triggers regeneration in one step:
+When `.dj/bin/dj system.ping` succeeds, use: `model.create`, `model.preview`, `model.exists`, `trino.columns`, `dbt.models`, `dbt.sources` instead of manual steps below.
+Invocation patterns and fallbacks → `dj-cli`. Full skill/CLI routing → `dj-cli-registry`.
 
-```bash
-.dj/bin/dj model.create --file <req.json>
-```
-
-The request is a single object `{ "request": { … } }` with the fields you'd otherwise author — `type`, `group`, `topic`, `name`, and the type-specific `from` / `select` / `ctes` / etc. (identical shapes to the `.dj/schemas/` type schema). Minimal `stg_select_source` example:
+After steps 1–5, call `model.preview --file <payload.json>` to validate, then `model.create --file <payload.json>` to write. Payload is flat JSON (no `request` wrapper):
 
 ```json
 {
-  "request": {
-    "type": "stg_select_source",
-    "group": "core",
-    "topic": "sales",
-    "name": "customers",
-    "from": { "source": "raw__public.customers" },
-    "select": [{ "name": "id", "type": "dim" }, { "name": "name" }]
-  }
+  "type": "stg_select_source",
+  "group": "core",
+  "topic": "sales",
+  "name": "customers",
+  "from": { "source": "raw__public.customers" },
+  "select": [{ "name": "id", "type": "dim" }, { "name": "name" }]
 }
 ```
 
-- **`projectName`** is optional when the workspace has a single dbt project (inferred); with several projects add `"projectName": "<name>"` — the error lists the names, matching the "ask which project" rule above.
-- **Do steps 1–5 first.** The bridge validates and writes, but does not design: determine `type`, gather `group`/`topic`/`name`, read the schema, and verify upstream columns before calling it. The framework derives the path — never pass or choose a file path. Run `.dj/bin/dj system.capabilities` to see the available operations.
-- **Exit codes:** `0` created · `1` operation error (e.g. `Model … already exists`, unregistered group, missing source) · `2` bad input JSON · `3` no live DJ endpoint · `4` timeout.
-- **Fallback (manual authoring).** If `.dj/bin/dj` is absent or exits `3` (DJ not running, or Windows), fall back to **Write the `.model.json`** directly (Workflow steps 6–7) and ask the user to run **`DJ: Sync to SQL and YML`**.
+- **`projectName`** is optional when the workspace has a single dbt project (inferred).
+- **Fallback.** If `.dj/bin/dj` is absent or exits `3`, write the `.model.json` directly (steps 6–7) and ask the user to run **`DJ: Sync to SQL and YML`**.
 
 ## Missing upstream? Build the chain first
-
-A mart reads from intermediate/staging models; those read from staging/sources. Before authoring, confirm every `from` reference already exists by reading its `.model.json` / `.source.json` (or checking the manifest).
 
 - **If an upstream layer is missing, do not invent its columns.** Offer to build the missing layers **upstream-first** — source → staging → intermediate → mart — and confirm scope with the user before creating anything. Build only the layers the requested model actually needs; skip a layer that adds no transformation (a mart can read a staging model directly when no intermediate logic is required). **A missing raw source (`.source.json`) is created via the `dj-create-source` skill** (or the `DJ: Create Source` webview) — it introspects the exact Trino data types with `SHOW COLUMNS`; never hand-author a source's `data_type`s.
 - **Refresh the manifest before building the downstream.** A newly created `.source.json` or upstream `.model.json` is not resolvable by a downstream model until the dbt manifest registers it. After creating an upstream, ask the user to run **`DJ: Sync to SQL and YML`** — it regenerates the `.sql` / `.yml` and reparses the manifest on demand (running `dbt parse` only when a synced model is missing or the manifest is stale) — then author the downstream against it. `DJ: Refresh Projects` only re-reads project config and reloads the on-disk manifest; it does not run `dbt parse`. The agent cannot run VS Code commands itself, so this is a user action.

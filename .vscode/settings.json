@@ -12,16 +12,16 @@
   },
   "json.schemas": [
     {
-      "fileMatch": ["*.model.json"],
+      "fileMatch": [
+        "*.model.json"
+      ],
       "url": ".dj/schemas/model.schema.json"
     },
     {
-      "fileMatch": ["*.source.json"],
+      "fileMatch": [
+        "*.source.json"
+      ],
       "url": ".dj/schemas/source.schema.json"
-    },
-    {
-      "fileMatch": ["*.python.json"],
-      "url": ".dj/schemas/python-model.schema.json"
     }
   ],
   "dj.dataExplorer.autoRefresh": false

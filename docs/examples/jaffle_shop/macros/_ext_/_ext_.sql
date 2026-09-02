@@ -232,7 +232,7 @@
 {%- macro _ext_partition_date_query(data_type='varchar', include='', source_id='') -%}
     WITH source_dates AS (
         SELECT CASE WHEN cardinality(array_agg(partition_dates)) > 0 THEN array_distinct(flatten(array_agg(partition_dates))) ELSE array[{{ _ext_event_date_string(data_type='date') }}] END AS partition_dates
-        FROM {{ var('project_catalog', project_name) }}.{{ var('etl_schema', 'source_etl') }}.dbt_source_dates
+        FROM {{ project_name }}.source_etl.dbt_source_dates
         WHERE source_id = '{{ source_id }}' AND event_date IN ({{ _ext_event_date_string(data_type='date', include=include) }})
     )
     SELECT distinct(cast(partition_date as {{ data_type }})) as partition_date

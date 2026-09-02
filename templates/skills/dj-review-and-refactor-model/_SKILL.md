@@ -19,6 +19,11 @@ metadata:
 
 **Reading order:** `.agents/dj/reference/model-types.md` (Advanced), `.agents/dj/reference/materialization.md`, `.agents/dj/reference/meta-and-governance.md`, `.agents/dj/reference/lightdash-tags-tests.md` → `.dj/schemas/` (`model.materialization.schema.json`, `model.from.rollup.schema.json`, `model.subquery.schema.json`, `model.cte.schema.json`, `lightdash.*.schema.json`) → this skill's `references/refactor-catalog.md` once the apply phase begins.
 
+## DJ CLI (preferred when DJ is running)
+
+When `.dj/bin/dj system.ping` succeeds, use: `model.preview`, `model.update`, `model.cte-analysis` instead of manual file edits where applicable.
+Invocation patterns and fallbacks → `dj-cli`. Full skill/CLI routing → `dj-cli-registry`.
+
 ## When this skill applies
 
 - The user mentions reviewing, auditing, modernizing, refactoring, cleaning up, or upgrading `.model.json` files.

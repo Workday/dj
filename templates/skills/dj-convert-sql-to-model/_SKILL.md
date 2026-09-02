@@ -19,6 +19,13 @@ Convert a raw SQL query into a **new** `.model.json` file following the DJ (Data
 
 **Reading order:** `.dj/schemas/model.type.<type>.schema.json` (follow `$ref`s) → `.agents/dj/reference/model-types.md` → this skill's SQL mapping rules. Always read the schema **before** writing any JSON.
 
+## DJ CLI (preferred when DJ is running)
+
+When `.dj/bin/dj system.ping` succeeds, use: `model.preview`, `model.create` instead of hand-writing the file below.
+Invocation patterns and fallbacks → `dj-cli`. Full skill/CLI routing → `dj-cli-registry`.
+
+Call `model.preview --file <payload.json>` to validate the generated SQL/YAML before `model.create`.
+
 ## Output structure (mandatory)
 
 The generated `.model.json` MUST use these DJ fields — no other structure is valid:

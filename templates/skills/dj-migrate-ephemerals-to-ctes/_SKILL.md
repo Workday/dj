@@ -18,6 +18,11 @@ metadata:
 
 **Reading order:** `.agents/dj/AGENTS.md` (**Important Conventions**), `.agents/dj/reference/model-types.md`, and `.agents/dj/reference/ctes-and-subqueries.md` → `.dj/schemas/model.cte.schema.json` + `model.materialization.schema.json` → this skill's `references/transformation-matrix.md` for per-type recipes.
 
+## DJ CLI (preferred when DJ is running)
+
+When `.dj/bin/dj system.ping` succeeds, use: `model.preview`, `model.update` to validate CTE inlining before and after mutation.
+Invocation patterns and fallbacks → `dj-cli`. Full skill/CLI routing → `dj-cli-registry`.
+
 ## When this skill applies
 
 - The user mentions migrating, inlining, refactoring, flattening, consolidating, collapsing, or removing ephemeral models.
