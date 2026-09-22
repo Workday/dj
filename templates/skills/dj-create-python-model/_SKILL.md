@@ -50,6 +50,14 @@ Use this skill when the user mentions: python model, ETL, data ingestion, API fe
 
 Shared topic helpers live at `dags/python_models/<group>/<topic>/_helpers.py` (one per topic). Import from sibling models as needed.
 
+## Step 0 — Resolve project defaults (before proposing values)
+
+1. Read `.agents/project/skills/dj-create-python-model/project-defaults.md` if it exists.
+2. Read any sibling files in that folder linked from the defaults.
+3. If missing, discover from the repo: existing models under `dags/python_models/`, python-source `.source.json` files, `dbt_project.yml` vars, `dj.*` VS Code settings.
+4. Use resolved defaults for output catalog/schema, DAG, authoring mode, and groups — state them before scaffolding.
+5. Never assume org-specific catalog, schema, or DAG names without confirmation.
+
 ## Interactive gathering workflow
 
 Ask the following in order. Batch related questions to minimize round-trips. **Skip the Q&A entirely** when the user supplies a complete spec (name, group, topic, DAG, transform style, output, dependencies).
@@ -102,8 +110,8 @@ Present defaults and confirm overrides:
 
 | Field                 | Default                      | Override?               |
 | --------------------- | ---------------------------- | ----------------------- |
-| `output.database`     | `glue_development`           | Yes                     |
-| `output.schema`       | `opus_python_source`         | Yes                     |
+| `output.database`     | From Step 0 (`<dev_catalog>`) | Yes                     |
+| `output.schema`       | From Step 0 (`<python_output_schema>`) | Yes            |
 | `output_type`         | `iceberg`                    | Yes (alternative: `s3`) |
 | `output.write_mode`   | `overwrite_partitions`       | Yes                     |
 | `output.partition_by` | `["portal_partition_daily"]` | Yes                     |
@@ -139,7 +147,7 @@ Declare in `.python.json` only — DJ writes properties after each run; **do not
 
 ```json
 "upstream_sources": [
-  { "type": "trino", "value": "glue_development.opus_python_source.raw_events" },
+  { "type": "trino", "value": "<dev_catalog>.<python_output_schema>.raw_events" },
   { "type": "external", "value": "api::backstage_catalog" },
   { "type": "external", "value": "s3::my-bucket/path/data.csv" },
   { "type": "external", "value": "jenkins::my-job-name" }
@@ -148,7 +156,7 @@ Declare in `.python.json` only — DJ writes properties after each run; **do not
 
 | `type` | `value` format | Notes |
 | ------ | -------------- | ----- |
-| **trino** | **`catalog.schema.table`** (canonical) | e.g. `glue_development.opus_python_source.model_a` |
+| **trino** | **`catalog.schema.table`** (canonical) | e.g. `<dev_catalog>.<python_output_schema>.model_a` |
 | **trino** | `schema.table` (legacy) | Still parsed; prefer 3-part FQN for new models |
 | **external** | Prefix convention | `s3::…`, `api::…`, `jenkins::…`, or other stable identifier |
 
@@ -161,7 +169,7 @@ New models default to **`compute: "kpo"`** (Kubernetes pod). Set **`compute: "ai
 | `compute` | `kpo` (default) or `airflow` |
 | `kpo_size` | Pod preset when `compute` is `kpo`: `small`, `medium`, `large`, `xlarge` |
 
-**KPO script path:** The `mwaa-opus-kpo-runner` image syncs `s3://<bucket>/dags/python_models/` into the pod and runs `python <group>/<topic>/<name>.python.py`. Set Airflow Variable **`python_models_s3_bucket`**; optional **`python_model_s3_region`** (default `us-west-2`). Configure **`airflow_runner_cfg`** (image, tag, namespace, cluster).
+**KPO script path:** The configured KPO runner image (from project defaults or `airflow_runner_cfg`) syncs `s3://<bucket>/dags/python_models/` into the pod and runs `python <group>/<topic>/<name>.python.py`. Set Airflow Variable **`python_models_s3_bucket`**; optional **`python_model_s3_region`**. Configure **`airflow_runner_cfg`** (image, tag, namespace, cluster).
 
 **`PYMODEL_*` environment:** Airflow sets `PYMODEL_DS`, `PYMODEL_DS_NODASH`, and optionally `PYMODEL_DATES` (JSON array) before execution. `build_context_from_env()` in `_config.py` reads them and configures `logging.basicConfig` to stdout (required for KPO log visibility).
 
@@ -349,7 +357,7 @@ Chains like downstream dbt → model C → model B + model A render in one graph
 Downstream dbt SQL models reference the output table using DJ source notation:
 
 ```
-glue_development__opus_python_source.<table_name>
+<dev_catalog>__<python_output_schema>.<table_name>
 ```
 
 (Double underscore separates catalog from schema.)

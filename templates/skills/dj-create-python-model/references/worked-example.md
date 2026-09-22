@@ -23,7 +23,7 @@ DJ auto-infers trino `upstream_sources` on model 3 from `depends_on` when you sa
   "topic": "tenant_status",
   "description": "Daily tenant events from Backstage API",
   "model_type": "python",
-  "dags": ["opus_python_source"],
+  "dags": ["<default_dag>"],
   "compute": "kpo",
   "kpo_size": "small",
   "depends_on": [],
@@ -31,8 +31,8 @@ DJ auto-infers trino `upstream_sources` on model 3 from `depends_on` when you sa
     { "type": "external", "value": "api::backstage_tenant_events" }
   ],
   "output": {
-    "database": "glue_development",
-    "schema": "opus_python_source",
+    "database": "<dev_catalog>",
+    "schema": "python_output_schema",
     "table": "tenant_events",
     "partition_by": ["portal_partition_daily"],
     "write_mode": "overwrite_partitions"
@@ -50,7 +50,7 @@ from python_models._config import PythonModelConfig, get_catalog_name, build_con
 
 OUTPUT_CONFIG = PythonModelConfig(
     model_name="tenant_events",
-    namespace="opus_python_source",
+    namespace="python_output_schema",
     table_name="tenant_events",
     model_type="python",
     description="Daily tenant events from Backstage API",
@@ -96,8 +96,8 @@ if __name__ == "__main__":
     { "type": "external", "value": "s3::data-lake/tenant_migrations/{ds}/migrations.csv" }
   ],
   "output": {
-    "database": "glue_development",
-    "schema": "opus_python_source",
+    "database": "<dev_catalog>",
+    "schema": "python_output_schema",
     "table": "tenant_migrations",
     "partition_by": ["portal_partition_daily"],
     "write_mode": "overwrite_partitions"
@@ -118,12 +118,12 @@ Pandas extract reads S3; `load()` uses `overwrite_partition_from_dataframe` the 
   "description": "Combines tenant events and migrations into a daily status table",
   "depends_on": ["tenant_events", "tenant_migrations"],
   "upstream_sources": [
-    { "type": "trino", "value": "glue_development.opus_python_source.tenant_events" },
-    { "type": "trino", "value": "glue_development.opus_python_source.tenant_migrations" }
+    { "type": "trino", "value": "<dev_catalog>.python_output_schema.tenant_events" },
+    { "type": "trino", "value": "<dev_catalog>.python_output_schema.tenant_migrations" }
   ],
   "output": {
-    "database": "glue_development",
-    "schema": "opus_python_source",
+    "database": "<dev_catalog>",
+    "schema": "python_output_schema",
     "table": "tenant_migration_status",
     "partition_by": ["portal_partition_daily"],
     "write_mode": "overwrite_partitions"
@@ -144,14 +144,14 @@ from python_models._config import PythonModelConfig, get_catalog_name, build_con
 
 OUTPUT_CONFIG = PythonModelConfig(
     model_name="tenant_migration_status",
-    namespace="opus_python_source",
+    namespace="python_output_schema",
     table_name="tenant_migration_status",
     model_type="python",
     description="Combines tenant events and migrations into a daily status table",
 )
 
-EVENTS_FQN = f"{get_catalog_name()}.opus_python_source.tenant_events"
-MIGRATIONS_FQN = f"{get_catalog_name()}.opus_python_source.tenant_migrations"
+EVENTS_FQN = f"{get_catalog_name()}.python_output_schema.tenant_events"
+MIGRATIONS_FQN = f"{get_catalog_name()}.python_output_schema.tenant_migrations"
 
 def extract(context: dict) -> dict[str, pd.DataFrame]:
     ds = context["ds"]
@@ -233,7 +233,7 @@ After successful KPO runs, each output table carries:
 ```json
 {
   "python_model_name": "tenant_migration_status",
-  "python_model_upstream_sources": "[{\"type\":\"trino\",\"value\":\"glue_development.opus_python_source.tenant_events\"},{\"type\":\"trino\",\"value\":\"glue_development.opus_python_source.tenant_migrations\"}]"
+  "python_model_upstream_sources": "[{\"type\":\"trino\",\"value\":\"<dev_catalog>.python_output_schema.tenant_events\"},{\"type\":\"trino\",\"value\":\"<dev_catalog>.python_output_schema.tenant_migrations\"}]"
 }
 ```
 
@@ -251,7 +251,7 @@ Model Lineage renders:
 Register each output table, then reference in `.model.json`:
 
 ```
-glue_development__opus_python_source.tenant_migration_status
+<dev_catalog>__python_output_schema.tenant_migration_status
 ```
 
 Use **`dj-create-source`** after the first successful run.

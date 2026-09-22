@@ -21,6 +21,7 @@
 
 ### Python models
 
+- **Project defaults for python-model skills.** Commit `.agents/project/skills/<skill-name>/project-defaults.md` in your dbt project so `dj-create-python-model`, `dj-review-python-model`, and `dj-migrate-notebook-to-pymodel` pick up your catalog, schema, authoring mode, and migration rules in Step 0 — without forking DJ skill files. Example templates live in the DJ repo under `templates/_agents-project/skills/` (not deployed). DJ never overwrites `.agents/project/`.
 - **Declare upstream lineage in `.python.json`.** Add `"upstream_sources": [{ "type": "trino"|"external", "value": "..." }]` on any Python model; DJ auto-suggests trino entries from `depends_on` on JSON sync when omitted. After each successful Airflow or KPO run, DJ writes `python_model_name` and the structured `python_model_upstream_sources` property to the output Iceberg table — no manual `ALTER TABLE` in your `.python.py`.
 - **Model Lineage walks the full Python chain.** When a downstream dbt model sources a Python output table, Data Explorer recursively reads each upstream table's Iceberg properties until it reaches roots (external sources or tables with no further upstream), so a chain like D → C → B, A renders in one view.
 - **Cleaner lineage for Python models.** Python models now show their real upstream sources in the lineage graph, without the extra placeholder node that used to appear.

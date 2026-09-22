@@ -29,6 +29,13 @@ Use this skill when the user mentions: review python model, audit python model, 
 - Verifying the model's output *data* against a legacy/reference table (this skill audits code, not data) → `dj-verify-pymodel-parity`
 - Migrating a legacy notebook into a python model before it can be reviewed → `dj-migrate-notebook-to-pymodel`
 
+## Step 0 — Resolve project defaults (before checklist)
+
+1. Read `.agents/project/skills/dj-review-python-model/project-defaults.md` if it exists.
+2. Read `.agents/project/skills/dj-create-python-model/project-defaults.md` for shared catalog/schema/authoring-mode defaults.
+3. If missing, discover from sibling models under `dags/python_models/` and project source registrations.
+4. Apply project `authoring_mode` when interpreting F3/F7/F9 (hand-written models may have empty `cells` in JSON).
+
 ## Workflow
 
 - [ ] **1. Resolve scope.** Default to the open `.python.json` in the editor if any. Otherwise ask which Python model to review. Accept a file path or model name (`python__<group>__<topic>__<name>`).
@@ -89,7 +96,7 @@ DJ auto-infers trino `upstream_sources` from `depends_on` at create/sync — inf
 
 | Check | What to validate |
 | ----- | ---------------- |
-| D1 | Output table uses standard catalog/schema convention (`glue_development.opus_python_source` or project equivalent) |
+| D1 | Output table uses project catalog/schema convention from Step 0 (`<dev_catalog>.<python_output_schema>`) |
 | D2 | Partition column `portal_partition_daily` emitted in output (SQL or pandas) when using partition writes |
 | D3 | Column names follow `snake_case` |
 | D4 | No `SELECT *` in production SQL INSERT statements |

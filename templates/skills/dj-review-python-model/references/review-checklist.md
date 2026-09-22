@@ -83,7 +83,7 @@ from python_models._config import PythonModelConfig
 OUTPUT_CONFIG = PythonModelConfig(
     model_name="tenant_events",
     model_type="python",
-    namespace="opus_python_source",
+    namespace="python_output_schema",
     table_name="tenant_events",
     description="Daily tenant events from API",
 )
@@ -159,7 +159,7 @@ Authors do not need `set_extra_properties` calls in model code for lineage.
 
 ```json
 "upstream_sources": [
-  { "type": "trino", "value": "glue_development.opus_python_source.tenant_events" },
+  { "type": "trino", "value": "<dev_catalog>.python_output_schema.tenant_events" },
   { "type": "external", "value": "api::backstage_tenant_events" }
 ]
 ```
@@ -173,13 +173,13 @@ Authors do not need `set_extra_properties` calls in model code for lineage.
 **Pass (canonical):**
 
 ```json
-{ "type": "trino", "value": "glue_development.opus_python_source.tenant_events" }
+{ "type": "trino", "value": "<dev_catalog>.python_output_schema.tenant_events" }
 ```
 
 **Warning (legacy 2-part):**
 
 ```json
-{ "type": "trino", "value": "opus_python_source.tenant_events" }
+{ "type": "trino", "value": "python_output_schema.tenant_events" }
 ```
 
 Still parsed with catalog from parent context — recommend migrating to 3-part FQN.
@@ -219,9 +219,9 @@ Missing schema — cannot resolve table location.
 **Example finding:**
 
 ```
-Tables read in code: glue_development.opus_python_source.tenant_events, glue_development.analytics.user_sessions
-upstream_sources trino entries: glue_development.opus_python_source.tenant_events
-Missing: glue_development.analytics.user_sessions
+Tables read in code: <dev_catalog>.python_output_schema.tenant_events, <dev_catalog>.analytics.user_sessions
+upstream_sources trino entries: <dev_catalog>.python_output_schema.tenant_events
+Missing: <dev_catalog>.analytics.user_sessions
 ```
 
 ### L6: Accuracy — no stale entries
@@ -247,8 +247,8 @@ Stale: old_events_table
   "name": "tenant_migration_status",
   "depends_on": ["tenant_events", "tenant_migrations"],
   "upstream_sources": [
-    { "type": "trino", "value": "glue_development.opus_python_source.tenant_events" },
-    { "type": "trino", "value": "glue_development.opus_python_source.tenant_migrations" }
+    { "type": "trino", "value": "<dev_catalog>.python_output_schema.tenant_events" },
+    { "type": "trino", "value": "<dev_catalog>.python_output_schema.tenant_migrations" }
   ]
 }
 ```
@@ -283,7 +283,7 @@ If `.source.json` files reference this model's output, table name must match `OU
 
 ### D1: Standard catalog/schema
 
-**Default:** `glue_development.opus_python_source.<table_name>`
+**Default:** `<dev_catalog>.python_output_schema.<table_name>`
 
 Custom schema is acceptable when documented. Flag unknown namespaces.
 

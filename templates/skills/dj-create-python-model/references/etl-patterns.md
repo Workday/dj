@@ -2,7 +2,7 @@
 
 Stage-level patterns for both orchestrators. All Trino I/O goes through **`python_models._trino_io`** — no inline `trino.dbapi.connect`, no `execute_trino`, no standalone `delete()`.
 
-Default output target: `glue_development.opus_python_source` (override via `output` in `.python.json` and `get_catalog_name()` / `get_namespace_name()` at runtime).
+Default output target: `<dev_catalog>.<python_output_schema>` (resolve from Step 0 / `output` in `.python.json` and `get_catalog_name()` at runtime).
 
 Build `table_fqn` for every helper call:
 
@@ -179,7 +179,7 @@ from python_models._trino_io import read_partition_to_dataframe
 def extract(context: dict) -> pd.DataFrame:
     """Read an upstream Iceberg partition declared in upstream_sources."""
     ds = context["ds"]
-    upstream_fqn = f"{get_catalog_name()}.opus_python_source.upstream_model_a"
+    upstream_fqn = f"{get_catalog_name()}.<python_output_schema>.upstream_model_a"
     return read_partition_to_dataframe(
         upstream_fqn,
         "portal_partition_daily",
@@ -192,7 +192,7 @@ Declare in `.python.json`:
 
 ```json
 "upstream_sources": [
-  { "type": "trino", "value": "glue_development.opus_python_source.upstream_model_a" }
+  { "type": "trino", "value": "<dev_catalog>.<python_output_schema>.upstream_model_a" }
 ]
 ```
 
@@ -370,8 +370,8 @@ def transform_and_load(context: dict) -> None:
 ### Join with existing Trino tables
 
 ```python
-    source_fqn = f"{catalog}.opus_python_source.raw_events"
-    lookup_fqn = f"{catalog}.opus_python_source.region_lookup"
+    source_fqn = f"{catalog}.<python_output_schema>.raw_events"
+    lookup_fqn = f"{catalog}.<python_output_schema>.region_lookup"
 
     source_query = f"""
         SELECT

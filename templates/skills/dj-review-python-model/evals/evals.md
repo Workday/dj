@@ -44,7 +44,7 @@ The review treats `.python.py` as the **code source of truth** (hand-edits are e
 
 ## E7 — Legacy 2-part trino FQN
 
-**Input:** `upstream_sources` uses `opus_python_source.tenant_events` (2-part).
+**Input:** `upstream_sources` uses `<python_output_schema>.tenant_events` (2-part).
 
 **Expected:** **L3 WARNING (LOW)** — legacy format still parsed; recommend migrating to `catalog.schema.table`.
 

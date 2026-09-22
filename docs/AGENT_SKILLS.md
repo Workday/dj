@@ -48,6 +48,19 @@ DJ never overwrites `.agents/project/`. Starters live in the DJ repo at `templat
 - **You stay in control of DJ commands.** Skills can't run VS Code commands themselves; they'll ask you to run things like **`DJ: Sync to SQL and YML`** or **`DJ: Refresh Projects`** at the right moment.
 - **Some skills are read-only.** `dj-review-python-model`, `dj-govern-model`, `dj-trino-analyzer`, and `dj-verify-pymodel-parity` produce reports and change nothing.
 
+## Project defaults (python-model skills)
+
+Downstream dbt projects can commit **project-owned defaults** that DJ python-model skills read in Step 0 — without forking the deployed `dj-*` skill files (which `DJ: Refresh Projects` overwrites).
+
+```text
+.agents/project/skills/
+  dj-create-python-model/project-defaults.md
+  dj-review-python-model/project-defaults.md
+  dj-migrate-notebook-to-pymodel/project-defaults.md
+```
+
+Optional sibling files (e.g. `trino-dialect-cheatsheet.md`) live in the same folder. Example templates ship in the DJ extension repo under `templates/_agents-project/skills/` for copy-paste into your project.
+
 ## The skills
 
 DJ provides 20 skills, grouped below by what they help you do.
