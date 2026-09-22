@@ -30,6 +30,9 @@
     "meta": {
       "$ref": "model.meta.schema.json"
     },
+    "depends_on": {
+      "$ref": "model.depends_on.schema.json"
+    },
     "data_tests": {
       "$ref": "model.data_tests.schema.json"
     },

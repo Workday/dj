@@ -125,6 +125,13 @@ export function extractFrameworkDependencies(
     }
   }
 
+  // Authored forced refs (--depends_on comments) also affect sync order.
+  if ('depends_on' in modelJson && modelJson.depends_on) {
+    for (const modelName of modelJson.depends_on) {
+      dependencies.add(modelName);
+    }
+  }
+
   return Array.from(dependencies);
 }
 

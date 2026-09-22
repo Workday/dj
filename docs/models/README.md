@@ -417,6 +417,23 @@ Understanding the relationship between model types:
 - **Intermediate models** feed **mart models**
 - **Mart models** feed **BI tools and dashboards**
 
+### Forcing dbt dependencies
+
+dbt builds its DAG from `ref()` calls it can see at parse time. When a dependency is only used inside a branch that is skipped during parse (for example `{% if execute %}`), add the upstream model names under `depends_on` on the `.model.json`. DJ emits one SQL comment per value:
+
+```jsonc
+{
+  "depends_on": ["processed_orders", "another_model"]
+}
+```
+
+```sql
+--depends_on: {{ ref('processed_orders') }}
+--depends_on: {{ ref('another_model') }}
+```
+
+See [dbt: Forcing dependencies](https://docs.getdbt.com/reference/dbt-jinja-functions/ref?version=2#forcing-dependencies).
+
 ### Performance Optimization
 
 - **Materialization**: Choose appropriate strategy for data volume

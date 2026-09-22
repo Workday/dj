@@ -1,0 +1,11 @@
+{
+  "$id": "model.depends_on.schema.json",
+  "title": "Schema Model Depends On",
+  "description": "Additional model names whose ref() edges should be forced in generated SQL via --depends_on comments (for refs hidden from dbt parse, e.g. inside {% if execute %})",
+  "type": "array",
+  "minItems": 1,
+  "uniqueItems": true,
+  "items": {
+    "$ref": "model.ref.schema.json"
+  }
+}

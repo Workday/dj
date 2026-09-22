@@ -32,6 +32,16 @@ export type SchemaModelTags = (
     }
 )[];
 /**
+ * Additional model names whose ref() edges should be forced in generated SQL via --depends_on comments (for refs hidden from dbt parse, e.g. inside {% if execute %})
+ *
+ * @minItems 1
+ */
+export type SchemaModelDependsOn = [SchemaModelRef, ...SchemaModelRef[]];
+/**
+ * Validate model ids
+ */
+export type SchemaModelRef = string;
+/**
  * Materialization Configuration. The incremental object form accepts `format` (delta_lake | hive | iceberg), `partitions`, `strategy`, `database`, and the physical-layout tuning fields `bucket` and `sorted_by`. DJ translates `bucket` / `sorted_by` into the correct Trino table properties per format: Iceberg emits bucket transforms inside `partitioning` plus a standalone `sorted_by`; Hive / Glue emits `bucketed_by` + `bucket_count` + `sorted_by`; Delta Lake supports neither and DJ flags it.
  */
 export type SchemaModelMaterialization =
@@ -344,10 +354,6 @@ export type SchemaModelSelectExpr =
       type: 'fct';
     };
 /**
- * Validate model ids
- */
-export type SchemaModelRef = string;
-/**
  * Schema when selecting columns from a source
  */
 export type SchemaModelSelectSource =
@@ -412,6 +418,7 @@ export interface SchemaModelTypeStgSelectSource {
   description?: SchemaModelDescription;
   tags?: SchemaModelTags;
   meta?: SchemaModelMeta;
+  depends_on?: SchemaModelDependsOn;
   materialization?: SchemaModelMaterialization;
   materialized?: SchemaModelMaterialized;
   incremental_strategy?: SchemaModelIncrementalStrategyDeprecatedTopLevelField;

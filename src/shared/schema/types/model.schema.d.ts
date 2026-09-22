@@ -47,6 +47,16 @@ export type SchemaModelTags = (
     }
 )[];
 /**
+ * Additional model names whose ref() edges should be forced in generated SQL via --depends_on comments (for refs hidden from dbt parse, e.g. inside {% if execute %})
+ *
+ * @minItems 1
+ */
+export type SchemaModelDependsOn = [SchemaModelRef, ...SchemaModelRef[]];
+/**
+ * Validate model ids
+ */
+export type SchemaModelRef = string;
+/**
  * Materialization Configuration. The incremental object form accepts `format` (delta_lake | hive | iceberg), `partitions`, `strategy`, `database`, and the physical-layout tuning fields `bucket` and `sorted_by`. DJ translates `bucket` / `sorted_by` into the correct Trino table properties per format: Iceberg emits bucket transforms inside `partitioning` plus a standalone `sorted_by`; Hive / Glue emits `bucketed_by` + `bucket_count` + `sorted_by`; Delta Lake supports neither and DJ flags it.
  */
 export type SchemaModelMaterialization =
@@ -358,10 +368,6 @@ export type SchemaModelSelectExpr =
       data_tests?: SchemaColumnDataTests;
       type: 'fct';
     };
-/**
- * Validate model ids
- */
-export type SchemaModelRef = string;
 /**
  * Schema when selecting columns from a source
  */
@@ -904,6 +910,7 @@ export interface SchemaModelTypeStgSelectSource {
   description?: SchemaModelDescription;
   tags?: SchemaModelTags;
   meta?: SchemaModelMeta;
+  depends_on?: SchemaModelDependsOn;
   materialization?: SchemaModelMaterialization;
   materialized?: SchemaModelMaterialized;
   incremental_strategy?: SchemaModelIncrementalStrategyDeprecatedTopLevelField;
@@ -1231,6 +1238,7 @@ export interface SchemaModelTypeStgSelectModel {
   description?: SchemaModelDescription;
   tags?: SchemaModelTags;
   meta?: SchemaModelMeta;
+  depends_on?: SchemaModelDependsOn;
   materialization?: SchemaModelMaterialization;
   materialized?: SchemaModelMaterialized;
   incremental_strategy?: SchemaModelIncrementalStrategyDeprecatedTopLevelField;
@@ -1277,6 +1285,7 @@ export interface SchemaModelTypeStgUnionSources {
   description?: SchemaModelDescription;
   tags?: SchemaModelTags;
   meta?: SchemaModelMeta;
+  depends_on?: SchemaModelDependsOn;
   materialization?: SchemaModelMaterialization;
   materialized?: SchemaModelMaterialized;
   incremental_strategy?: SchemaModelIncrementalStrategyDeprecatedTopLevelField;
@@ -1329,6 +1338,7 @@ export interface SchemaModelTypeIntSelectModel {
   lightdash?: SchemaModelLightdash;
   tags?: SchemaModelTags;
   meta?: SchemaModelMeta;
+  depends_on?: SchemaModelDependsOn;
   data_tests?: SchemaModelDataTests;
   materialization?: SchemaModelMaterialization;
   materialized?: SchemaModelMaterialized;
@@ -1538,6 +1548,7 @@ export interface SchemaModelTypeIntJoinColumn {
   lightdash?: SchemaModelLightdash;
   tags?: SchemaModelTags;
   meta?: SchemaModelMeta;
+  depends_on?: SchemaModelDependsOn;
   data_tests?: SchemaModelDataTests;
   materialization?: SchemaModelMaterialization;
   materialized?: SchemaModelMaterialized;
@@ -1611,6 +1622,7 @@ export interface SchemaModelTypeIntJoinModels {
   lightdash?: SchemaModelLightdash;
   tags?: SchemaModelTags;
   meta?: SchemaModelMeta;
+  depends_on?: SchemaModelDependsOn;
   data_tests?: SchemaModelDataTests;
   materialization?: SchemaModelMaterialization;
   materialized?: SchemaModelMaterialized;
@@ -1679,6 +1691,7 @@ export interface SchemaModelTypeIntLookbackModel {
   lightdash?: SchemaModelLightdash;
   tags?: SchemaModelTags;
   meta?: SchemaModelMeta;
+  depends_on?: SchemaModelDependsOn;
   data_tests?: SchemaModelDataTests;
   materialization?: SchemaModelMaterialization;
   materialized?: SchemaModelMaterialized;
@@ -1741,6 +1754,7 @@ export interface SchemaModelTypeIntRollupModel {
   lightdash?: SchemaModelLightdash;
   tags?: SchemaModelTags;
   meta?: SchemaModelMeta;
+  depends_on?: SchemaModelDependsOn;
   data_tests?: SchemaModelDataTests;
   materialization?: SchemaModelMaterialization;
   materialized?: SchemaModelMaterialized;
@@ -1770,6 +1784,7 @@ export interface SchemaModelTypeIntUnionModels {
   lightdash?: SchemaModelLightdash;
   tags?: SchemaModelTags;
   meta?: SchemaModelMeta;
+  depends_on?: SchemaModelDependsOn;
   data_tests?: SchemaModelDataTests;
   materialization?: SchemaModelMaterialization;
   materialized?: SchemaModelMaterialized;
@@ -1831,6 +1846,7 @@ export interface SchemaModelTypeMartSelectModel {
   lightdash?: SchemaModelLightdash;
   tags?: SchemaModelTags;
   meta?: SchemaModelMeta;
+  depends_on?: SchemaModelDependsOn;
   group_by?: SchemaModelGroupBy;
   exclude_portal_partition_columns?: SchemaModelExcludePortalPartitionColumns;
   exclude_datetime?: SchemaModelExcludeDatetime;
@@ -1881,6 +1897,7 @@ export interface SchemaModelTypeMartJoinModels {
   lightdash?: SchemaModelLightdash;
   tags?: SchemaModelTags;
   meta?: SchemaModelMeta;
+  depends_on?: SchemaModelDependsOn;
   group_by?: SchemaModelGroupBy;
   having?: SchemaModelHaving;
   exclude_portal_partition_columns?: SchemaModelExcludePortalPartitionColumns;
