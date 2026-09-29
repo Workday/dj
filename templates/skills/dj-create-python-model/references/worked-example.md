@@ -4,7 +4,7 @@ A complete `.python.json` for an API-fetch model using the SQL-first pattern.
 
 **Flow:** Extract from Backstage API -> stage raw data into a temporary Trino table -> transform and load via SQL (`DELETE + INSERT INTO ... SELECT`) -> drop staging table.
 
-**Target:** `glue_development.opus_python_source.backstage_catalogs`
+**Target:** `<dev_catalog>.<python_output_schema>.backstage_catalogs`
 
 ```jsonc
 {
@@ -16,8 +16,8 @@ A complete `.python.json` for an API-fetch model using the SQL-first pattern.
   "dags": ["source_etl"],
   "output_type": "iceberg",
   "output": {
-    "database": "glue_development",
-    "schema": "opus_python_source",
+    "database": "<dev_catalog>",
+    "schema": "<python_output_schema>",
     "table": "backstage_catalogs",
     "partition_by": ["portal_partition_daily"],
     "write_mode": "overwrite_partitions"
@@ -118,8 +118,8 @@ A complete `.python.json` for an API-fetch model using the SQL-first pattern.
         "        host=INPUT_VARIABLES.get(\"trino_host\", \"localhost\"),\n",
         "        port=int(INPUT_VARIABLES.get(\"trino_port\", \"8080\")),\n",
         "        user=INPUT_VARIABLES.get(\"trino_user\", \"etl\"),\n",
-        "        catalog=\"glue_development\",\n",
-        "        schema=\"opus_python_source\",\n",
+        "        catalog=\"<dev_catalog>\",\n",
+        "        schema=\"<python_output_schema>\",\n",
         "    )\n"
       ]
     },
@@ -162,12 +162,12 @@ A complete `.python.json` for an API-fetch model using the SQL-first pattern.
         "    cursor = conn.cursor()\n",
         "    staging_table = \"stg_tmp_backstage_catalogs\"\n",
         "\n",
-        "    cursor.execute(f\"DROP TABLE IF EXISTS glue_development.opus_python_source.{staging_table}\")\n",
+        "    cursor.execute(f\"DROP TABLE IF EXISTS <dev_catalog>.<python_output_schema>.{staging_table}\")\n",
         "\n",
         "    columns = df.columns.tolist()\n",
         "    col_defs = \", \".join(f\"{c} VARCHAR\" for c in columns)\n",
         "    cursor.execute(\n",
-        "        f\"CREATE TABLE glue_development.opus_python_source.{staging_table} ({col_defs})\"\n",
+        "        f\"CREATE TABLE <dev_catalog>.<python_output_schema>.{staging_table} ({col_defs})\"\n",
         "    )\n",
         "\n",
         "    batch_size = 1000\n",
@@ -179,7 +179,7 @@ A complete `.python.json` for an API-fetch model using the SQL-first pattern.
         "                             for v in row)\n",
         "            values_list.append(f\"({vals})\")\n",
         "        cursor.execute(\n",
-        "            f\"INSERT INTO glue_development.opus_python_source.{staging_table} \"\n",
+        "            f\"INSERT INTO <dev_catalog>.<python_output_schema>.{staging_table} \"\n",
         "            f\"VALUES {', '.join(values_list)}\"\n",
         "        )\n",
         "\n",
@@ -200,8 +200,8 @@ A complete `.python.json` for an API-fetch model using the SQL-first pattern.
         "    conn = get_trino_conn()\n",
         "    cursor = conn.cursor()\n",
         "    ds = context[\"ds\"]\n",
-        "    target = \"glue_development.opus_python_source.backstage_catalogs\"\n",
-        "    staging = \"glue_development.opus_python_source.stg_tmp_backstage_catalogs\"\n",
+        "    target = \"<dev_catalog>.<python_output_schema>.backstage_catalogs\"\n",
+        "    staging = \"<dev_catalog>.<python_output_schema>.stg_tmp_backstage_catalogs\"\n",
         "\n",
         "    cursor.execute(f\"\"\"\n",
         "        CREATE TABLE IF NOT EXISTS {target} (\n",
@@ -250,7 +250,7 @@ A complete `.python.json` for an API-fetch model using the SQL-first pattern.
         "    conn = get_trino_conn()\n",
         "    cursor = conn.cursor()\n",
         "    staging_table = \"stg_tmp_backstage_catalogs\"\n",
-        "    cursor.execute(f\"DROP TABLE IF EXISTS glue_development.opus_python_source.{staging_table}\")\n",
+        "    cursor.execute(f\"DROP TABLE IF EXISTS <dev_catalog>.<python_output_schema>.{staging_table}\")\n",
         "    log.info(f\"Dropped staging table: {staging_table}\")\n"
       ]
     },

@@ -1,71 +1,103 @@
 ---
 name: dj-migrate-notebook-to-pymodel
 description: >-
-  Migrate a legacy Jupyter notebook (.ipynb) into a DJ python model. Reads the
-  notebook, classifies cells into extract/transform/load/exploratory, flags
-  hardcoded secrets and non-deterministic code, applies the SQL-first decision
-  tree, and produces a migration plan report for the user to approve before
-  any .python.json is scaffolded. Use when the user wants to migrate, port, or
-  convert an existing notebook/.ipynb into a python model. Not for scaffolding
-  a python model from scratch (-> dj-create-python-model), verifying old vs.
-  new table parity after migration (-> dj-verify-pymodel-parity), or auditing
-  an existing python model (-> dj-review-python-model).
+  Migrate a legacy Jupyter notebook (.ipynb) or Python ETL script (.py) into a
+  DJ python model. Phase A analyzes the source, classifies extract/transform/load
+  stages, flags secrets and non-determinism, applies the SQL-first decision tree,
+  and produces a migration plan for approval. Phase B authors the model or hands
+  off to dj-create-python-model. Use when migrating, porting, or converting a
+  notebook or legacy script into dags/python_models. Not for greenfield models
+  (-> dj-create-python-model), parity checks (-> dj-verify-pymodel-parity), or
+  audits (-> dj-review-python-model).
 compatibility: DJ (Data JSON) Framework extension workspace with .dj/schemas/ and dags/python_models/
 metadata:
   dj-skill: '1.0'
 ---
 
-# Migrate Notebook to DJ Python Model
+# Migrate Notebook / Legacy ETL → DJ Python Model
 
-**Goal:** turn a legacy Jupyter notebook (`.ipynb`) that runs an ETL job into a DJ python model — a JSON-defined pipeline that extracts data from external sources and loads it into Iceberg tables for downstream dbt models to consume. This is a **two-phase** skill: Phase A analyzes the notebook and produces a migration plan for the user to review; Phase B (only after approval) scaffolds the actual `.python.json`.
+**Goal:** turn a legacy **`.ipynb`** or **`.py`** ETL into a DJ python model under `dags/python_models/<group>/<topic>/`.
 
-**SQL-first principle carries over from the target framework:** wherever a notebook cell's pandas transform can be expressed as Trino SQL, the migration plan proposes SQL instead of carrying pandas logic forward. Python is for orchestration and external ingestion; Trino is for transformation and storage.
+| Phase | What happens |
+| ----- | ------------ |
+| **A — Analyze** | Read-only inventory + migration plan. **Stop for user approval.** |
+| **B — Build** | After approval, author the model or hand off to `dj-create-python-model`. |
+
+**SQL-first:** Prefer Trino SQL for transforms and loads. Use Python only for true external extract (API, CSV, S3, Jenkins) that cannot be queried in Trino.
 
 ## When this skill applies
 
-Use this skill when the user mentions: migrate a notebook, convert a notebook, port a notebook, turn this `.ipynb` into a python model, or asks to bring a legacy/manual notebook pipeline into the framework.
+Use when the user mentions: migrate/convert/port a notebook, convert an existing `.py` ETL, legacy script → python model, or attaches a `.py`/`.ipynb` to turn into a python model.
 
-**Out of scope** — delegate to sibling skills:
+**Out of scope** — delegate:
 
-- Building the final `.python.json` once the plan is approved → **`dj-create-python-model`** (Phase B below hands off to it)
-- Verifying the migrated model's output table matches the old notebook's output table → **`dj-verify-pymodel-parity`**
-- Auditing a python model for production readiness after migration → **`dj-review-python-model`**
+| Need | Skill |
+| ---- | ----- |
+| Greenfield python model (no legacy file) | `dj-create-python-model` |
+| Verify old vs new **data** after migration | `dj-verify-pymodel-parity` |
+| Audit code for production readiness | `dj-review-python-model` |
+| Topic README / lineage docs | `dj-document-pymodels` |
+| SQL `.model.json` / sources | `dj-create-new-model` / `dj-create-source` |
 
-## Phase A — Analyze (read-only, always runs first)
+## Step 0 — Resolve project defaults (before Phase A)
 
-- [ ] **1. Read the notebook.** Parse the `.ipynb` JSON. Walk `cells` in order, keeping `cell_type` (`code`/`markdown`), `source`, and any `outputs`.
-- [ ] **2. Strip notebook-only output.** Never read or echo back the contents of a cell's `outputs` array in the migration report — it may contain stale data, PII, or credentials from a prior run. Analyze `source` only.
-- [ ] **3. Classify every code cell** into one stage:
-  - **Extract** — reads from an external source (`requests.get`, a DB/Trino client, `pd.read_csv`, `boto3` S3 calls).
-  - **Transform** — pandas/DataFrame manipulation (filter, merge, groupby, reshape, type conversion).
-  - **Load** — writes the result somewhere (`df.to_sql`, `df.to_parquet`, `df.to_csv` to a shared location, a DB `INSERT`).
-  - **Exploratory/drop** — plotting (`matplotlib`, `seaborn`, `plotly`), `display()`/`print()`-only cells, interactive widgets, ad-hoc `df.head()`/`df.describe()` checks, commented-out scratch code. These are dropped from the migration — record each with a one-line reason.
-- [ ] **4. Flag magic commands.** `%%time`, `!pip install ...`, `%matplotlib inline`, `%%bash`, etc. have no notebook-model equivalent — list them as dropped, and if a `!pip install` reveals a runtime dependency, carry that package name forward into the plan's dependency list instead of the magic itself.
-- [ ] **5. Flag hardcoded secrets.** Scan every cell for API keys, tokens, passwords, or connection strings (literal strings assigned to variables named/matching `key`, `token`, `secret`, `password`, `conn(ection)?_string`, or high-entropy literals passed to auth headers/params). **Never carry a found secret into the plan or the eventual model** — call it out explicitly and state it must move to environment variables or the project's secret manager before the model can run.
-- [ ] **6. Identify source type and destination.** From the extract/load cells, determine the source type (REST API, DB/Trino, CSV/file, S3) and the destination (what table or path is written, and in what mode — append vs. overwrite/replace).
-- [ ] **7. Apply the SQL-first decision tree** (from `dj-create-python-model`) to every transform cell:
+1. Read `.agents/project/skills/dj-migrate-notebook-to-pymodel/project-defaults.md` if it exists.
+2. Read `.agents/project/skills/dj-create-python-model/project-defaults.md` for shared catalog/schema/authoring defaults.
+3. Read any sibling files in those folders linked from the defaults (e.g. `trino-dialect-cheatsheet.md`).
+4. If missing, discover from the repo: existing models under `dags/python_models/`, python-source `.source.json` files, `dbt_project.yml` vars, `dj.*` settings.
+5. State resolved defaults in the migration plan before proposing identity fields.
+6. Never assume org-specific catalog, schema, or DAG names without confirmation.
 
-  | If the pandas op is... | Propose |
-  | --- | --- |
-  | Filtering / boolean masking | Trino `WHERE` |
-  | Column rename / select subset | Trino column aliasing / `SELECT` list |
-  | `.astype(...)` type conversion | Trino `CAST(... AS type)` |
-  | `.drop_duplicates()` | Trino `ROW_NUMBER()` dedup |
-  | `.groupby().agg(...)` | Trino `GROUP BY` |
-  | `pd.merge` / `.join()` | Trino `JOIN` |
-  | Nested JSON flattening (`pd.json_normalize`, dict/list unpacking) | Stays pandas (SQL can't easily express this) |
-  | API pagination / response parsing | Stays pandas |
-  | ML preprocessing (`sklearn`, embeddings, etc.) | Stays pandas |
+## Authoring shape — match the workspace
 
-  Record each transform cell's verdict (→ SQL or stays pandas) with the proposed SQL/pandas equivalent.
+Before Phase B, inspect existing models under `dags/python_models/` and follow **that** layout:
 
-- [ ] **8. Flag non-determinism / order dependence.** Look for: cells that reference variables only defined by running an earlier cell out of its written order, global mutable state mutated across cells, `datetime.now()`/`random`/`np.random` without a fixed seed or an explicit `context["ds"]`-derived date. Each is a migration risk — the DJ model must be safely re-runnable for a given `ds`.
-- [ ] **9. Render the migration plan report** (template below) and stop — do not proceed to Phase B until the user approves it or asks for changes.
+| Workspace pattern | What Phase B produces |
+| ----------------- | --------------------- |
+| **Hand-written `.python.py`** (metadata-only `.python.json` + `def run_etl`) | Write `.python.json` **and** `.python.py`; mirror sibling models |
+| **`cells` array in `.python.json`** (DJ-scaffolded `.python.py`) | Hand off to **`dj-create-python-model`** with answers pre-filled — do not invent a different `cells` structure |
+
+### Production contract (either pattern)
+
+- **Required for Airflow:** `def run_etl(context)` (discovery scans for `def run_etl(`).
+- Only `run_etl(context)` is required — do not require public `extract` / `transform_and_load` / `cleanup` unless sibling models in the topic already use them.
+- Output catalog/schema: from project defaults (Step 0) — validate against existing models and source registrations.
+- DAG ids: must exist under `dags/`.
+- Helper APIs: use `execute_sql` / `fetch_value` / `overwrite_partition` from `_trino_io` — not outdated aliases (`execute_trino`, inline `trino.dbapi.connect`).
+
+---
+
+## Phase A — Analyze (read-only, always first)
+
+- [ ] **1. Obtain the legacy file** (path, upload, or paste). Support **`.ipynb` and `.py`**.
+- [ ] **2. Inventory the source**
+  - **Notebook:** parse `.ipynb` JSON; walk `cells` in order (`cell_type`, `source`). **Never** read/echo `outputs` (may contain PII/secrets/stale data).
+  - **Script:** read the `.py` top-to-bottom; treat functions/blocks like cells for classification.
+- [ ] **3. Classify every code unit** into: **Extract** / **Transform** / **Load** / **Exploratory-drop** (plotting, `display`/`head`/`describe`, widgets, scratch).
+- [ ] **4. Flag magic commands** (`%%time`, `!pip install`, `%matplotlib`, `%%bash`, …). Drop them; if `!pip install` reveals a package, carry the package name into dependencies.
+- [ ] **5. Flag hardcoded secrets** (keys/tokens/passwords/conn strings). **Never** copy secrets into the plan or model — require env / secret manager.
+- [ ] **6. SQL discovery** — see below (apply project-specific rules from Step 0 when present).
+- [ ] **7. Identify source type + destination** (REST, Trino/DB, CSV, S3, Jenkins) and write mode (append vs overwrite/partition).
+- [ ] **8. Apply SQL-first mapping** to every transform. Use [references/notebook-pattern-mapping.md](references/notebook-pattern-mapping.md) and the decision tree from `dj-create-python-model`.
+- [ ] **9. Flag non-determinism / order dependence** (`datetime.now()` without `context["ds"]`, unseeded random, out-of-order deps, global mutable state).
+- [ ] **10. Propose DJ identity** (`name`, `group`, `topic`, `dags`, `output.table`, `upstream_sources`, `depends_on`, authoring shape).
+- [ ] **11. Render the migration plan** (template below) and **stop** until the user approves or requests edits.
+- [ ] **12. Wait for approval** (or edit + re-render). **Do not scaffold files before this.**
+
+### SQL discovery (priority order)
+
+**Commented SQL may be outdated.** Prefer live, authoritative query text over stale comments (project defaults may name specific legacy sources to handle).
+
+1. **Live saved query / external SQL authority** — when the legacy code references a saved-query ID or external SQL store, **stop** and ask the user for the **current** query text. Do not invent or wrap blindly.
+2. **Inline executable SQL** in the **active** (non-commented) code path.
+3. **Commented / “old” SQL** — optional aid only; **confirm with the user** before porting. Never prefer over a live query reference without confirmation.
+
+After SQL text exists: map tables → Trino availability → extract strategy (SQL-first vs Python extract). Apply dialect rewrites from project `trino-dialect-cheatsheet.md` when linked.
 
 ### Migration plan report template
 
 ```text
-## Notebook Migration Plan: <notebook file name>
+## Notebook / ETL Migration Plan: <file name>
 
 ### Proposed identity (confirm with user)
 | Field | Proposed | Notes |
@@ -73,60 +105,95 @@ Use this skill when the user mentions: migrate a notebook, convert a notebook, p
 | name  | <name>   | ^[a-z][a-z0-9_]*$ |
 | group | <group>  | |
 | topic | <topic>  | |
+| dags  | <dag_id> | must exist under dags/ |
+| output.table | <table> | Iceberg under <schema from Step 0> |
+| upstream_sources | <catalog.schema.table, …> | tables this model reads |
+| authoring shape | hand-written .py / cells→create | from workspace inspection |
 
 ### Source & destination
-- Source type: <REST API / DB / CSV / S3 / custom>
+- Source type: <REST / Trino / CSV / S3 / Jenkins / custom>
+- SQL authority: <live paste / inline / commented+confirmed / n/a>
 - Extract pattern: <one line>
-- Destination: <table/path>, write mode: <append/overwrite/replace inferred from notebook>
+- Destination: <table>, write mode: <append / overwrite_partitions / …>
 
-### Cell classification
-| Cell # | Stage | Summary | Disposition |
-|--------|-------|---------|-------------|
-| 1 | markdown | ... | keep as narrative |
-| 2 | extract | fetches X via requests.get | migrate to extract() |
-| 3 | exploratory | df.head() sanity check | drop — exploratory only |
-| ... | | | |
+### Cell / block classification
+| # | Stage | Summary | Disposition |
+|---|-------|---------|-------------|
+| 1 | extract | … | migrate |
+| 2 | exploratory | df.head() | drop |
 
-### Dropped cells (with reason)
-- Cell #<n>: <reason — plotting / display-only / magic command / exploratory>
+### Dropped (with reason)
+- …
 
-### Magic commands found
-- `<magic>` in cell #<n> — dropped; <if it revealed a dependency, note it here>
+### Magic commands / secrets / non-determinism
+- …
 
 ### Pandas → SQL mapping
-| Cell # | Pandas operation | Proposal |
-|--------|-------------------|----------|
-| 4 | `df.groupby("id").sum()` | Trino `GROUP BY id` |
-| 5 | `pd.json_normalize(resp["items"])` | stays pandas (nested JSON) |
+| # | Operation | Proposal |
+|---|-----------|----------|
+| … | … | Trino … / stays pandas |
 
-### Flagged secrets — MUST resolve before migration
-- Cell #<n>: `<variable name>` looks like a hardcoded <credential type>. Move to env var / secret manager; do not carry into the new model.
-
-### Non-determinism / order-dependence risks
-- Cell #<n>: <description of risk and why it blocks safe re-runs>
+### Date / incremental / backfill (proposed)
+- Incremental: <watermark column + context["ds"]>
+- Backfill: <context["dates"] / topic dates_in — or open question>
+- Do not invent ad-hoc from_date/to_date unless productized
 
 ### Open questions for the user
-- <e.g., "Cell 6 writes to `s3://bucket/path` in append mode with no idempotency key — should the migrated model dedupe by run date?">
+- …
 ```
 
-- [ ] **10. Wait for the user to approve the plan, or apply requested edits and re-render.** Do not scaffold anything until this happens.
+---
 
-## Phase B — Build (only after the user approves the plan)
+## Phase B — Build (only after approval)
 
-- [ ] **11. Hand off to `dj-create-python-model`.** Walk that skill's interactive gathering workflow (identity, DAG assignment, source type, transformation needs, output configuration, dependencies), but pre-fill every answer from the approved Phase A plan instead of asking the user again — only ask what the plan left open (see "Open questions").
-- [ ] **12. Use `dj-create-python-model`'s ETL cell structure and `_trino_io` helpers** for the generated `cells` array. Do not invent a different structure — this guarantees the output is schema-correct and consistent with hand-authored models.
-- [ ] **13. After the `.python.json` is written**, tell the user the notebook can be retired once the model is verified — suggest running **`dj-verify-pymodel-parity`** against the old notebook's output table and the new model's output table before deleting the notebook.
+### B1. Choose path from workspace shape
+
+**If hand-written `.python.py` models are the norm** (from Step 0 or sibling inspection):
+
+1. Write `dags/python_models/<group>/<topic>/<name>.python.json` (metadata: `name`, `group`, `topic`, `dags`, `depends_on`, `tags`, `output`, `upstream_sources`, optional `variables`).
+2. Write companion `<name>.python.py` with imports from `python_models._trino_io`, `_config`, and any topic helpers; `OUTPUT_CONFIG`; explicit-column SQL (no `SELECT *` into production Iceberg); **`def run_etl(context):`**.
+3. Ensure `__init__.py` under `<group>/` and `<topic>/` if imports need them.
+4. Mirror patterns in existing topic models.
+
+**If the project uses `cells` in `.python.json`:**
+
+1. Hand off to **`dj-create-python-model`**.
+2. Pre-fill identity / DAG / source / transforms / output from the approved plan; only ask open questions.
+3. Do not invent a different `cells` structure than that skill defines.
+
+### B2. Date / incremental / backfill
+
+| Mode | Mechanism |
+| ---- | --------- |
+| Incremental (default) | Watermark from target + `context["ds"]` as load/partition date |
+| Backfill | `context["dates"]` from Airflow topic `dates_in` when the project uses it |
+| Avoid | Undocumented `from_date` / `to_date` context keys |
+
+Write the project partition column (default `portal_partition_daily`) for partition overwrite loads.
+
+### B3. Downstream checklist
+
+1. Register output in the project's python-source `.source.json` (path from Step 0) or ask the user to.
+2. Suggest **`dj-verify-pymodel-parity`** vs the legacy output table before retiring the notebook/script.
+3. Suggest **`dj-review-python-model`** for production readiness.
+4. Suggest **`dj-document-pymodels`** when the topic has multiple models.
+
+---
 
 ## Hard rules (DO NOT)
 
-- **DO NOT** scaffold or write any `.python.json` before the user has approved the Phase A plan.
-- **DO NOT** echo a notebook cell's `outputs` array contents into the migration report — analyze `source` only.
-- **DO NOT** carry a hardcoded secret found in the notebook into the new model, the plan report, or any generated code — flag it and stop short of reproducing it.
-- **DO NOT** default risky ambiguous behavior (e.g., unclear write mode, unclear idempotency) silently — list it under "Open questions" and ask.
-- **DO NOT** invent a different `.python.json` structure from what `dj-create-python-model` defines — Phase B must produce output that skill would also produce.
+- **DO NOT** write `.python.json` / `.python.py` before the user approves the Phase A plan.
+- **DO NOT** echo notebook `outputs` into the report — analyze `source` only.
+- **DO NOT** carry hardcoded secrets into the plan, model, or generated code.
+- **DO NOT** treat commented SQL as authoritative when a live query reference exists without confirmation.
+- **DO NOT** use outdated helper names (`execute_trino`, inline `trino.dbapi.connect`).
+- **DO NOT** invent DAG ids — validate against `dags/`.
+- **DO NOT** default ambiguous write mode / idempotency silently — list under Open questions.
+- **DO NOT** leave legacy DB `to_sql` / non-Trino load paths when the source is already in Trino.
+- **DO NOT** invent a `cells` structure different from `dj-create-python-model` when using that path.
 
 ## Reference
 
-For common notebook idiom → DJ/Trino equivalent mappings, see [references/notebook-pattern-mapping.md](references/notebook-pattern-mapping.md).
-
-For the full python model conventions this skill hands off to (ETL cell structure, `_trino_io` DML helpers, output config defaults, write-mode selection), see the **`dj-create-python-model`** skill — read it before Phase B.
+- [references/notebook-pattern-mapping.md](references/notebook-pattern-mapping.md) — notebook idioms → DJ/Trino
+- **`dj-create-python-model`** — ETL structure, output defaults, `_trino_io` helpers (read before Phase B)
+- Siblings: `dj-verify-pymodel-parity`, `dj-review-python-model`, `dj-document-pymodels`
