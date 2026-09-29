@@ -1,11 +1,13 @@
 # Change Log
 
-## 2.3.0
+## 2.3.1
 
 ### Agent skills
 
 - **Python-model skills read per-project defaults.** `dj-create-python-model`, `dj-review-python-model`, and `dj-migrate-notebook-to-pymodel` start with Step 0: load `.agents/project/skills/<skill-name>/project-defaults.md` (project-owned; DJ Refresh never overwrites). Copy starters from `templates/_agents-project/skills/*/project-defaults.example.md`. See `docs/AGENT_SKILLS_PROJECT_GUIDELINES.md`.
-- **Migrate skill supports legacy `.py` ETL scripts** as well as `.ipynb`, with workspace-aware hand-written vs `cells` authoring. Org-specific catalog, schema, and Portal/SQL rules belong in project defaults, not forked `dj-*` skills.
+- **Migrate skill supports legacy `.py` ETL scripts** as well as `.ipynb`, with workspace-aware hand-written vs `cells` authoring.
+
+## 2.3.0
 
 ### Framework
 
