@@ -30,6 +30,14 @@ DJ then writes, at your workspace root:
 
 Point your AI coding tool at the workspace and the skills become available. Most skills also rely on the `.dj/schemas/` directory (the JSON schemas DJ maintains in every workspace) for exact model shapes.
 
+### Project defaults (python-model skills)
+
+Python-model skills (`dj-create-python-model`, `dj-review-python-model`, `dj-migrate-notebook-to-pymodel`) read **Step 0** project files before proposing catalogs, schemas, or migration rules:
+
+`.agents/project/skills/<skill-name>/project-defaults.md`
+
+DJ never overwrites `.agents/project/`. Starters live in the DJ repo at `templates/_agents-project/skills/*/project-defaults.example.md`. See [Agent skills — project defaults](AGENT_SKILLS_PROJECT_GUIDELINES.md) for the full layering model.
+
 > Legacy string values (`"github-copilot"`, `"claude-code"`, `"cline"`) are still accepted but deprecated — skills are now agent-agnostic. For details, see [AI & Coding Agents](SETTINGS.md#ai--coding-agents) in the Settings reference.
 
 ## How skills work
@@ -97,7 +105,7 @@ Scaffolds a `.python.json` for a pre-dbt Python ETL pipeline that extracts data 
 
 #### `dj-migrate-notebook-to-pymodel`
 
-Migrates a legacy Jupyter notebook (`.ipynb`) into a python model. Classifies each cell into extract/transform/load/exploratory, flags hardcoded secrets and non-deterministic code, applies the SQL-first decision tree to every pandas transform, and produces a migration plan report for you to approve before it hands off to `dj-create-python-model` to scaffold the actual `.python.json`.
+Migrates a legacy Jupyter notebook (`.ipynb`) or Python ETL script (`.py`) into a python model. Classifies each cell or code block into extract/transform/load/exploratory, flags hardcoded secrets and non-deterministic code, applies the SQL-first decision tree, and produces a migration plan for approval before authoring hand-written `.python.py` files or handing off to `dj-create-python-model`.
 
 - **Use when:** you want to migrate, port, or convert an existing notebook into a python model.
 - **Example prompt:** _"Migrate this notebook into a python model."_

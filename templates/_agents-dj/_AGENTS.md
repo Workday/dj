@@ -27,6 +27,7 @@ Follow the **always-relevant** rules below — project structure, naming, struct
 | Run a read-only Trino query to inspect data or schema — CLI resolution, connection env, invocation                                        | [reference/running-trino.md](reference/running-trino.md)                     |
 | Run the Lightdash CLI (start-preview / download / upload) — connection env, settings, guardrails                                          | [reference/running-lightdash.md](reference/running-lightdash.md)             |
 | Commit, branch, or stage DJ work in git — what to commit, what to ignore, commit hygiene                                                  | [reference/git-workflow.md](reference/git-workflow.md)                       |
+| Customize python-model agent skills (catalog, schema, migration rules)                                                                  | `.agents/project/skills/<skill-name>/project-defaults.md` (project-owned; DJ never overwrites) |
 
 ---
 
