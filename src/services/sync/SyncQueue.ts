@@ -67,6 +67,9 @@ export class SyncQueue {
   private coalescingTimer: NodeJS.Timeout | null = null;
   private coalescingStartedAt: number | null = null;
 
+  private lastSyncResult: SyncResult | undefined;
+  private idleWaiters: Array<(result: SyncResult | undefined) => void> = [];
+
   constructor(
     private readonly onRunSync: (roots?: SyncRoot[]) => Promise<SyncResult>,
     private readonly onStatusChange: (text: string, spinning: boolean) => void,
@@ -199,6 +202,46 @@ export class SyncQueue {
   }
 
   /**
+   * Resolves when the queue is idle (no running sync, no pending roots, no
+   * coalescing timer). Used by the CLI bridge to await JSON→SQL/YML generation.
+   */
+  waitForIdle(timeoutMs = 120_000): Promise<SyncResult | undefined> {
+    if (
+      this.state === 'idle' &&
+      !this.fullSyncPending &&
+      this.pendingRoots.size === 0 &&
+      this.coalescingTimer === null
+    ) {
+      return Promise.resolve(this.lastSyncResult);
+    }
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error('Timed out waiting for DJ sync to finish'));
+      }, timeoutMs);
+      this.idleWaiters.push((result) => {
+        clearTimeout(timer);
+        resolve(result);
+      });
+    });
+  }
+
+  private resolveIdleWaiters(): void {
+    if (
+      this.state !== 'idle' ||
+      this.fullSyncPending ||
+      this.pendingRoots.size > 0 ||
+      this.coalescingTimer !== null
+    ) {
+      return;
+    }
+    const waiters = this.idleWaiters.splice(0);
+    const result = this.lastSyncResult;
+    for (const resolve of waiters) {
+      resolve(result);
+    }
+  }
+
+  /**
    * Schedule processNext with a coalescing delay. Each call resets the
    * delay so rapid-fire enqueues batch into one sync. If a sync is already
    * running, new items simply accumulate and will be picked up when the
@@ -296,6 +339,7 @@ export class SyncQueue {
       );
 
       const result = await this.onRunSync(roots);
+      this.lastSyncResult = result;
 
       this.log.info(
         `SyncQueue: Sync finished — success=${result.success}, renames=${result.renames.length}, errors=${result.errors.length}, pendingAfter=${this.pendingRoots.size}, fullSyncPending=${this.fullSyncPending}`,
@@ -347,6 +391,7 @@ export class SyncQueue {
     this.onStatusChange('DJ Sync: Idle', false);
     // Prune expired entries from managedOps to prevent unbounded growth.
     this.pruneExpiredOps();
+    this.resolveIdleWaiters();
   }
 
   /** Remove managedOps entries older than SUPPRESS_WINDOW_MS. */

@@ -22,9 +22,9 @@ Essentials:
 1. **Activate the venv first.** A terminal does not inherit DJ's Python environment. Resolve `dj.pythonVenvPath` from `.vscode/settings.json` (fall back to `.venv`), `source <venv>/bin/activate`, and verify `dbt --version`.
 2. **Run from the dbt project directory** (the one with `dbt_project.yml`), not necessarily the workspace root. If more than one project exists, confirm which one.
 3. **Sync before compiling.** dbt reads the generated `.sql`, not the `.model.json`. After a JSON edit, ask the user to run `DJ: Sync to SQL and YML` first.
-4. **Read-only by default.** `parse` / `compile` / `ls` / `deps` / `docs generate` / `test` are safe. `run` / `build` / `seed` / `snapshot` / `run-operation` write to the warehouse — get explicit per-command confirmation and never target production. See **Command & Query Execution Safety** in `.agents/dj/AGENTS.md`.
+4. **Read-only by default.** `parse` / `compile` / `ls` / `deps` / `docs generate` / `test` are safe. `run` / `build` / `seed` / `snapshot` / `run-operation` write to the warehouse — ask **“Run dbt.run for [scope] in dev? (Yes/No)”** and proceed only on **Yes**; never target production. See **Command & Query Execution Safety** in `.agents/dj/AGENTS.md`.
 
 ## DJ CLI (preferred when DJ is running)
 
-When `.dj/bin/dj system.ping` succeeds, use: `dbt.compile`, `dbt.parse`, `dbt.run`, `dbt.compile-logs` instead of raw `dbt` CLI.
+When `.dj/bin/dj system.ping` succeeds, use: `dbt.compile`, `dbt.parse`, `dbt.run`, `dbt.compile-logs`, `dbt.modified-models`, `dbt.compiled-status`, `dbt.model-outdated` instead of raw `dbt` CLI where equivalent.
 The bridge routes through the extension's configured Python venv. Invocation patterns and fallbacks → `dj-cli`. Full skill/CLI routing → `dj-cli-registry`.

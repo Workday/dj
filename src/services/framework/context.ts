@@ -139,6 +139,10 @@ export class FrameworkContext {
     return this.frameworkInstance.isSyncing();
   }
 
+  waitForSyncIdle(timeoutMs?: number) {
+    return this.frameworkInstance.waitForSyncIdle(timeoutMs);
+  }
+
   /**
    * Generate model files (SQL, YAML) from model.json
    */

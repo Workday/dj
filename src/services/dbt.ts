@@ -55,6 +55,10 @@ import {
   getDbtModelId,
   getDbtProjectProperties,
 } from '@shared/dbt/utils';
+import {
+  buildModelSummariesForProject,
+  matchesModelSearchFilters,
+} from '@shared/dbt/modelCatalogSearch';
 import { PARTITION_DAILY } from '@shared/framework/constants';
 import type { FrameworkSchemaBase } from '@shared/framework/types';
 import type { TreeData, TreeItem } from 'admin';
@@ -363,6 +367,22 @@ export class Dbt implements ApiEnabledService<'dbt'> {
           }
           return apiResponse<typeof payload.type>(models);
         }
+        case 'dbt-search-models': {
+          const { projectName, ...filters } = payload.request;
+          const project = this.projects.get(projectName);
+          if (!project) {
+            throw new Error('Project not found');
+          }
+          const summaries = buildModelSummariesForProject(
+            this.models.values(),
+            project.pathSystem,
+          );
+          const matched = summaries.filter((s) =>
+            matchesModelSearchFilters(s, filters),
+          );
+          matched.sort((a, b) => a.name.localeCompare(b.name));
+          return apiResponse<typeof payload.type>(matched);
+        }
         case 'dbt-get-model-info': {
           // Get information about the currently active model
           const activeEditor = vscode.window.activeTextEditor;
@@ -453,8 +473,14 @@ export class Dbt implements ApiEnabledService<'dbt'> {
         }
         case 'dbt-compile-with-logs': {
           try {
-            const { modelName, projectName } = payload.request;
-            await this.compileModelWithLogs(modelName, projectName);
+            const { projectName, modelName, select } = payload.request;
+            const selector = select ?? modelName;
+            if (!selector) {
+              throw new Error(
+                'dbt.compile requires modelName or select in the request',
+              );
+            }
+            await this.compileModelWithLogs(selector, projectName);
             return apiResponse<typeof payload.type>({ success: true });
           } catch (error: unknown) {
             this.log.error('Error compiling model with logs:', error);
@@ -463,11 +489,20 @@ export class Dbt implements ApiEnabledService<'dbt'> {
         }
         case 'dbt-model-compile': {
           try {
-            const { modelName, projectName } = payload.request;
-            await this.compileModel(modelName, projectName);
+            const { projectName, modelName, select } = payload.request;
+            const selector = select ?? modelName;
+            if (!selector) {
+              throw new Error(
+                'dbt.compile requires modelName or select in the request',
+              );
+            }
+            await this.compileModel(selector, projectName);
+            const label = select
+              ? `selector "${select}"`
+              : `model ${modelName}`;
             return apiResponse<typeof payload.type>({
               success: true,
-              message: `Model ${modelName} compiled successfully`,
+              message: `${label} compiled successfully`,
             });
           } catch (error: unknown) {
             this.log.error('Error compiling model:', error);
@@ -2520,10 +2555,10 @@ ${macro.macro_sql}`;
   }
 
   /**
-   * Compile a specific model
+   * Compile one or more models via dbt --select (selector is model name or raw dbt selector).
    */
   private async compileModel(
-    modelName: string,
+    selector: string,
     projectName: string,
   ): Promise<void> {
     const project = this.projects.get(projectName);
@@ -2531,19 +2566,36 @@ ${macro.macro_sql}`;
       throw new Error(`Project ${projectName} not found`);
     }
 
-    return new Promise((resolve) => {
-      const terminal = vscode.window.createTerminal({
+    return new Promise((resolve, reject) => {
+      const args = ['compile', '--select', selector];
+      this.log.info(`Executing: dbt ${args.join(' ')}`);
+      const env = buildProcessEnv();
+      const childProcess = safeSpawn('dbt', args, {
         cwd: project.pathSystem,
-        name: 'Compile Model',
-        hideFromUser: false,
+        env,
+        shell: false,
       });
 
-      terminal.show();
-      terminal.sendText(`dbt compile --select "${modelName}"`);
+      let stderr = '';
+      childProcess.stderr?.on('data', (data: Buffer) => {
+        stderr += data.toString();
+      });
 
-      setTimeout(() => {
-        resolve();
-      }, 1000);
+      childProcess.on('close', (code) => {
+        if (code === 0) {
+          resolve();
+          return;
+        }
+        reject(
+          new Error(
+            `dbt compile failed (exit ${code})${stderr ? `: ${stderr.trim()}` : ''}`,
+          ),
+        );
+      });
+
+      childProcess.on('error', (err) => {
+        reject(err);
+      });
     });
   }
 
@@ -2551,7 +2603,7 @@ ${macro.macro_sql}`;
    * Compile a model and stream logs to the webview
    */
   private async compileModelWithLogs(
-    modelName: string,
+    selector: string,
     projectName: string,
   ): Promise<void> {
     const project = this.projects.get(projectName);
@@ -2564,7 +2616,7 @@ ${macro.macro_sql}`;
     }
 
     return new Promise((resolve, reject) => {
-      const args = ['compile', '--select', modelName];
+      const args = ['compile', '--select', selector];
 
       this.log.info(`Executing: dbt ${args.join(' ')}`);
 
@@ -2652,7 +2704,7 @@ ${macro.macro_sql}`;
             this.webviewView.webview.postMessage({
               type: 'compilation-complete',
               success,
-              modelName,
+              modelName: selector,
               projectName,
             });
           }
@@ -2694,7 +2746,7 @@ ${macro.macro_sql}`;
           this.webviewView.webview.postMessage({
             type: 'compilation-complete',
             success: false,
-            modelName,
+            modelName: selector,
             projectName,
           });
         }

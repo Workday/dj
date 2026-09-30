@@ -14,6 +14,7 @@
 
 import {
   collectModelMetaLintWarnings,
+  frameworkBuildColumns,
   frameworkBuildCteColumnRegistry,
   frameworkGenerateModelOutput,
   frameworkGetModelName,
@@ -28,6 +29,7 @@ import {
   validateMainModelAggregation,
   validateMaterializationPartitionsExist,
   validatePartitionStrategyWithoutPartitions,
+  validateRollupOutputColumns,
 } from '@services/modelValidation';
 import { jsonParse } from '@shared';
 import type { DbtProject } from '@shared/dbt/types';
@@ -155,6 +157,22 @@ export class ModelProcessor {
         this.config.logger.warn?.(`${modelName}: ${err.message}`);
       }
       validationWarnings.push(...aggErrors);
+    }
+
+    const { columns: rollupCheckColumns } = frameworkBuildColumns({
+      dj: { config: this.config.extensionConfig },
+      modelJson,
+      project,
+    });
+    const rollupSelectErrors = validateRollupOutputColumns(
+      modelJson,
+      rollupCheckColumns,
+    );
+    if (rollupSelectErrors.length > 0) {
+      for (const err of rollupSelectErrors) {
+        this.config.logger.warn?.(`${modelName}: ${err.message}`);
+      }
+      validationWarnings.push(...rollupSelectErrors);
     }
 
     // 5. Generate SQL and YML

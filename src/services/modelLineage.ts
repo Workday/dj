@@ -39,7 +39,12 @@ export class ModelLineage {
       switch (payload.type) {
         case 'data-explorer-get-model-lineage': {
           try {
-            const { modelName, projectName } = payload.request;
+            const {
+              modelName,
+              projectName,
+              depth,
+              maxNodes,
+            } = payload.request;
             this.coder.log.info(
               `Fetching lineage for model: ${modelName} in project: ${projectName}`,
             );
@@ -47,6 +52,7 @@ export class ModelLineage {
             const lineageData = await this.getModelLineage(
               modelName,
               projectName,
+              { depth, maxNodes },
             );
 
             return apiResponse<typeof payload.type>(lineageData);
@@ -58,13 +64,20 @@ export class ModelLineage {
 
         case 'data-explorer-execute-query': {
           try {
-            const { modelName, projectName, limit = 100 } = payload.request;
+            const {
+              modelName,
+              projectName,
+              limit = 100,
+              includeHiddenDims,
+              aggregations,
+            } = payload.request;
 
             const startTime = Date.now();
             const results = await this.executeModelQuery(
               modelName,
               projectName,
               limit,
+              { includeHiddenDims, aggregations },
             );
             const executionTime = Date.now() - startTime;
 
@@ -145,8 +158,22 @@ export class ModelLineage {
             } else {
               await this.coder.lightdashContent.ensurePopulated();
             }
+            let assets = this.coder.lightdashContent.listAssets();
+            const query = payload.request?.query?.trim().toLowerCase();
+            if (query) {
+              assets = assets.filter((asset) => {
+                const haystack = [
+                  asset.name,
+                  asset.slug,
+                  ...(asset.modelNames ?? []),
+                ]
+                  .join(' ')
+                  .toLowerCase();
+                return haystack.includes(query);
+              });
+            }
             return apiResponse<typeof payload.type>({
-              assets: this.coder.lightdashContent.listAssets(),
+              assets,
               lightdashAvailable: this.coder.lightdashContent.isPopulated(),
               lightdashResolvedPath:
                 this.coder.lightdashContent.getResolvedPath(),
@@ -317,6 +344,7 @@ export class ModelLineage {
   private async getModelLineage(
     modelName: string,
     projectName: string,
+    opts: { depth?: number; maxNodes?: number } = {},
   ): Promise<LineageData> {
     const project = this.coder.framework.dbt.projects.get(projectName);
     if (!project) {
@@ -336,26 +364,24 @@ export class ModelLineage {
     }
 
     // Get current node
-    const currentNode = this.manifestNodeToLineageNode(
-      model.unique_id ?? modelId,
-      manifest.nodes[model.unique_id ?? modelId],
-      project,
+    const currentNode = this.enrichLineageNodeFromModelJson(
+      this.manifestNodeToLineageNode(
+        model.unique_id ?? modelId,
+        manifest.nodes[model.unique_id ?? modelId],
+        project,
+      ),
+      model.pathSystemFile.replace(/\.sql$/, '.model.json'),
     );
 
-    // Get upstream (parents) - filter out test nodes
-    const parentIds = manifest.parent_map?.[model.unique_id ?? modelId] ?? [];
-    const upstream: LineageNode[] = [];
-
-    for (const parentId of parentIds) {
-      // Skip test nodes - they start with 'test.'
-      if (parentId.startsWith('test.')) {
-        continue;
-      }
-      const node = manifest.nodes[parentId] ?? manifest.sources[parentId];
-      if (node) {
-        upstream.push(this.manifestNodeToLineageNode(parentId, node, project));
-      }
-    }
+    const depthApplied = opts.depth ?? 1;
+    const maxNodes = opts.maxNodes ?? 50;
+    const upstream = this.collectUpstreamLineage(
+      model.unique_id ?? modelId,
+      manifest,
+      project,
+      depthApplied,
+      maxNodes,
+    );
 
     // Get downstream (children) - filter out test nodes
     const childIds = manifest.child_map?.[model.unique_id ?? modelId] ?? [];
@@ -380,6 +406,14 @@ export class ModelLineage {
     const lightdashResolvedPath = lightdashEnabled
       ? lightdashContent.getResolvedPath()
       : undefined;
+    let lightdashDisabledReason: string | undefined;
+    if (!lightdashEnabled) {
+      lightdashDisabledReason =
+        'Lightdash lineage is disabled (enable dj.dataExplorer.showLightdashLineage).';
+    } else if (lightdashAvailable === false) {
+      lightdashDisabledReason =
+        'Lightdash content directory is empty or not configured (dj.lightdash.dashboardsAsCodePath).';
+    }
 
     let lightdashDownstream: LightdashLineageNode[] | undefined;
     if (lightdashEnabled && currentNode.name.startsWith('mart_')) {
@@ -405,6 +439,8 @@ export class ModelLineage {
       lightdashAvailable,
       lightdashResolvedPath,
       lightdashEnabled,
+      lightdashDisabledReason,
+      upstreamDepthApplied: depthApplied,
       pythonModelEdges:
         pythonModelEdges.length > 0 ? pythonModelEdges : undefined,
     };
@@ -674,6 +710,87 @@ export class ModelLineage {
   /**
    * Convert manifest node to LineageNode
    */
+  private collectUpstreamLineage(
+    rootId: string,
+    manifest: NonNullable<DbtProject['manifest']>,
+    project: DbtProject,
+    depth: number,
+    maxNodes: number,
+  ): LineageNode[] {
+    const seen = new Set<string>();
+    const result: LineageNode[] = [];
+    const queue: { id: string; hop: number }[] = [];
+
+    const seedParents = manifest.parent_map?.[rootId] ?? [];
+    for (const parentId of seedParents) {
+      if (!parentId.startsWith('test.')) {
+        queue.push({ id: parentId, hop: 1 });
+      }
+    }
+
+    while (queue.length > 0 && result.length < maxNodes) {
+      const { id, hop } = queue.shift()!;
+      if (seen.has(id)) {
+        continue;
+      }
+      seen.add(id);
+
+      const node = manifest.nodes[id] ?? manifest.sources[id];
+      if (!node) {
+        continue;
+      }
+      result.push(this.manifestNodeToLineageNode(id, node, project));
+
+      const isSource = id.startsWith('source.');
+      if (isSource) {
+        continue;
+      }
+      if (depth >= 0 && hop >= depth) {
+        continue;
+      }
+      const parents = manifest.parent_map?.[id] ?? [];
+      for (const parentId of parents) {
+        if (parentId.startsWith('test.')) {
+          continue;
+        }
+        if (!seen.has(parentId)) {
+          queue.push({ id: parentId, hop: hop + 1 });
+        }
+      }
+    }
+
+    return result;
+  }
+
+  private enrichLineageNodeFromModelJson(
+    node: LineageNode,
+    modelJsonPath: string,
+  ): LineageNode {
+    try {
+      if (!fs.existsSync(modelJsonPath)) {
+        return node;
+      }
+      const parsed = JSON.parse(fs.readFileSync(modelJsonPath, 'utf-8')) as {
+        lightdash?: { table?: { label?: string } };
+        tags?: string[];
+      };
+      const tags = parsed.tags ?? node.tags;
+      return {
+        ...node,
+        tags,
+        lightdashTableLabel: parsed.lightdash?.table?.label,
+        exploreTagPresent: tags?.some(
+          (t) => t === 'lightdash-explore' || t === 'lightdash',
+        ),
+      };
+    } catch {
+      return node;
+    }
+  }
+
+  /**
+   * Convert manifest node to LineageNode
+   */
   private manifestNodeToLineageNode(
     id: string,
     node:
@@ -883,18 +1000,22 @@ export class ModelLineage {
   }
 
   /**
-   * Execute query for a model and return results
+   * Execute query for a model and return results.
    *
-   * For materialized models (tables, views, incremental), we query the actual table/view directly.
-   * This avoids issues with complex nested CTEs in compiled SQL.
-   * For ephemeral models, we must run the compiled SQL since they don't create physical objects.
+   * Runs the model's compiled SQL via Trino (with LIMIT). Ephemeral models are
+   * supported because execution uses compiled SQL, not a physical relation.
    */
   private async executeModelQuery(
     modelName: string,
     projectName: string,
     limit: number,
+    opts: {
+      includeHiddenDims?: boolean;
+      aggregations?: { groupBy: string[]; metrics: string[] };
+    } = {},
   ): Promise<{
     columns: string[];
+    schemaColumns?: string[];
     rows: any[][];
     rowCount: number;
   }> {
@@ -932,8 +1053,14 @@ export class ModelLineage {
       `[executeModelQuery] Using compiled SQL from: ${compiledPath}`,
     );
 
-    // Add LIMIT if not present
+    const schemaColumns = this.getSchemaColumnNames(project, modelName, projectName);
+
     let queryWithLimit = compiledSql.trim();
+    if (opts.aggregations) {
+      const groupBy = opts.aggregations.groupBy.join(', ');
+      const metrics = opts.aggregations.metrics.join(', ');
+      queryWithLimit = `SELECT ${groupBy}, ${metrics} FROM (${queryWithLimit}) AS _agg GROUP BY ${groupBy}`;
+    }
     if (!queryWithLimit.toLowerCase().includes('limit')) {
       queryWithLimit = `${queryWithLimit}\nLIMIT ${limit}`;
     }
@@ -951,12 +1078,30 @@ export class ModelLineage {
     });
 
     if (!rawResults || rawResults.length === 0) {
-      return { columns: [], rows: [], rowCount: 0 };
+      return {
+        columns: opts.includeHiddenDims ? schemaColumns : [],
+        schemaColumns,
+        rows: [],
+        rowCount: 0,
+      };
     }
 
-    const columns = Object.keys(rawResults[0]);
+    let columns = Object.keys(rawResults[0]);
     const rows = rawResults.map((row) => columns.map((col) => row[col]));
-    return { columns, rows, rowCount: rows.length };
+    return { columns, schemaColumns, rows, rowCount: rows.length };
+  }
+
+  private getSchemaColumnNames(
+    project: DbtProject,
+    modelName: string,
+    projectName: string,
+  ): string[] {
+    const modelId = getDbtModelId({ modelName, projectName });
+    const node = project.manifest?.nodes[modelId];
+    if (!node?.columns) {
+      return [];
+    }
+    return Object.keys(node.columns).sort((a, b) => a.localeCompare(b));
   }
 
   /**

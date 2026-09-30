@@ -12,8 +12,10 @@
  *   dj system.ping
  *   dj system.capabilities
  *   dj model.create --file req.json
- *   dj model.create --json '{"request":{...}}'
- *   echo '{"request":{...}}' | dj model.create
+ *   dj model.create --json '{"type":"stg_select_source",...}'
+ *   echo '{"type":"stg_select_source",...}' | dj model.create
+ *   dj model.lineage --modelName mart__g__t__n --file examples/model-lineage.request.json
+ *   dj model.lineage --help
  *
  * Exit codes: 0 ok · 1 operation error · 2 usage/bad-input · 3 no live endpoint · 4 timeout
  */
@@ -22,6 +24,12 @@ import type {
   RpcRequest,
   RpcResponse,
 } from '@shared/cli/types';
+import { mergeCliPayload } from '@shared/cli/mergePayload';
+import {
+  CLI_USAGE,
+  formatGlobalHelp,
+  formatOperationHelpSummary,
+} from '@shared/cli/operationHelp';
 import * as fs from 'fs';
 import * as net from 'net';
 import * as path from 'path';
@@ -38,13 +46,23 @@ interface Args {
   json?: string;
   workspace?: string;
   timeoutMs: number;
+  modelName?: string;
+  projectName?: string;
+  select?: string;
+  sql?: string;
+  depth?: number;
+  help?: boolean;
 }
 
+const USAGE = CLI_USAGE;
+
 function parseArgs(argv: string[]): Args {
-  const args: Args = { timeoutMs: 15000 };
+  const args: Args = { timeoutMs: 120_000 };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--file') {
+    if (a === '--help' || a === '-h') {
+      args.help = true;
+    } else if (a === '--file') {
       args.file = argv[++i];
     } else if (a === '--json') {
       args.json = argv[++i];
@@ -52,6 +70,16 @@ function parseArgs(argv: string[]): Args {
       args.workspace = argv[++i];
     } else if (a === '--timeout') {
       args.timeoutMs = Number(argv[++i]) || args.timeoutMs;
+    } else if (a === '--modelName') {
+      args.modelName = argv[++i];
+    } else if (a === '--projectName') {
+      args.projectName = argv[++i];
+    } else if (a === '--select') {
+      args.select = argv[++i];
+    } else if (a === '--sql') {
+      args.sql = argv[++i];
+    } else if (a === '--depth') {
+      args.depth = Number(argv[++i]);
     } else if (!a.startsWith('-') && !args.operation) {
       args.operation = a;
     }
@@ -211,13 +239,56 @@ function connectAndSend(
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
-  if (!args.operation) {
-    fail(
-      EXIT_USAGE,
-      'usage: dj <operation> [--file req.json | --json <str>] [--workspace <dir>]',
-    );
+
+  if (args.help && !args.operation) {
+    process.stdout.write(JSON.stringify(formatGlobalHelp(), null, 2) + '\n');
+    process.exit(EXIT_OK);
   }
-  const input = readInput(args);
+
+  if (!args.operation) {
+    fail(EXIT_USAGE, USAGE);
+  }
+
+  if (args.help) {
+    const helpResult = formatOperationHelpSummary(args.operation);
+    if ('error' in helpResult) {
+      fail(EXIT_USAGE, helpResult.error);
+    }
+    process.stdout.write(JSON.stringify(helpResult, null, 2) + '\n');
+    process.exit(EXIT_OK);
+  }
+
+  const rawInput = readInput(args);
+  const merged = mergeCliPayload(rawInput, {
+    modelName: args.modelName,
+    projectName: args.projectName,
+    select: args.select,
+    sql: args.sql,
+    depth: args.depth,
+  });
+  if (merged === null) {
+    fail(EXIT_USAGE, 'payload must be a JSON object (use --file or --json)');
+  }
+  const input: Record<string, unknown> | undefined =
+    Object.keys(merged).length > 0 || rawInput !== undefined
+      ? merged
+      : undefined;
+
+  let timeoutMs = args.timeoutMs;
+  if (args.operation === 'dbt.parse' && !process.argv.includes('--timeout')) {
+    timeoutMs = 600_000;
+  }
+  const longRunningOps = new Set([
+    'model.create',
+    'model.create-batch',
+    'dbt.parse',
+  ]);
+  if (
+    longRunningOps.has(args.operation) &&
+    !process.argv.includes('--timeout')
+  ) {
+    timeoutMs = 600_000;
+  }
 
   const endpointsDir = findEndpointsDir(args.workspace || process.cwd());
   if (!endpointsDir) {
@@ -242,13 +313,16 @@ async function main(): Promise<void> {
       },
     };
     try {
-      const reply = await connectAndSend(descriptor, request, args.timeoutMs);
+      const reply = await connectAndSend(descriptor, request, timeoutMs);
       if (reply.error) {
         process.stderr.write(`dj: ${reply.error.message}\n`);
         if (reply.error.details !== undefined) {
           process.stderr.write(JSON.stringify(reply.error.details) + '\n');
         }
         process.exit(EXIT_OP_ERROR);
+      }
+      if (reply.result === undefined) {
+        fail(EXIT_OP_ERROR, 'empty result from DJ extension');
       }
       process.stdout.write(JSON.stringify(reply.result, null, 2) + '\n');
       process.exit(EXIT_OK);

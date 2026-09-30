@@ -143,6 +143,30 @@ describe('operationRegistry — dispatch + capabilities', () => {
     expect(result.operations.length).toBe(Object.keys(reg).length);
   });
 
+  it('system.help returns invoke JSON for one operation', async () => {
+    const reg = createOperationRegistry();
+    const { ctx } = makeCtx();
+    const result = (await dispatch(
+      reg,
+      'system.help',
+      { operation: 'model.lineage' },
+      ctx,
+    )) as { operation: string; exampleCommand: string };
+    expect(result.operation).toBe('model.lineage');
+    expect(result.exampleCommand).toContain('model.lineage');
+  });
+
+  it('system.help without operation lists summaries', async () => {
+    const reg = createOperationRegistry();
+    const { ctx } = makeCtx();
+    const result = (await dispatch(reg, 'system.help', null, ctx)) as {
+      usage: string;
+      operations: unknown[];
+    };
+    expect(result.usage).toContain('--help');
+    expect(result.operations.length).toBeGreaterThan(30);
+  });
+
   it('model.create resolves projectName then forwards framework-model-create', async () => {
     const reg = createOperationRegistry();
     const { ctx, calls } = makeCtx(['analytics']);
@@ -195,11 +219,124 @@ describe('operationRegistry — authoring tier', () => {
     ]);
   });
 
-  it('model.preview forwards to framework-model-preview', async () => {
+  it('model.preview forwards wrapped modelJson to framework-model-preview', async () => {
     const reg = createOperationRegistry();
-    const { ctx, calls } = makeCtx();
-    await dispatch(reg, 'model.preview', { name: 'x', projectName: 'analytics' }, ctx);
+    const { ctx, calls } = makeCtx(['analytics']);
+    await dispatch(
+      reg,
+      'model.preview',
+      {
+        modelJson: {
+          type: 'stg_select_source',
+          group: 'core',
+          topic: 'sales',
+          name: 'customers',
+        },
+      },
+      ctx,
+    );
     expect(calls[0].type).toBe('framework-model-preview');
+    expect((calls[0].request as { modelJson: { name: string } }).modelJson.name).toBe(
+      'customers',
+    );
+  });
+
+  it('model.preview auto-wraps flat create-style payload', async () => {
+    const reg = createOperationRegistry();
+    const { ctx, calls } = makeCtx(['analytics']);
+    await dispatch(
+      reg,
+      'model.preview',
+      {
+        type: 'stg_select_source',
+        group: 'core',
+        topic: 'sales',
+        name: 'customers',
+      },
+      ctx,
+    );
+    expect(calls[0].type).toBe('framework-model-preview');
+    expect(
+      (calls[0].request as { modelJson: { name: string } }).modelJson.name,
+    ).toBe('customers');
+  });
+
+  it('model.exists rejects flat identity payload', async () => {
+    const reg = createOperationRegistry();
+    const { ctx } = makeCtx(['analytics']);
+    await expect(
+      dispatch(reg, 'model.exists', {
+        type: 'int_select_model',
+        group: 'ibp',
+        topic: 'savings_tracker',
+        name: 'program_savings_monthly',
+      }, ctx),
+    ).rejects.toThrow(/modelJson/);
+  });
+
+  it('model.exists forwards wrapped identity modelJson', async () => {
+    const reg = createOperationRegistry();
+    const { ctx, calls } = makeCtx(['analytics']);
+    await dispatch(
+      reg,
+      'model.exists',
+      {
+        modelJson: {
+          type: 'int_select_model',
+          group: 'ibp',
+          topic: 'savings_tracker',
+          name: 'program_savings_monthly',
+        },
+      },
+      ctx,
+    );
+    expect(calls[0].type).toBe('framework-check-model-exists');
+    expect((calls[0].request as { projectName: string }).projectName).toBe(
+      'analytics',
+    );
+  });
+
+  it('model.update rejects raw model file with modelName only', async () => {
+    const reg = createOperationRegistry();
+    const { ctx } = makeCtx(['analytics']);
+    await expect(
+      dispatch(reg, 'model.update', {
+        type: 'int_select_model',
+        group: 'ibp',
+        topic: 'savings_tracker',
+        name: 'tenant_cost_monthly_review',
+        modelName: 'int__ibp__savings_tracker__tenant_cost_monthly_review',
+        from: { model: 'stg__x' },
+        select: ['id'],
+      }, ctx),
+    ).rejects.toThrow(/originalModelPath/);
+  });
+
+  it('model.update forwards wrapped originalModelPath and modelJson', async () => {
+    const reg = createOperationRegistry();
+    const { ctx, calls } = makeCtx(['analytics']);
+    const modelJson = {
+      type: 'int_select_model',
+      group: 'ibp',
+      topic: 'savings_tracker',
+      name: 'tenant_cost_monthly_review',
+    };
+    await dispatch(
+      reg,
+      'model.update',
+      {
+        originalModelPath: '/tmp/int__ibp__savings_tracker__tenant_cost_monthly_review.model.json',
+        modelJson,
+      },
+      ctx,
+    );
+    expect(calls[0].type).toBe('framework-model-update');
+    expect(calls[0].request).toMatchObject({
+      originalModelPath:
+        '/tmp/int__ibp__savings_tracker__tenant_cost_monthly_review.model.json',
+      modelJson,
+      projectName: 'analytics',
+    });
   });
 });
 
@@ -336,7 +473,7 @@ describe('operationRegistry — query & data read tier', () => {
     const { ctx } = makeCtx();
     await expect(
       dispatch(reg, 'query.execute', { sql: '   ' }, ctx),
-    ).rejects.toThrow(/non-empty 'sql'/);
+    ).rejects.toThrow(/non-empty "sql"/);
   });
 
   it('query.execute rejects a statement hidden behind a block comment', async () => {

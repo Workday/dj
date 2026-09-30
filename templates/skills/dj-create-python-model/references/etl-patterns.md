@@ -2,7 +2,7 @@
 
 Detailed patterns for each ETL stage. **SQL-first:** all transformation and loading patterns use Trino SQL by default. DataFrame patterns are provided only for cases where SQL cannot express the logic.
 
-All patterns target `glue_development.opus_python_source` by default.
+All patterns target `<dev_catalog>.<python_output_schema>` by default.
 
 ---
 
@@ -18,8 +18,8 @@ def get_trino_conn():
         host=INPUT_VARIABLES.get("trino_host", "localhost"),
         port=int(INPUT_VARIABLES.get("trino_port", "8080")),
         user=INPUT_VARIABLES.get("trino_user", "etl"),
-        catalog="glue_development",
-        schema="opus_python_source",
+        catalog="<dev_catalog>",
+        schema="<python_output_schema>",
     )
 ```
 
@@ -207,12 +207,12 @@ def stage(df: pd.DataFrame, context: dict) -> None:
     table_name = OUTPUT_CONFIG.table_name or OUTPUT_CONFIG.model_name
     staging_table = f"stg_tmp_{table_name}"
 
-    cursor.execute(f"DROP TABLE IF EXISTS glue_development.opus_python_source.{staging_table}")
+    cursor.execute(f"DROP TABLE IF EXISTS <dev_catalog>.<python_output_schema>.{staging_table}")
 
     columns = df.columns.tolist()
     col_defs = ", ".join(f"{c} VARCHAR" for c in columns)
     cursor.execute(
-        f"CREATE TABLE glue_development.opus_python_source.{staging_table} ({col_defs})"
+        f"CREATE TABLE <dev_catalog>.<python_output_schema>.{staging_table} ({col_defs})"
     )
 
     batch_size = 1000
@@ -225,7 +225,7 @@ def stage(df: pd.DataFrame, context: dict) -> None:
             )
             values_list.append(f"({vals})")
         cursor.execute(
-            f"INSERT INTO glue_development.opus_python_source.{staging_table} "
+            f"INSERT INTO <dev_catalog>.<python_output_schema>.{staging_table} "
             f"VALUES {', '.join(values_list)}"
         )
 
@@ -245,8 +245,8 @@ def transform_and_load(context: dict) -> None:
     conn = get_trino_conn()
     cursor = conn.cursor()
     ds = context["ds"]
-    target = f"glue_development.opus_python_source.{OUTPUT_CONFIG.table_name}"
-    staging = f"glue_development.opus_python_source.stg_tmp_{OUTPUT_CONFIG.table_name}"
+    target = f"<dev_catalog>.<python_output_schema>.{OUTPUT_CONFIG.table_name}"
+    staging = f"<dev_catalog>.<python_output_schema>.stg_tmp_{OUTPUT_CONFIG.table_name}"
 
     cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS {target} (
@@ -343,7 +343,7 @@ def transform_and_load(context: dict) -> None:
             CAST(s.amount AS DOUBLE) AS amount,
             '{ds}' AS portal_partition_daily
         FROM {staging} s
-        LEFT JOIN glue_development.opus_python_source.region_lookup r
+        LEFT JOIN <dev_catalog>.<python_output_schema>.region_lookup r
             ON s.region_code = r.region_code
     """)
 ```
@@ -395,8 +395,8 @@ def transform_and_load(context: dict) -> None:
     conn = get_trino_conn()
     cursor = conn.cursor()
     ds = context["ds"]
-    source = "glue_development.some_catalog.raw_events"
-    target = f"glue_development.opus_python_source.{OUTPUT_CONFIG.table_name}"
+    source = "<dev_catalog>.some_catalog.raw_events"
+    target = f"<dev_catalog>.<python_output_schema>.{OUTPUT_CONFIG.table_name}"
 
     cursor.execute(f"""
         CREATE TABLE IF NOT EXISTS {target} (
@@ -522,7 +522,7 @@ def cleanup(context: dict) -> None:
     table_name = OUTPUT_CONFIG.table_name or OUTPUT_CONFIG.model_name
     staging_table = f"stg_tmp_{table_name}"
     cursor.execute(
-        f"DROP TABLE IF EXISTS glue_development.opus_python_source.{staging_table}"
+        f"DROP TABLE IF EXISTS <dev_catalog>.<python_output_schema>.{staging_table}"
     )
     log.info(f"Dropped staging table: {staging_table}")
 ```
@@ -539,7 +539,7 @@ def post_load(context: dict) -> None:
     conn = get_trino_conn()
     cursor = conn.cursor()
     ds = context["ds"]
-    target = f"glue_development.opus_python_source.{OUTPUT_CONFIG.table_name}"
+    target = f"<dev_catalog>.<python_output_schema>.{OUTPUT_CONFIG.table_name}"
 
     cursor.execute(f"""
         SELECT COUNT(*) AS row_count
@@ -606,7 +606,7 @@ def debug_query(context: dict) -> None:
     cursor.execute(f"""
         EXPLAIN ANALYZE
         SELECT id, name, amount
-        FROM glue_development.opus_python_source.stg_tmp_my_model
+        FROM <dev_catalog>.<python_output_schema>.stg_tmp_my_model
         WHERE status = 'active'
     """)
 

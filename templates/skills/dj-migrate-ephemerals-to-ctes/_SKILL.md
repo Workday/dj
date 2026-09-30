@@ -20,7 +20,7 @@ metadata:
 
 ## DJ CLI (preferred when DJ is running)
 
-When `.dj/bin/dj system.ping` succeeds, use: `model.preview`, `model.update` to validate CTE inlining before and after mutation.
+When `.dj/bin/dj system.ping` succeeds, use: `model.preview`, `model.update` to validate CTE inlining before and after mutation. Use **wrapped** payloads (`modelJson` + `originalModelPath` for updates) — see **`dj-cli`** / `examples/model-update.request.json`.
 Invocation patterns and fallbacks → `dj-cli`. Full skill/CLI routing → `dj-cli-registry`.
 
 ## When this skill applies

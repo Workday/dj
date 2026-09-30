@@ -7,12 +7,26 @@
  * call `ctx.api.handleApi(...)`, the same entry point the webview uses. This
  * module is vscode-free and unit-testable with a mocked context.
  */
+import {
+  assertModelExistsPayload,
+  assertModelUpdatePayload,
+  assertNonEmptyModelName,
+  assertQueryExecutePayload,
+  assertWrappedModelJsonPayload,
+  normalizeDbtCompileRequest,
+  normalizeWrappedModelRequest,
+} from '@services/cliBridge/requestShape';
 import type {
   OperationContext,
   OperationDef,
   OperationRegistry,
   SideEffect,
 } from '@shared/cli/types';
+import {
+  formatGlobalHelp,
+  formatOperationHelpSummary,
+  listOperationHelp,
+} from '@shared/cli/operationHelp';
 
 /**
  * Normalize a CLI input payload into the `request` object `handleApi` expects.
@@ -174,6 +188,27 @@ export function createOperationRegistry(): OperationRegistry {
       },
     });
 
+  const registerModelNameOp = (
+    name: string,
+    apiType: string,
+    description: string,
+    exampleFile: string,
+  ): void =>
+    register({
+      name,
+      description,
+      sideEffect: 'read',
+      handler: async (input, ctx) => {
+        const request = readRequest(input, { allowEmpty: true }) as Record<
+          string,
+          unknown
+        >;
+        assertNonEmptyModelName(name, request, exampleFile);
+        resolveProjectName(request, ctx);
+        return ctx.api.handleApi({ type: apiType, request });
+      },
+    });
+
   register({
     name: 'system.ping',
     description: 'Liveness/version check for the DJ bridge.',
@@ -213,6 +248,12 @@ export function createOperationRegistry(): OperationRegistry {
     'dbt.models',
     'dbt-fetch-available-models',
     'List available model names in a project (use to populate a model `from`). projectName optional when a single dbt project exists.',
+    { project: true },
+  );
+  registerForward(
+    'dbt.models.search',
+    'dbt-search-models',
+    'Search models with filters: pattern (*wildcards*), topic, group, tags[], fromModel, requireLightdashExploreTag. Returns name, path, labels, materialization. projectName optional when a single dbt project exists.',
     { project: true },
   );
   registerForward(
@@ -262,8 +303,74 @@ export function createOperationRegistry(): OperationRegistry {
     'List a table’s columns. Requires { catalog, schema, table }.',
   );
 
+  registerForward(
+    'model.get',
+    'framework-get-model-data',
+    'Read an existing model’s .model.json (template for update or extend). Requires { modelName }.',
+  );
+  registerModelNameOp(
+    'model.columns',
+    'framework-model-columns',
+    'Resolved column list (name, dim/fct, types) from manifest/synced YAML. Requires { modelName }; projectName optional when a single dbt project exists.',
+    'examples/model-columns.request.json',
+  );
+  registerForward(
+    'model.similar',
+    'framework-model-similar',
+    'Find peer models (same from.model, group, topic, tags). Pass modelName or explicit anchors. projectName optional when a single dbt project exists.',
+    { project: true },
+  );
+  registerForward(
+    'lightdash.assets',
+    'data-explorer-list-lightdash-assets',
+    'List Lightdash dashboards/charts with linked dbt model names. Optional { query } filters by name/slug/model; { force: true } rescans disk.',
+    { nullable: true },
+  );
+  registerForward(
+    'workflow.scaffold-explore',
+    'framework-workflow-scaffold-explore',
+    'Suggest int/mart names and similar explores for a new Lightdash explore from an upstream model. Requires { upstreamModelName }; projectName optional when a single dbt project exists.',
+    { project: true },
+  );
+
   // ---- Authoring tier: create and refine models/sources, driven by JSON —
   // the same flow the visual editor posts. ----
+
+  register({
+    name: 'model.sync',
+    description:
+      'Generate or refresh workspace models/**/*.sql and *.yml from .model.json / .source.json (DJ JSON sync). Optional modelName scopes to one model; omit for full sync. Does not run dbt compile (use dbt.compile for target/compiled SQL only). projectName optional when a single dbt project exists.',
+    sideEffect: 'mutate',
+    handler: async (input, ctx) => {
+      const request = readRequest(input, { allowEmpty: true }) as Record<
+        string,
+        unknown
+      >;
+      resolveProjectName(request, ctx);
+      return ctx.api.handleApi({
+        type: 'framework-model-sync',
+        request,
+      });
+    },
+  });
+
+  register({
+    name: 'model.create-batch',
+    description:
+      'Create multiple models in one request; enqueues a single JSON sync at the end (syncOnce defaults true). Requires { models: [ … ] }; projectName optional when a single dbt project exists.',
+    sideEffect: 'mutate',
+    handler: async (input, ctx) => {
+      const request = readRequest(input);
+      if (!request) {
+        throw new Error('model.create-batch requires a JSON payload');
+      }
+      resolveProjectName(request, ctx);
+      return ctx.api.handleApi({
+        type: 'framework-model-create-batch',
+        request,
+      });
+    },
+  });
 
   register({
     name: 'model.create',
@@ -292,50 +399,122 @@ export function createOperationRegistry(): OperationRegistry {
     'Create a source definition from a Trino table (columns auto-introspected). projectName optional when a single dbt project exists.',
     { project: true, sideEffect: 'mutate' },
   );
-  registerForward(
+  const registerWrappedModelOp = (
+    name: string,
+    apiType: string,
+    description: string,
+    validate: (request: Record<string, unknown>) => void,
+    sideEffect: SideEffect = 'read',
+    autoWrapFlat = false,
+  ): void =>
+    register({
+      name,
+      description,
+      sideEffect,
+      handler: async (input, ctx) => {
+        let request = readRequest(input, { allowEmpty: true });
+        if (!request) {
+          throw new Error(`${name} requires a JSON payload (object)`);
+        }
+        if (autoWrapFlat) {
+          request = normalizeWrappedModelRequest(request);
+        }
+        resolveProjectName(request, ctx);
+        validate(request);
+        return ctx.api.handleApi({ type: apiType, request });
+      },
+    });
+
+  registerWrappedModelOp(
     'model.update',
     'framework-model-update',
-    'Update an existing model (merge, validate, relocate on rename). projectName optional when a single dbt project exists.',
-    { project: true, sideEffect: 'mutate' },
+    'Update an existing model (merge, validate, relocate on rename). Requires originalModelPath + modelJson. projectName optional when a single dbt project exists.',
+    assertModelUpdatePayload,
+    'mutate',
   );
-  registerForward(
+  registerWrappedModelOp(
     'model.preview',
     'framework-model-preview',
-    'Dry-run a model: return the generated SQL / YAML / columns without writing. projectName optional when a single dbt project exists.',
-    { project: true },
+    'Dry-run a model: return the generated SQL / YAML / columns without writing. Requires modelJson (flat create JSON is auto-wrapped). projectName optional when a single dbt project exists.',
+    (req) => assertWrappedModelJsonPayload('model.preview', req),
+    'read',
+    true,
   );
-  registerForward(
+  registerWrappedModelOp(
     'model.exists',
     'framework-check-model-exists',
-    'Check whether a model already exists (pre-flight dedup guard). projectName optional when a single dbt project exists.',
-    { project: true },
+    'Check whether a model already exists (pre-flight dedup guard). Requires modelJson with type, group, topic, name. projectName optional when a single dbt project exists.',
+    assertModelExistsPayload,
   );
-  registerForward(
+  registerWrappedModelOp(
     'model.cte-analysis',
     'framework-model-cte-analysis',
-    'Return per-CTE inferred columns + diagnostics. projectName optional when a single dbt project exists.',
-    { project: true },
+    'Return per-CTE inferred columns + diagnostics. Requires modelJson (flat create JSON is auto-wrapped). projectName optional when a single dbt project exists.',
+    (req) => assertWrappedModelJsonPayload('model.cte-analysis', req),
+    'read',
+    true,
   );
 
   // ---- Mutate tier: compile / parse / run to validate authored models. ----
 
-  registerForward(
+  const registerDbtCompileOp = (
+    name: string,
+    apiType: 'dbt-model-compile' | 'dbt-compile-with-logs',
+    description: string,
+  ): void =>
+    register({
+      name,
+      description,
+      sideEffect: 'mutate',
+      handler: async (input, ctx) => {
+        const raw = readRequest(input, { allowEmpty: true }) as Record<
+          string,
+          unknown
+        >;
+        const normalized = normalizeDbtCompileRequest(name, raw);
+        const request: Record<string, unknown> = { ...normalized };
+        resolveProjectName(request, ctx);
+        return ctx.api.handleApi({ type: apiType, request });
+      },
+    });
+
+  registerDbtCompileOp(
     'dbt.compile',
     'dbt-model-compile',
-    'Compile a single model. Requires { modelName }; projectName optional when a single dbt project exists.',
-    { project: true, sideEffect: 'mutate' },
+    'Run dbt compile (writes target/compiled SQL only — not workspace models/**/*.sql). Requires { modelName } or { select } (raw dbt selector); projectName optional when a single dbt project exists. To emit disk .sql/.yml from .model.json use model.sync.',
   );
-  registerForward(
+  registerDbtCompileOp(
     'dbt.compile-logs',
     'dbt-compile-with-logs',
-    'Compile a model (log-emitting variant). Requires { modelName }; projectName optional when a single dbt project exists.',
-    { project: true, sideEffect: 'mutate' },
+    'Same as dbt.compile with log streaming to the Model Run webview. Requires { modelName } or { select }; projectName optional when a single dbt project exists.',
   );
+
+  register({
+    name: 'dbt.compile-select',
+    description:
+      'Run dbt compile for a dbt selector string (same as dbt.compile with { select }). projectName optional when a single dbt project exists.',
+    sideEffect: 'mutate',
+    handler: async (input, ctx) => {
+      const raw = readRequest(input, { allowEmpty: true }) as Record<
+        string,
+        unknown
+      >;
+      if (typeof raw.select !== 'string' || raw.select.trim() === '') {
+        throw new Error(
+          'dbt.compile-select: requires non-empty "select" (dbt selector string).',
+        );
+      }
+      const normalized = normalizeDbtCompileRequest('dbt.compile-select', raw);
+      const request: Record<string, unknown> = { ...normalized };
+      resolveProjectName(request, ctx);
+      return ctx.api.handleApi({ type: 'dbt-model-compile', request });
+    },
+  });
 
   register({
     name: 'dbt.parse',
     description:
-      'Parse the project and refresh the manifest. projectName optional when a single dbt project exists.',
+      'Parse the project and refresh the manifest (can take minutes on large projects — use dj --timeout 600000). projectName optional when a single dbt project exists.',
     sideEffect: 'mutate',
     handler: async (input, ctx) => {
       const request = readRequest(input, { allowEmpty: true });
@@ -356,7 +535,7 @@ export function createOperationRegistry(): OperationRegistry {
   register({
     name: 'dbt.run',
     description:
-      'Run a model via dbt (output streams to the VS Code terminal). Accepts a { config } object or flat config fields; projectName optional when a single dbt project exists.',
+      'Run a model via dbt (output streams to the VS Code terminal). Accepts { config } or flat fields: modelName, scope, lineage (upstream→+model, full-lineage→+model+), select (raw dbt selector override), startDate/endDate→event_dates vars. Warehouse write — confirm with user. projectName optional when a single dbt project exists.',
     sideEffect: 'mutate',
     handler: async (input, ctx) => {
       const request = readRequest(input, { allowEmpty: true }) as Record<
@@ -385,24 +564,65 @@ export function createOperationRegistry(): OperationRegistry {
   // ---- Query & data read tier: read compiled SQL, preview data, trace
   // lineage — all read-only. ----
 
-  registerForward(
+  register({
+    name: 'model.lineage',
+    description:
+      "Get upstream/downstream lineage. CLI defaults depth to -1 (walk to sources) unless overridden. Optional maxNodes (default 50). Requires { modelName }; projectName optional when a single dbt project exists.",
+    sideEffect: 'read',
+    handler: async (input, ctx) => {
+      const request = readRequest(input, { allowEmpty: true }) as Record<
+        string,
+        unknown
+      >;
+      assertNonEmptyModelName(
+        'model.lineage',
+        request,
+        'examples/model-lineage.request.json',
+      );
+      resolveProjectName(request, ctx);
+      if (request.depth === undefined) {
+        request.depth = -1;
+      }
+      return ctx.api.handleApi({
+        type: 'data-explorer-get-model-lineage',
+        request,
+      });
+    },
+  });
+  registerModelNameOp(
     'model.compiled-sql',
     'data-explorer-get-compiled-sql',
     "Read a model's compiled SQL. Requires { modelName }; projectName optional when a single dbt project exists.",
-    { project: true },
+    'examples/model-lineage.request.json',
   );
-  registerForward(
+  registerModelNameOp(
     'model.query',
     'data-explorer-execute-query',
-    "Run a model's compiled query (data preview). Requires { modelName }; projectName optional when a single dbt project exists.",
-    { project: true },
+    "Run a model's compiled SQL via Trino (not the deployed warehouse relation). Optional schemaColumns, includeHiddenDims, aggregations { groupBy, metrics }. Requires { modelName }; projectName optional when a single dbt project exists.",
+    'examples/model-query.request.json',
   );
-  registerForward(
-    'model.lineage',
-    'data-explorer-get-model-lineage',
-    "Get a model's upstream / downstream lineage. Requires { modelName }; projectName optional when a single dbt project exists.",
-    { project: true },
-  );
+  register({
+    name: 'model.data-check',
+    description:
+      'Return read-only sanity-check SQL from a template (stranded_capacity, utilization_band, recent_partition_window). Requires { modelName, template }; projectName optional when a single dbt project exists.',
+    sideEffect: 'read',
+    handler: async (input, ctx) => {
+      const request = readRequest(input, { allowEmpty: true }) as Record<
+        string,
+        unknown
+      >;
+      assertNonEmptyModelName(
+        'model.data-check',
+        request,
+        'examples/model-lineage.request.json',
+      );
+      resolveProjectName(request, ctx);
+      return ctx.api.handleApi({
+        type: 'framework-model-data-check',
+        request,
+      });
+    },
+  });
   registerForward(
     'model.reverse-lineage',
     'data-explorer-get-reverse-lineage',
@@ -415,11 +635,11 @@ export function createOperationRegistry(): OperationRegistry {
       'Run an arbitrary read-only SELECT against the warehouse. Requires { sql }; optional { limit }.',
     sideEffect: 'read',
     handler: async (input, ctx) => {
-      const request = readRequest(input);
-      const sql = request?.sql;
-      if (typeof sql !== 'string' || sql.trim() === '') {
-        throw new Error("query.execute requires a non-empty 'sql' string");
-      }
+      const request = readRequest(input, {
+        allowEmpty: true,
+      }) as Record<string, unknown> | null;
+      assertQueryExecutePayload(request);
+      const sql = request!.sql as string;
       assertReadOnlySelect(sql);
       const forwarded: Record<string, unknown> = { sql };
       if (request && 'limit' in request) {
@@ -429,6 +649,34 @@ export function createOperationRegistry(): OperationRegistry {
         type: 'query-draft-execute',
         request: forwarded,
       });
+    },
+  });
+
+  register({
+    name: 'system.help',
+    description:
+      'Invoke help for one operation (JSON) or list all operations when input is omitted.',
+    sideEffect: 'read',
+    handler: (input) => {
+      const request =
+        input === null || input === undefined
+          ? null
+          : readRequest(input, { allowEmpty: true });
+      const opName =
+        request && typeof request.operation === 'string'
+          ? request.operation.trim()
+          : '';
+      if (!opName) {
+        return Promise.resolve({
+          ...formatGlobalHelp(),
+          operations: listOperationHelp().map((h) => ({
+            operation: h.operation,
+            description: h.description,
+            exampleCommand: h.exampleCommand,
+          })),
+        });
+      }
+      return Promise.resolve(formatOperationHelpSummary(opName));
     },
   });
 

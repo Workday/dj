@@ -1,0 +1,6 @@
+{
+  "projectName": "opus",
+  "trinoCatalog": "opus_raw_dl",
+  "trinoSchema": "pharos_metrics_views",
+  "trinoTable": "node_cpu_hourly_cost_view"
+}

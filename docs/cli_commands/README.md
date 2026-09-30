@@ -68,20 +68,18 @@ Flags: `--file <path>` · `--json '<inline json>'` · `--workspace <dir>` ·
 
 ## `model.create` request
 
-The input is `{ "request": <framework-model-create request> }` — the same object
-the Create Model form posts. Minimal `stg_select_source` example:
+Pass the **flat** model-create payload — the same fields as a `.model.json` body
+(no `request` wrapper). You may still send `{ "request": { ... } }` as an escape
+hatch; the bridge unwraps it. Minimal `stg_select_source` example:
 
 ```json
 {
-  "request": {
-    "type": "stg_select_source",
-    "projectName": "analytics",
-    "group": "core",
-    "topic": "sales",
-    "name": "customers",
-    "from": { "source": "raw__public.customers" },
-    "select": [{ "name": "id", "type": "dim" }, { "name": "name" }]
-  }
+  "type": "stg_select_source",
+  "group": "core",
+  "topic": "sales",
+  "name": "customers",
+  "from": { "source": "raw__public.customers" },
+  "select": [{ "name": "id", "type": "dim" }, { "name": "name" }]
 }
 ```
 

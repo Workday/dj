@@ -1,5 +1,6 @@
 // Framework API type definitions and handlers
 import type { ApiRequest, ApiResponse } from '@shared/api/types';
+import type { SimilarModelScore } from '@shared/dbt/modelCatalogSearch';
 import type {
   LightdashDimension,
   LightdashMetrics,
@@ -13,6 +14,7 @@ import type { SchemaModelCTE } from '@shared/schema/types/model.cte.schema';
 import type { SchemaModelCTEs } from '@shared/schema/types/model.ctes.schema';
 import type { SchemaModelHaving } from '@shared/schema/types/model.having.schema';
 import type { SchemaModelLightdash } from '@shared/schema/types/model.lightdash.schema';
+import type { SchemaModelMaterialization } from '@shared/schema/types/model.materialization.schema';
 import type { SchemaModelMaterialized } from '@shared/schema/types/model.materialized.schema';
 import type {
   IncrementalStrategy,
@@ -76,6 +78,34 @@ export interface PythonModelConfig {
   variables?: Record<string, string>;
 }
 
+export type ModelCreateResponse = {
+  message: string;
+  modelPath: string;
+  synced: boolean;
+  syncErrors?: string[];
+};
+
+export type ModelCreateValidateResponse = {
+  valid: true;
+  preview: {
+    json: string;
+    sql: string;
+    yaml: string;
+    columns: Array<{
+      name: string;
+      description: string;
+      type: 'dim' | 'fct';
+      dataType: string;
+    }>;
+    lightdash: {
+      errors: string[];
+      warnings: string[];
+      fieldIds: string[];
+      metricNames: string[];
+    };
+  };
+};
+
 export type FrameworkApi =
   | {
       type: 'framework-model-create';
@@ -86,7 +116,9 @@ export type FrameworkApi =
         topic: string;
         type: FrameworkModel['type'];
         projectName: string;
+        validateOnly?: boolean;
         materialized?: SchemaModelMaterialized;
+        materialization?: SchemaModelMaterialization;
         source?: string; // UI field, should be excluded from actual API request
         description?: string;
         tags?: string[];
@@ -160,17 +192,53 @@ export type FrameworkApi =
           metrics_include?: string[];
         };
       };
-      response: string;
+      response: string | ModelCreateResponse | ModelCreateValidateResponse;
+    }
+  | {
+      type: 'framework-model-create-batch';
+      service: 'framework';
+      request: {
+        projectName: string;
+        models: Array<Record<string, unknown>>;
+        syncOnce?: boolean;
+      };
+      response: {
+        phase: 'done';
+        results: Array<{
+          modelPath: string;
+          modelName: string;
+          synced: boolean;
+          syncErrors?: string[];
+        }>;
+      };
     }
   | {
       type: 'framework-model-update';
       service: 'framework';
       request: {
         originalModelPath: string; // Path to the current model.json file
+        /** Optional when originalModelPath is omitted — resolved within projectName */
+        modelName?: string;
         modelJson: FrameworkModel; // Complete updated model JSON
         projectName: string;
       };
       response: string;
+    }
+  | {
+      type: 'framework-model-sync';
+      service: 'framework';
+      request: {
+        projectName: string;
+        /** When omitted, runs a full workspace JSON sync (all models/sources). */
+        modelName?: string;
+      };
+      response: {
+        success: boolean;
+        scope: 'full' | 'model';
+        modelName?: string;
+        modelPath?: string;
+        syncErrors?: string[];
+      };
     }
   | {
       type: 'framework-source-create';
@@ -194,6 +262,68 @@ export type FrameworkApi =
       service: 'framework';
       request: { modelName: string };
       response: FrameworkModel | null;
+    }
+  | {
+      type: 'framework-model-columns';
+      service: 'framework';
+      request: { modelName: string; projectName: string };
+      response: {
+        modelName: string;
+        columns: Array<{
+          name: string;
+          description?: string;
+          dataType?: string;
+          columnType?: 'dim' | 'fct';
+        }>;
+        manifestStale?: boolean;
+        hint?: string;
+      };
+    }
+  | {
+      type: 'framework-model-similar';
+      service: 'framework';
+      request: {
+        projectName: string;
+        modelName?: string;
+        fromModel?: string;
+        group?: string;
+        topic?: string;
+        tags?: string[];
+        limit?: number;
+      };
+      response: SimilarModelScore[];
+    }
+  | {
+      type: 'framework-model-data-check';
+      service: 'framework';
+      request: {
+        modelName: string;
+        projectName: string;
+        template:
+          | 'stranded_capacity'
+          | 'utilization_band'
+          | 'recent_partition_window';
+        params?: Record<string, string | number | boolean>;
+        useCompiledSql?: boolean;
+      };
+      response: { sql: string; description: string };
+    }
+  | {
+      type: 'framework-workflow-scaffold-explore';
+      service: 'framework';
+      request: {
+        projectName: string;
+        upstreamModelName: string;
+        group?: string;
+        topic?: string;
+      };
+      response: {
+        upstreamModelName: string;
+        suggestedIntName: string;
+        suggestedMartName: string;
+        similarModels: SimilarModelScore[];
+        lightdashLabelHint: string;
+      };
     }
   | {
       type: 'framework-close-panel';
@@ -234,6 +364,12 @@ export type FrameworkApi =
           type: 'dim' | 'fct';
           dataType: string;
         }>;
+        lightdash?: {
+          errors: string[];
+          warnings: string[];
+          fieldIds: string[];
+          metricNames: string[];
+        };
       };
     }
   | {
@@ -492,6 +628,10 @@ async function apiHandler(p: {
   type: 'framework-model-update';
   request: ApiRequest<'framework-model-update'>;
 }): Promise<ApiResponse<'framework-model-update'>>;
+async function apiHandler(p: {
+  type: 'framework-model-sync';
+  request: ApiRequest<'framework-model-sync'>;
+}): Promise<ApiResponse<'framework-model-sync'>>;
 async function apiHandler(p: {
   type: 'framework-source-create';
   request: ApiRequest<'framework-source-create'>;

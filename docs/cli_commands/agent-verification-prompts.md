@@ -103,15 +103,19 @@ COLUMNS`). Re-running for the same table should surface a downstream "already ex
 (exit `1`).
 
 **Prompt (preview → exists → create — the dry-run-before-write loop):**
-> Write this model payload to `/tmp/model.json`, then:
-> 1. `model.preview --file /tmp/model.json` — show the generated SQL / YAML / columns **without
->    writing**.
-> 2. `model.exists --file /tmp/model.json` — confirm it does **not** exist yet.
-> 3. `model.create --file /tmp/model.json` — create it; report the written path.
-> 4. `model.exists --file /tmp/model.json` again — confirm it now exists.
-> 5. `model.create --file /tmp/model.json` a second time — confirm it **fails** with an "already
->    exists" error (exit `1`).
+> Write three payloads under `/tmp/`:
+> - `/tmp/create.json` — **flat** body for `model.create` (below).
+> - `/tmp/preview.json` — `{ "modelJson": <same model object as create.json without projectName> }`.
+> - `/tmp/exists.json` — `{ "modelJson": { "type", "group", "topic", "name" } }` only.
 >
+> Then:
+> 1. `model.preview --file /tmp/preview.json` — show SQL / YAML / columns **without writing**.
+> 2. `model.exists --file /tmp/exists.json` — confirm it does **not** exist yet.
+> 3. `model.create --file /tmp/create.json` — create it; report the written path.
+> 4. `model.exists --file /tmp/exists.json` again — confirm it now exists (`filePath` from response).
+> 5. `model.create --file /tmp/create.json` a second time — confirm it **fails** (exit `1`).
+>
+> Flat **`create.json`** body:
 > ```json
 > {
 >   "type": "stg_select_source",
@@ -140,8 +144,8 @@ response:… }` and a `.model.json` on disk; second → exit `1`, "Model … alr
 **Expect:** exit `0`; the model file is merged/validated (relocated if name/topic/group changed).
 
 **Prompt (cte-analysis):**
-> Run `model.cte-analysis` on a CTE-style model payload and report the per-CTE inferred columns and
-> any diagnostics.
+> Run `model.cte-analysis --file <path>` with `{ "modelJson": { …CTE model… } }` and report the
+> per-CTE inferred columns and any diagnostics.
 
 **Expect:** exit `0`; `{ columns{}, diagnostics[] }`. This is a **read** op (no write).
 

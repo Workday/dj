@@ -1,0 +1,13 @@
+{
+  "modelJson": {
+    "type": "stg_select_source",
+    "group": "core",
+    "topic": "sales",
+    "name": "customers",
+    "from": { "source": "raw__public.customers" },
+    "select": [
+      { "name": "id", "type": "dim" },
+      { "name": "name" }
+    ]
+  }
+}

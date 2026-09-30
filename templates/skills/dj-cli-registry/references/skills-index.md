@@ -10,7 +10,8 @@ All DJ agent skills deployed to `.agents/skills/` when `dj.codingAgent` is enabl
 
 | Skill | Trigger intents | Primary CLI ops | CLI? |
 |-------|----------------|-----------------|------|
-| `dj-create-new-model` | create, scaffold, add staging/intermediate/mart model | `model.create`, `model.preview`, `model.exists`, `trino.columns`, `dbt.models`, `dbt.sources` | Yes |
+| `dj-create-new-model` | create, scaffold, add staging/intermediate/mart model | Discover: `dbt.models.search`, `model.get`, `model.columns`, `model.similar`, `lightdash.assets`, `workflow.scaffold-explore`, `trino.*`, `model.lineage`. Author: `model.preview`, `model.exists`, `model.create`, `model.create-batch`. Post-create: `dbt.compile`, `model.query`, `model.data-check` | Yes |
+| `dj-pr-preflight` | branch/PR validate compile, lineage, data check | `dbt.modified-models`, `model.sync`, `dbt.parse`, `dbt.compile`, `model.lineage`, `model.query`, `model.data-check` | Yes |
 | `dj-convert-sql-to-model` | formalize existing SQL query as model | `model.preview`, `model.create` | Yes |
 | `dj-create-source` | register raw Trino table as `.source.json` | `source.create`, `trino.columns`, `trino.tables` | Yes |
 | `dj-review-and-refactor-model` | review, audit, modernize, refactor `.model.json` | `model.preview`, `model.update`, `model.cte-analysis` | Yes |
@@ -22,9 +23,9 @@ All DJ agent skills deployed to `.agents/skills/` when `dj.codingAgent` is enabl
 
 | Skill | Trigger intents | Primary CLI ops | CLI? |
 |-------|----------------|-----------------|------|
-| `dj-create-python-model` | create Python ETL model, ingestion, API fetch | — | No |
-| `dj-review-python-model` | review/audit Python model for production | — | No |
-| `dj-migrate-notebook-to-pymodel` | migrate Jupyter notebook to python model | — | No |
+| `dj-create-python-model` | create Python ETL model, ingestion, API fetch | `trino.columns`, `trino.tables`, `source.create` | Partial |
+| `dj-review-python-model` | review/audit Python model for production | `dbt.sources`, `model.lineage` (discovery) | Partial |
+| `dj-migrate-notebook-to-pymodel` | migrate notebook or legacy `.py` to python model | `trino.columns`, `trino.tables` (plan validation) | Partial |
 | `dj-verify-pymodel-parity` | verify python model output vs legacy table | `query.execute` | Partial |
 | `dj-document-pymodels` | generate topic README for python models | — | No |
 
@@ -72,13 +73,13 @@ All DJ agent skills deployed to `.agents/skills/` when `dj.codingAgent` is enabl
 | `dbt.modified-models` | `dj-run-dbt` |
 | `dbt.compiled-status` | `dj-run-dbt`, `dj-review-and-refactor-model` |
 | `dbt.model-outdated` | `dj-run-dbt`, `dj-review-and-refactor-model` |
-| `dbt.compile` | `dj-run-dbt`, `dj-convert-sql-to-model` |
+| `dbt.compile` | `dj-run-dbt`, `dj-convert-sql-to-model`, `dj-create-new-model` |
 | `dbt.compile-logs` | `dj-run-dbt` |
 | `dbt.parse` | `dj-run-dbt`, `dj-create-new-model` (manifest refresh) |
 | `dbt.run` | `dj-run-dbt` |
-| `trino.catalogs` | `dj-create-source`, `dj-run-trino` |
-| `trino.schemas` | `dj-create-source`, `dj-run-trino` |
-| `trino.tables` | `dj-create-source`, `dj-run-trino` |
+| `trino.catalogs` | `dj-create-source`, `dj-create-new-model`, `dj-run-trino` |
+| `trino.schemas` | `dj-create-source`, `dj-create-new-model`, `dj-run-trino` |
+| `trino.tables` | `dj-create-source`, `dj-create-new-model`, `dj-run-trino` |
 | `trino.columns` | `dj-create-new-model`, `dj-create-source`, `dj-run-trino` |
 | `model.create` | `dj-create-new-model`, `dj-convert-sql-to-model` |
 | `model.update` | `dj-review-and-refactor-model`, `dj-migrate-ephemerals-to-ctes` |
@@ -86,8 +87,8 @@ All DJ agent skills deployed to `.agents/skills/` when `dj.codingAgent` is enabl
 | `model.exists` | `dj-create-new-model` |
 | `model.cte-analysis` | `dj-review-and-refactor-model` |
 | `source.create` | `dj-create-source` |
-| `model.compiled-sql` | `dj-create-lightdash-yaml`, `dj-edit-lightdash-yaml` |
-| `model.lineage` | `dj-create-lightdash-yaml`, `dj-edit-lightdash-yaml` |
-| `model.query` | `dj-run-trino` (model data preview) |
+| `model.compiled-sql` | `dj-create-new-model`, `dj-create-lightdash-yaml`, `dj-edit-lightdash-yaml` |
+| `model.lineage` | `dj-create-new-model`, `dj-create-lightdash-yaml`, `dj-edit-lightdash-yaml` |
+| `model.query` | `dj-create-new-model`, `dj-run-trino` (model data preview) |
 | `model.reverse-lineage` | `dj-create-lightdash-yaml` |
-| `query.execute` | `dj-run-trino`, `dj-verify-pymodel-parity` |
+| `query.execute` | `dj-create-new-model` (upstream spot-check), `dj-run-trino`, `dj-verify-pymodel-parity` |

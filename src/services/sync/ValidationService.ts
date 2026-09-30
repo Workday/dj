@@ -30,6 +30,7 @@ import {
   validateCteRollupSource,
   validateCtes,
   validateExcludeDatetimeRollupConflict,
+  validateRollupInterval,
   validateSubqueries,
 } from '@services/modelValidation';
 import type {
@@ -192,6 +193,18 @@ export class ValidationService {
       return {
         valid: false,
         error: message,
+        pathJson,
+      };
+    }
+
+    const rollupIntervalErrors = validateRollupInterval(modelJson);
+    if (rollupIntervalErrors.length > 0) {
+      const message = rollupIntervalErrors.map((e) => e.message).join('\n');
+      this.logger.error?.(`Rollup interval invalid for ${pathJson}:`, message);
+      return {
+        valid: false,
+        error: message,
+        errors: rollupIntervalErrors,
         pathJson,
       };
     }
