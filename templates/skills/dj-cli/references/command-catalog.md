@@ -29,15 +29,15 @@ Run `.dj/bin/dj system.capabilities` for the live operation list with `sideEffec
 | Op | sideEffect | Required fields | Example |
 |----|------------|-----------------|--------|
 | `dbt.projects` | read | — | `{}` |
-| `dbt.models` | read | — | `{ "projectName": "opus" }` |
+| `dbt.models` | read | — | `{ "projectName": "my_project" }` |
 | `dbt.models.search` | read | — | `examples/dbt-models-search.request.json` |
 | `dbt.sources` | read | — | `{}` |
-| `dbt.modified-models` | read | — | `{ "projectName": "opus" }` |
+| `dbt.modified-models` | read | — | `{ "projectName": "my_project" }` |
 | `dbt.compiled-status` | read | `modelName` | `--modelName stg__…` or JSON |
 | `dbt.model-outdated` | read | `modelName` | `{ "modelName": "stg__…" }` |
 | `model.get` | read | `modelName` | `{ "modelName": "int__…" }` |
 | `model.columns` | read | `modelName` | `examples/model-columns.request.json` |
-| `model.similar` | read | anchors | `{ "fromModel": "int__…", "projectName": "opus" }` |
+| `model.similar` | read | anchors | `{ "fromModel": "int__…", "projectName": "my_project" }` |
 | `lightdash.assets` | read | — | `{ "query": "wpc" }` optional |
 | `workflow.scaffold-explore` | read | `upstreamModelName` | `{ "upstreamModelName": "int__…" }` |
 
@@ -48,7 +48,7 @@ Run `.dj/bin/dj system.capabilities` for the live operation list with `sideEffec
 | Op | sideEffect | Required fields | Example |
 |----|------------|-----------------|--------|
 | `trino.catalogs` | read | — | `{}` |
-| `trino.schemas` | read | `catalog` | `{ "catalog": "opus_raw_dl" }` |
+| `trino.schemas` | read | `catalog` | `{ "catalog": "my_catalog" }` |
 | `trino.tables` | read | `catalog`, `schema` | `{ "catalog": "…", "schema": "…" }` |
 | `trino.columns` | read | `catalog`, `schema`, `table` | `{ "catalog": "…", "schema": "…", "table": "…" }` |
 
@@ -76,7 +76,7 @@ Run `.dj/bin/dj system.capabilities` for the live operation list with `sideEffec
 | `dbt.compile` | mutate | `modelName` **or** `select` | `examples/dbt-compile.request.json` or `--select "a b"` |
 | `dbt.compile-select` | mutate | `select` | `{ "select": "mart__a int__b" }` |
 | `dbt.compile-logs` | mutate | `modelName` or `select` | same as compile |
-| `dbt.parse` | mutate | — | `{ "projectName": "opus" }` |
+| `dbt.parse` | mutate | — | `{ "projectName": "my_project" }` |
 | `dbt.run` | mutate | run config | `examples/dbt-run.request.json` — **user Yes/No first** |
 
 **Compile note:** do not use `modelNames` array — use `"select": "m1 m2"` or a single `modelName`.

@@ -146,7 +146,7 @@ SELECT
   fy_qtr,
   COALESCE(CAST(REGEXP_REPLACE(annual_target, '[^0-9.]', '') AS DOUBLE), 0) AS annual_target,
   COALESCE(CAST(REGEXP_REPLACE(actual_amount, '[^0-9.]', '') AS DOUBLE), 0) AS actual_amount
-FROM gsheets_opus.default.savings_tracker
+FROM gsheets.default.savings_tracker
 ```
 
 ### Output `.model.json`
@@ -158,7 +158,7 @@ FROM gsheets_opus.default.savings_tracker
   "topic": "savings_tracker",
   "name": "costs",
   "from": {
-    "source": "gsheets_opus__default.savings_tracker",
+    "source": "gsheets__default.savings_tracker",
   },
   "select": [
     { "name": "fiscal_year" },

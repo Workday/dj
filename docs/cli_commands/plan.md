@@ -108,7 +108,7 @@ category:
 
 ## Verification
 
-Run against the live `opus` workspace (`projectName: "opus"`):
+Run against the live `my_project` workspace (`projectName: "my_project"`):
 
 - `.dj/bin/dj system.capabilities` lists every new op with the correct `sideEffect`.
 - **Read round-trips:** `trino.catalogs`, `trino.schemas`, `trino.columns` for a known table,

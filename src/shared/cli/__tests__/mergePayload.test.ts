@@ -4,11 +4,11 @@ describe('mergeCliPayload', () => {
   it('overlays flags onto file payload', () => {
     const merged = mergeCliPayload(
       { modelName: 'old' },
-      { modelName: 'mart__a__b__c', projectName: 'opus' },
+      { modelName: 'mart__a__b__c', projectName: 'my_project' },
     );
     expect(merged).toEqual({
       modelName: 'mart__a__b__c',
-      projectName: 'opus',
+      projectName: 'my_project',
     });
   });
 

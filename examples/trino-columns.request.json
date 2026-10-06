@@ -1,5 +1,5 @@
 {
-  "catalog": "opus_raw_dl",
-  "schema": "pharos_metrics_views",
+  "catalog": "my_catalog",
+  "schema": "my_schema",
   "table": "node_cpu_hourly_cost_view"
 }

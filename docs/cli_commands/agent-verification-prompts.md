@@ -12,7 +12,7 @@ itself; every command lists what a passing result looks like so you can verify b
 ## Prerequisites
 
 1. **VS Code is running** with the DJ extension active on a workspace that has a dbt project.
-   The examples below assume the **`opus`** project; substitute your own project name.
+   The examples below assume the **`my_project`** project; substitute your own project name.
 2. `.dj/bin/dj` exists and is executable (the extension deploys it on activation). Verify:
    ```bash
    .dj/bin/dj system.ping
@@ -25,13 +25,13 @@ itself; every command lists what a passing result looks like so you can verify b
 
 ### Placeholders to substitute
 
-| Placeholder | Example (opus) |
+| Placeholder | Example (my_project) |
 |---|---|
-| `<project>` | `opus` |
-| `<catalog>` | `opus_raw_dl` |
-| `<schema>` | `pharos_metrics_views` |
+| `<project>` | `my_project` |
+| `<catalog>` | `my_catalog` |
+| `<schema>` | `my_schema` |
 | `<table>` | `node_cpu_hourly_cost_view` |
-| `<model>` | `stg__mlde__pharos__node_cpu_daily_cost` |
+| `<model>` | `stg__mlde__metrics__node_cpu_daily_cost` |
 
 Tell the agent: **discover real values first** (catalogs → schemas → tables → columns; projects →
 models) and reuse them in later commands instead of guessing.
@@ -121,7 +121,7 @@ COLUMNS`). Re-running for the same table should surface a downstream "already ex
 >   "type": "stg_select_source",
 >   "projectName": "<project>",
 >   "group": "mlde",
->   "topic": "pharos",
+>   "topic": "metrics",
 >   "name": "node_cpu_daily_cost",
 >   "from": { "source": "<catalog>__<schema>.<table>" },
 >   "select": [

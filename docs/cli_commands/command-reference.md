@@ -72,7 +72,7 @@ flow as the visual editor, driven by JSON.*
 |---|---|---|---|
 | `model.create` | `framework-model-create` | Create a new model definition file (`.model.json`) and auto-sync SQL/YML; optional `validateOnly` | `.dj/bin/dj model.create --file examples/model-create.request.json --timeout 600000` *(flat file)* |
 | `model.create-batch` | `framework-model-create-batch` | Create multiple models with one sync at the end | `.dj/bin/dj model.create-batch --file batch.json --timeout 600000` |
-| `model.sync` | `framework-model-sync` | Generate/refresh workspace `.sql`/`.yml` from JSON (optional single model) | `.dj/bin/dj model.sync --modelName int__g__t__n --projectName opus` |
+| `model.sync` | `framework-model-sync` | Generate/refresh workspace `.sql`/`.yml` from JSON (optional single model) | `.dj/bin/dj model.sync --modelName int__g__t__n --projectName my_project` |
 | `source.create` | `framework-source-create` | Create a source definition from a Trino table (columns auto-introspected) | `.dj/bin/dj source.create --file examples/source-create.request.json` *(flat file)* |
 | `model.update` | `framework-model-update` | Update an existing model (merge, validate, relocate on rename) | `.dj/bin/dj model.update --file examples/model-update.request.json` |
 | `model.preview` | `framework-model-preview` | Dry-run — return the generated SQL / YAML / columns **without writing** | `.dj/bin/dj model.preview --file examples/model-preview.request.json` *(modelJson or flat)* |
@@ -94,14 +94,14 @@ hallucinated names.*
 | `dbt.sources` | `dbt-fetch-sources` | List declared dbt sources | `.dj/bin/dj dbt.sources` |
 | `dbt.models` | `dbt-fetch-available-models` | List model names in a project | `.dj/bin/dj dbt.models --file examples/dbt-project.request.json` |
 | `dbt.models.search` | `dbt-search-models` | Search models with filters (pattern, topic, tags, Lightdash label, …) | `.dj/bin/dj dbt.models.search --file examples/dbt-models-search.request.json` |
-| `model.get` | `framework-get-model-data` | Read an existing `.model.json` | `.dj/bin/dj model.get --modelName int__g__t__n --projectName opus` |
+| `model.get` | `framework-get-model-data` | Read an existing `.model.json` | `.dj/bin/dj model.get --modelName int__g__t__n --projectName my_project` |
 | `model.columns` | `framework-model-columns` | Column list from manifest (dim/fct, types) | `.dj/bin/dj model.columns --file examples/model-columns.request.json` |
-| `model.similar` | `framework-model-similar` | Peer models (same upstream, group, topic) | `.dj/bin/dj model.similar --modelName int__g__t__n --projectName opus` |
+| `model.similar` | `framework-model-similar` | Peer models (same upstream, group, topic) | `.dj/bin/dj model.similar --modelName int__g__t__n --projectName my_project` |
 | `lightdash.assets` | `data-explorer-list-lightdash-assets` | Dashboard/chart list with optional `query` filter | `.dj/bin/dj lightdash.assets --file examples/lightdash-assets.request.json` |
 | `workflow.scaffold-explore` | `framework-workflow-scaffold-explore` | Suggested int/mart names for a new explore | `.dj/bin/dj workflow.scaffold-explore --file examples/workflow-scaffold-explore.request.json` |
 | `dbt.modified-models` | `dbt-fetch-modified-models` | List models changed vs. the base ref (build/run scope) | `.dj/bin/dj dbt.modified-models --file examples/dbt-modified-models.request.json` |
-| `dbt.compiled-status` | `dbt-check-compiled-status` | Whether a model is compiled (+ path / timestamp) | `.dj/bin/dj dbt.compiled-status --modelName int__g__t__n --projectName opus` |
-| `dbt.model-outdated` | `dbt-check-model-outdated` | Whether a model's compiled output is stale | `.dj/bin/dj dbt.model-outdated --modelName int__g__t__n --projectName opus` |
+| `dbt.compiled-status` | `dbt-check-compiled-status` | Whether a model is compiled (+ path / timestamp) | `.dj/bin/dj dbt.compiled-status --modelName int__g__t__n --projectName my_project` |
+| `dbt.model-outdated` | `dbt-check-model-outdated` | Whether a model's compiled output is stale | `.dj/bin/dj dbt.model-outdated --modelName int__g__t__n --projectName my_project` |
 
 ## Mutate
 
@@ -111,7 +111,7 @@ not just static checks.*
 | CLI op | API | What it does | Agent example |
 |---|---|---|---|
 | `dbt.compile` | `dbt-model-compile` | Compile via `modelName` or `select` (unknown keys rejected) | `.dj/bin/dj dbt.compile --file examples/dbt-compile.request.json` |
-| `dbt.compile-select` | `dbt-model-compile` | Same as compile with `{ "select": "…" }` only | `.dj/bin/dj dbt.compile-select --select "mart__a int__b" --projectName opus` |
+| `dbt.compile-select` | `dbt-model-compile` | Same as compile with `{ "select": "…" }` only | `.dj/bin/dj dbt.compile-select --select "mart__a int__b" --projectName my_project` |
 | `dbt.compile-logs` | `dbt-compile-with-logs` | Compile a model (log-emitting variant) | `.dj/bin/dj dbt.compile-logs --file examples/dbt-compile.request.json` |
 | `dbt.parse` | `dbt-parse-project` | Parse the project and refresh the manifest | `.dj/bin/dj dbt.parse --file examples/dbt-project.request.json --timeout 600000` |
 | `dbt.run` | `dbt-run-model` | Run a model via dbt (output streams to the VS Code terminal) | `.dj/bin/dj dbt.run --file examples/dbt-run.request.json` |
@@ -123,7 +123,7 @@ all read-only.*
 
 | CLI op | API | What it does | Agent example |
 |---|---|---|---|
-| `model.compiled-sql` | `data-explorer-get-compiled-sql` | Read a model's compiled SQL | `.dj/bin/dj model.compiled-sql --modelName int__g__t__n --projectName opus` |
+| `model.compiled-sql` | `data-explorer-get-compiled-sql` | Read a model's compiled SQL | `.dj/bin/dj model.compiled-sql --modelName int__g__t__n --projectName my_project` |
 | `model.query` | `data-explorer-execute-query` | Run **compiled SQL** for a model via Trino (adds `LIMIT` if missing). Works for ephemeral, view, and table materializations — it does not scan the deployed warehouse relation. For fleet checks on a materialized table, use `query.execute` against the catalog relation or run `dbt.run` first. | `.dj/bin/dj model.query --file examples/model-query.request.json` |
 | `query.execute` | `query-draft-execute` | Run an arbitrary read-only `SELECT` | `.dj/bin/dj query.execute --file examples/query-execute.request.json` |
 | `model.lineage` | `data-explorer-get-model-lineage` | Upstream/downstream lineage (CLI defaults to full upstream chain; optional `depth`, `maxNodes`) | `.dj/bin/dj model.lineage --file examples/model-lineage.request.json` |
@@ -160,7 +160,7 @@ all read-only.*
 
 # Query & data read
 .dj/bin/dj model.lineage --file examples/model-lineage.request.json
-.dj/bin/dj model.compiled-sql --modelName stg__mlde__pharos__node_cpu_daily_cost --projectName opus
+.dj/bin/dj model.compiled-sql --modelName stg__mlde__metrics__node_cpu_daily_cost --projectName my_project
 .dj/bin/dj query.execute --file examples/query-execute.request.json
 ```
 
@@ -169,11 +169,11 @@ Example **`model.create`** body (flat — see `examples/model-create.request.jso
 ```json
 {
   "type": "stg_select_source",
-  "projectName": "opus",
+  "projectName": "my_project",
   "group": "mlde",
-  "topic": "pharos",
+  "topic": "metrics",
   "name": "node_cpu_daily_cost",
-  "from": { "source": "opus_raw_dl__pharos_metrics_views.node_cpu_hourly_cost_view" },
+  "from": { "source": "my_catalog__my_schema.node_cpu_hourly_cost_view" },
   "select": [
     "node",
     { "name": "cost_date",  "expr": "date(hour)", "type": "date" },
@@ -189,9 +189,9 @@ Example **`model.preview`** envelope:
   "modelJson": {
     "type": "stg_select_source",
     "group": "mlde",
-    "topic": "pharos",
+    "topic": "metrics",
     "name": "node_cpu_daily_cost",
-    "from": { "source": "opus_raw_dl__pharos_metrics_views.node_cpu_hourly_cost_view" },
+    "from": { "source": "my_catalog__my_schema.node_cpu_hourly_cost_view" },
     "select": ["node", { "name": "daily_cost", "expr": "sum(cost)", "type": "double" }]
   }
 }

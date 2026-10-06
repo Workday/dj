@@ -103,7 +103,7 @@ identical, so a model authored against it is safe either way.
 
 ```jsonc
 {
-  "database": "gsheets_opus", // Trino catalog (lowercase, matches folder + name prefix)
+  "database": "gsheets", // Trino catalog (lowercase, matches folder + name prefix)
   "schema": "default", // Trino schema
   // "freshness": null,          // optional — null disables dbt freshness checks
   "tables": [

@@ -161,7 +161,7 @@ const HELP_BY_NAME: Record<string, OperationHelp> = {
     payloadRequired: 'required',
     preferredInvoke: 'fileAndFlags',
     allowedFlags: [...MODEL_NAME_FLAGS],
-    exampleCommand: `${DJ} dbt.compiled-status --modelName int__g__t__name --projectName opus`,
+    exampleCommand: `${DJ} dbt.compiled-status --modelName int__g__t__name --projectName my_project`,
     payloadNotes: 'Requires modelName; use --file or --modelName.',
   }),
   'dbt.model-outdated': help({
@@ -171,7 +171,7 @@ const HELP_BY_NAME: Record<string, OperationHelp> = {
     payloadRequired: 'required',
     preferredInvoke: 'fileAndFlags',
     allowedFlags: [...MODEL_NAME_FLAGS],
-    exampleCommand: `${DJ} dbt.model-outdated --modelName int__g__t__name --projectName opus`,
+    exampleCommand: `${DJ} dbt.model-outdated --modelName int__g__t__name --projectName my_project`,
   }),
   'trino.catalogs': help({
     operation: 'trino.catalogs',
@@ -221,7 +221,7 @@ const HELP_BY_NAME: Record<string, OperationHelp> = {
     payloadRequired: 'required',
     preferredInvoke: 'fileAndFlags',
     allowedFlags: [...MODEL_NAME_FLAGS],
-    exampleCommand: `${DJ} model.get --modelName int__g__t__name --projectName opus`,
+    exampleCommand: `${DJ} model.get --modelName int__g__t__name --projectName my_project`,
   }),
   'model.columns': help({
     operation: 'model.columns',
@@ -240,7 +240,7 @@ const HELP_BY_NAME: Record<string, OperationHelp> = {
     payloadRequired: 'optional',
     preferredInvoke: 'fileAndFlags',
     allowedFlags: [...PROJECT_FLAGS, '--modelName'],
-    exampleCommand: `${DJ} model.similar --modelName int__g__t__name --projectName opus`,
+    exampleCommand: `${DJ} model.similar --modelName int__g__t__name --projectName my_project`,
   }),
   'lightdash.assets': help({
     operation: 'lightdash.assets',
@@ -271,7 +271,7 @@ const HELP_BY_NAME: Record<string, OperationHelp> = {
     payloadRequired: 'optional',
     preferredInvoke: 'fileAndFlags',
     allowedFlags: [...PROJECT_FLAGS, '--modelName'],
-    exampleCommand: `${DJ} model.sync --modelName int__g__t__name --projectName opus`,
+    exampleCommand: `${DJ} model.sync --modelName int__g__t__name --projectName my_project`,
     payloadNotes: 'Omit modelName for full sync.',
   }),
   'model.create-batch': help({
@@ -391,7 +391,7 @@ const HELP_BY_NAME: Record<string, OperationHelp> = {
     payloadRequired: 'required',
     preferredInvoke: 'fileAndFlags',
     allowedFlags: [...PROJECT_FLAGS, '--select', ...COMMON_FLAGS],
-    exampleCommand: `${DJ} dbt.compile-select --select "mart__a int__b" --projectName opus`,
+    exampleCommand: `${DJ} dbt.compile-select --select "mart__a int__b" --projectName my_project`,
   }),
   'dbt.parse': help({
     operation: 'dbt.parse',
@@ -432,7 +432,7 @@ const HELP_BY_NAME: Record<string, OperationHelp> = {
     payloadRequired: 'required',
     preferredInvoke: 'fileAndFlags',
     allowedFlags: [...MODEL_NAME_FLAGS],
-    exampleCommand: `${DJ} model.compiled-sql --modelName int__g__t__name --projectName opus`,
+    exampleCommand: `${DJ} model.compiled-sql --modelName int__g__t__name --projectName my_project`,
   }),
   'model.query': help({
     operation: 'model.query',

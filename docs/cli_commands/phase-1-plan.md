@@ -118,7 +118,7 @@ register({ name: 'trino.columns', sideEffect: 'read',
 
 ## Testing (extends the shipped smoke suite)
 
-Run against the live `opus` workspace (`projectName: "opus"`):
+Run against the live `my_project` workspace (`projectName: "my_project"`):
 - `.dj/bin/dj system.capabilities` lists every new op with the right `sideEffect`.
 - **Read round-trips:** `trino.catalogs`, `trino.schemas --json '{"request":{"catalog":"…"}}'`,
   `trino.columns` for a known table, `dbt.projects`, `dbt.models`, `dbt.compiled-status`.

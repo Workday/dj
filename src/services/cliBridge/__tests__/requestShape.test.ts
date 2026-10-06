@@ -76,11 +76,11 @@ describe('requestShape', () => {
       }),
     ).toThrow(/unknown key/);
     expect(() =>
-      normalizeDbtCompileRequest('dbt.compile', { projectName: 'opus' }),
+      normalizeDbtCompileRequest('dbt.compile', { projectName: 'my_project' }),
     ).toThrow(/modelName.*select/);
     const normalized = normalizeDbtCompileRequest('dbt.compile', {
       select: 'mart__a int__b',
-      projectName: 'opus',
+      projectName: 'my_project',
     });
     expect(normalized.select).toBe('mart__a int__b');
   });

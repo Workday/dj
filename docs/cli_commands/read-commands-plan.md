@@ -118,17 +118,17 @@ registerRead('trino.columns',       'trino-fetch-columns',         'List a table
    unknown-op error.
 5. Update `command-reference.md` examples if any op name/shape changed (they match today).
 
-## Verification (against live `opus`)
+## Verification (against live `my_project`)
 
 ```bash
 .dj/bin/dj system.capabilities          # lists the new read ops as sideEffect=read
 .dj/bin/dj dbt.projects
-.dj/bin/dj dbt.models  --json '{"projectName":"opus"}'   # <- available models for `from`
+.dj/bin/dj dbt.models  --json '{"projectName":"my_project"}'   # <- available models for `from`
 .dj/bin/dj dbt.sources
 .dj/bin/dj trino.catalogs
-.dj/bin/dj trino.schemas --json '{"catalog":"opus_raw_dl"}'
-.dj/bin/dj trino.tables  --json '{"catalog":"opus_raw_dl","schema":"pharos_metrics_views"}'
-.dj/bin/dj trino.columns --json '{"catalog":"opus_raw_dl","schema":"pharos_metrics_views","table":"node_cpu_hourly_cost_view"}'
+.dj/bin/dj trino.schemas --json '{"catalog":"my_catalog"}'
+.dj/bin/dj trino.tables  --json '{"catalog":"my_catalog","schema":"my_schema"}'
+.dj/bin/dj trino.columns --json '{"catalog":"my_catalog","schema":"my_schema","table":"node_cpu_hourly_cost_view"}'
 ```
 
 Negative: bad/missing payload for a non-nullable op → exit 2/1 with a clear message.
