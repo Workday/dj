@@ -15,6 +15,10 @@
 - **`dj-create-new-model` phased DJ CLI workflow.** The skill documents discover (`dbt.*`, full `trino.*` chain, lineage), preview/create, then compile, compiled SQL, model preview, and optional read-only `query.execute` on upstream sources — without using `dbt.run` from the create path.
 - **DJ CLI authoring payload docs and validation.** `dj-cli` and `docs/cli_commands/command-reference.md` document flat `model.create` vs wrapped `modelJson` for preview/exists/update/cte-analysis; repo examples under `examples/model-*.request.json`. The CLI returns actionable errors when `modelJson` or `originalModelPath` is missing instead of opaque handler failures.
 
+### Security
+
+- **Dependency upgrades for Snyk findings.** Bumps `fast-uri` and `brace-expansion` to patched versions that address reported URI-parsing, ReDoS, and uncontrolled-recursion vulnerabilities.
+
 ## 2.3.0
 
 ### Framework
