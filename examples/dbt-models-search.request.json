@@ -1,0 +1,7 @@
+{
+  "projectName": "your_dbt_project",
+  "pattern": "*capacity*",
+  "topic": "your_topic",
+  "group": "your_group",
+  "requireLightdashExploreTag": true
+}

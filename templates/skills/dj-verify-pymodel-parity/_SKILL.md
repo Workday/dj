@@ -19,6 +19,11 @@ metadata:
 
 **Goal:** generate Trino SQL that proves (or disproves) a new python model's output table matches an old/reference table, so the user can confirm a migration or rebuild produced the same data before retiring the old source. This skill is **read-only with respect to model files** — it only produces SQL and a report; it never edits `.python.json` / `.model.json`, and it never executes SQL itself.
 
+## DJ CLI (preferred when DJ is running)
+
+When `.dj/bin/dj system.ping` succeeds, use: `query.execute` to run the generated parity SQL instead of raw `trino-cli`.
+Invocation patterns and fallbacks → `dj-cli`. Full skill/CLI routing → `dj-cli-registry`.
+
 ## When this skill applies
 
 Use this skill when the user mentions: verify parity, check parity, compare tables, row-by-row check, does the new table match the old one, or wants to validate a python model's output against a legacy table after a migration or rebuild.

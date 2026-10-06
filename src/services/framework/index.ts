@@ -30,6 +30,7 @@ import type { ApiEnabledService } from '@services/types';
 import { showOrOpenFile } from '@services/utils/fileNavigation';
 import { assertExhaustive, jsonParse } from '@shared';
 import type { ApiPayload, ApiResponse } from '@shared/api/types';
+import { apiResponse } from '@shared/api/utils';
 import type { DbtProject, DbtResourceType } from '@shared/dbt/types';
 import type {
   FrameworkDataType,
@@ -74,6 +75,7 @@ import {
   generateTrinoIoPy,
   workspaceHasPythonModels,
 } from './utils';
+import { resolveModelJsonPath } from './utils/resolve-model-json-path';
 
 /**
  * Dependencies required by the Framework service.
@@ -306,6 +308,72 @@ export class Framework implements ApiEnabledService<'framework'> {
     return this.syncQueue.isSyncing();
   }
 
+  waitForSyncIdle(timeoutMs = 120_000): Promise<SyncResult | undefined> {
+    return this.syncQueue.waitForIdle(timeoutMs);
+  }
+
+  /**
+   * JSON→SQL/YML sync for agents and CLI (`model.sync`). Does not run dbt compile.
+   */
+  async handleModelSync(
+    payload: Extract<ApiPayload<'framework'>, { type: 'framework-model-sync' }>,
+  ): Promise<ApiResponse> {
+    const { projectName, modelName } = payload.request;
+    const project = this.dbt.projects.get(projectName);
+    if (!project) {
+      throw new Error(`Project ${projectName} not found`);
+    }
+
+    if (!modelName) {
+      this.syncQueue.enqueueFullSync();
+      const result = await this.waitForSyncIdle();
+      const syncErrors =
+        result?.errors?.map((e) => e.message).filter(Boolean) ?? [];
+      return apiResponse<typeof payload.type>({
+        success: result?.success ?? true,
+        scope: 'full',
+        syncErrors: syncErrors.length ? syncErrors : undefined,
+      });
+    }
+
+    const modelPath = await resolveModelJsonPath({
+      modelName,
+      project,
+      dbt: this.dbt,
+    });
+    if (!modelPath) {
+      throw new Error(
+        `Model ${modelName} not found under project ${projectName}`,
+      );
+    }
+
+    const info = await this.coder.fetchFileInfoFromPath(modelPath);
+    if (!info || info.type !== 'framework-model') {
+      throw new Error(`Could not load framework model at ${modelPath}`);
+    }
+
+    const modelId = frameworkGetModelId({
+      modelJson: info.modelJson,
+      project,
+    });
+    if (!modelId) {
+      throw new Error(`Unable to determine model ID for ${modelName}`);
+    }
+
+    this.syncQueue.enqueue(modelId, modelPath);
+    const result = await this.waitForSyncIdle();
+    const syncErrors =
+      result?.errors?.map((e) => e.message).filter(Boolean) ?? [];
+
+    return apiResponse<typeof payload.type>({
+      success: result?.success ?? true,
+      scope: 'model',
+      modelName,
+      modelPath,
+      syncErrors: syncErrors.length ? syncErrors : undefined,
+    });
+  }
+
   /**
    * Main API handler for framework-related operations.
    * Routes requests to appropriate handlers based on payload type.
@@ -315,8 +383,14 @@ export class Framework implements ApiEnabledService<'framework'> {
       case 'framework-model-create':
         return await this.modelCrudHandlers.handleModelCreate(payload);
 
+      case 'framework-model-create-batch':
+        return await this.modelCrudHandlers.handleModelCreateBatch(payload);
+
       case 'framework-model-update':
         return await this.modelCrudHandlers.handleModelUpdate(payload);
+
+      case 'framework-model-sync':
+        return await this.handleModelSync(payload);
 
       case 'framework-model-preview':
         return this.modelCrudHandlers.handleModelPreview(payload);
@@ -480,6 +554,18 @@ export class Framework implements ApiEnabledService<'framework'> {
 
       case 'framework-get-model-data':
         return await this.modelDataHandlers.handleGetModelData(payload);
+
+      case 'framework-model-columns':
+        return this.modelDataHandlers.handleModelColumns(payload);
+
+      case 'framework-model-similar':
+        return this.modelDataHandlers.handleModelSimilar(payload);
+
+      case 'framework-workflow-scaffold-explore':
+        return this.modelDataHandlers.handleWorkflowScaffoldExplore(payload);
+
+      case 'framework-model-data-check':
+        return this.modelDataHandlers.handleModelDataCheck(payload);
 
       case 'framework-check-model-exists':
         return await this.modelDataHandlers.handleCheckModelExists(payload);
@@ -1269,7 +1355,7 @@ export class Framework implements ApiEnabledService<'framework'> {
     }
 
     // Enqueue sync via state-driven queue
-    this.syncQueue.enqueue(modelId);
+    this.syncQueue.enqueue(modelId, filePath);
   }
 
   /**

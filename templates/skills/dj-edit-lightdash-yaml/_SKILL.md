@@ -34,6 +34,10 @@ restricted-projects guardrail, see `.agents/dj/reference/running-lightdash.md`.
   or — for a genuinely new asset — switch to the **`dj-create-lightdash-yaml`**
   skill.
 
+## DJ CLI (preferred when DJ is running)
+
+When `.dj/bin/dj system.ping` succeeds, use `model.lineage`, `model.compiled-sql`, and `model.reverse-lineage` to validate chart field references against the DJ model graph. Invocation patterns → `dj-cli`.
+
 ## Workflow
 
 1. **Locate the file.** Charts live at `<dashboardsAsCodePath>/charts/<slug>.yml`,

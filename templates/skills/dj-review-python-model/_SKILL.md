@@ -29,6 +29,16 @@ Use this skill when the user mentions: review python model, audit python model, 
 - Verifying the model's output *data* against a legacy/reference table (this skill audits code, not data) → `dj-verify-pymodel-parity`
 - Migrating a legacy notebook into a python model before it can be reviewed → `dj-migrate-notebook-to-pymodel`
 
+## Step 0 — Resolve project defaults (before review)
+
+1. Read `.agents/project/skills/dj-review-python-model/project-defaults.md` if it exists.
+2. Read `.agents/project/skills/dj-create-python-model/project-defaults.md` for shared catalog, schema, and **authoring_mode** (`hand-written` | `cells`).
+3. Apply authoring_mode to F3, F7, and F9 (see Framework Compliance).
+
+## DJ CLI (preferred when DJ is running)
+
+When `.dj/bin/dj system.ping` succeeds, use `dbt.sources` and `model.lineage` to cross-check downstream registration and lineage for the model’s output table. This skill is read-only — do not mutate python files via the CLI. Invocation patterns → `dj-cli`.
+
 ## Workflow
 
 - [ ] **1. Resolve scope.** Default to the open `.python.json` in the editor if any. Otherwise ask the user which Python model to review. Accept a file path or model name (`python__<group>__<topic>__<name>`).
@@ -46,13 +56,13 @@ Use this skill when the user mentions: review python model, audit python model, 
 | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | F1    | `.python.json` has required fields: `name`, `group`, `topic`                                                                                                                  |
 | F2    | Name/group/topic match pattern `^[a-z][a-z0-9_]*$`                                                                                                                            |
-| F3    | `cells` array is present and non-empty in JSON                                                                                                                                |
+| F3    | **`cells` mode:** `cells` array is present and non-empty in JSON. **`hand-written` mode:** empty or absent `cells` is OK                                                                 |
 | F4    | `.python.py` contains `def run_etl(context)` function                                                                                                                         |
 | F5    | Uses `_trino_io` helpers (`from python_models._trino_io import ...`) — no inline Trino connection code (`trino.dbapi.connect`, `create_engine`, raw `requests.post` to Trino) |
 | F6    | `OUTPUT_CONFIG` uses `PythonModelConfig` from `python_models._config`                                                                                                         |
-| F7    | `.python.py` content is derivable from JSON `cells` (no hand-edits that would be lost on next sync)                                                                           |
+| F7    | **`cells` mode:** `.python.py` derivable from JSON `cells` (no hand-edits lost on sync). **`hand-written` mode:** `.python.py` is source of truth — hand edits expected                                                                          |
 | F8    | Runner cell (`run_etl(context)`) is the last code cell in JSON                                                                                                                |
-| F9    | ETL follows the standard function structure: `extract()`, `transform_and_load()`, `cleanup()`, `run_etl()`                                                                    |
+| F9    | **`cells` mode:** standard structure `extract()`, `transform_and_load()`, `cleanup()`, `run_etl()` when siblings use it. **`hand-written` mode:** only `run_etl(context)` is required unless topic convention says otherwise                         |
 
 ### 2. Lineage Readiness (L) — end-to-end validation
 
@@ -81,7 +91,7 @@ The review validates the **full chain**: JSON metadata → `PythonModelConfig` �
 
 | Check | What to validate                                                                                                              |
 | ----- | ----------------------------------------------------------------------------------------------------------------------------- |
-| D1    | Output table uses standard catalog/schema convention (`glue_development.opus_python_source` or project-configured equivalent) |
+| D1    | Output table matches Step 0 convention (`<dev_catalog>.<python_output_schema>.<table>` or project-configured equivalent) |
 | D2    | Partition column `portal_partition_daily` is emitted in output SQL (`'{ds}' AS portal_partition_daily` or equivalent)         |
 | D3    | Column names in output SQL follow `snake_case` convention (no camelCase, no spaces, no special characters)                    |
 | D4    | No `SELECT *` in production INSERT — explicit column enumeration for schema stability and consumer predictability             |
@@ -193,7 +203,7 @@ To validate upstream source completeness:
 
 - **File layout:** `dags/python_models/<group>/<topic>/<name>.python.json` + `.python.py`
 - **Model ID:** `python__<group>__<topic>__<name>`
-- **Source of truth:** `.python.json` — never hand-edit `.python.py`
+- **Source of truth:** `cells` mode → `.python.json`; `hand-written` mode → `.python.py` (metadata in JSON)
 - **`_trino_io.py` DML helpers:** `execute_trino`, `overwrite_partition` / `overwrite` (keyword `insert_sql=` or `source_query=` + optional `columns=`), `append`, `merge`, `delete`, `update`
 - **Required function:** `def run_etl(context)` — Airflow discovers models by scanning for this
 - **Partition contract:** downstream dbt models expect `portal_partition_daily` column in output

@@ -190,7 +190,7 @@ export const lookbackModelSteps: TutorialStep[] = [
     popover: {
       title: 'Select Source for Lookback',
       description:
-        "Choose the table with time-series data. We'll select <strong>stg__ml__pharos__model_deployments</strong>.<br/><br/>" +
+        "Choose the table with time-series data. We'll select <strong>stg__ml__metrics__model_deployments</strong>.<br/><br/>" +
         '✏️ <strong>Action:</strong> Select the source from the dropdown.<br/><br/>' +
         '💡 The source should have a date/timestamp column.',
       side: 'right',

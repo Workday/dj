@@ -1,0 +1,8 @@
+{
+  "modelJson": {
+    "type": "stg_select_source",
+    "group": "core",
+    "topic": "sales",
+    "name": "customers"
+  }
+}

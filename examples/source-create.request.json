@@ -1,0 +1,6 @@
+{
+  "projectName": "my_project",
+  "trinoCatalog": "my_catalog",
+  "trinoSchema": "my_schema",
+  "trinoTable": "node_cpu_hourly_cost_view"
+}

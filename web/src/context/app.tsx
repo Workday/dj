@@ -323,9 +323,19 @@ export function AppProvider() {
                 }
                 case 'framework-model-create': {
                   return resolve(
-                    apiResponse<typeof payloadType>(
-                      'Model created successfully',
-                    ),
+                    apiResponse<typeof payloadType>({
+                      message: 'Model created successfully',
+                      modelPath: '',
+                      synced: true,
+                    }),
+                  );
+                }
+                case 'framework-model-sync': {
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      success: true,
+                      scope: 'full',
+                    }),
                   );
                 }
                 case 'framework-model-update': {
@@ -1884,6 +1894,38 @@ SELECT * FROM final`,
                     }),
                   );
                 }
+                case 'dbt-search-models':
+                  return resolve(apiResponse<typeof payloadType>([]));
+                case 'framework-model-create-batch':
+                  return resolve(
+                    apiResponse<typeof payloadType>({ phase: 'done', results: [] }),
+                  );
+                case 'framework-model-columns':
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      modelName: 'mock',
+                      columns: [],
+                    }),
+                  );
+                case 'framework-model-similar':
+                  return resolve(apiResponse<typeof payloadType>([]));
+                case 'framework-model-data-check':
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      sql: 'SELECT 1',
+                      description: 'mock',
+                    }),
+                  );
+                case 'framework-workflow-scaffold-explore':
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      upstreamModelName: 'int__mock',
+                      suggestedIntName: 'int__mock__details',
+                      suggestedMartName: 'mart__mock__explore',
+                      similarModels: [],
+                      lightdashLabelHint: 'mock',
+                    }),
+                  );
                 default:
                   return assertExhaustive<ApiResponse>(payloadType);
               }

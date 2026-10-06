@@ -2,6 +2,7 @@ import {
   filterBulkSelectColumns,
   frameworkExtractExplicitNamesFromSelect,
   frameworkPartitionsDroppedByInterval,
+  frameworkSuffixAgg,
   isAggregateExpr,
   isConstantExpr,
   isJinjaExpr,
@@ -765,6 +766,15 @@ export function validateMainModelAggregation(
     (typeof groupBy === 'string' && groupBy.length > 0) ||
     (Array.isArray(groupBy) && groupBy.length > 0);
   if (!hasGroupBy) {
+    return errors;
+  }
+
+  if (
+    modelJson.from &&
+    typeof modelJson.from === 'object' &&
+    'rollup' in modelJson.from &&
+    (modelJson.from as { rollup?: unknown }).rollup
+  ) {
     return errors;
   }
 
@@ -2173,4 +2183,80 @@ function formatSingleError(error: ErrorObject): string {
     default:
       return `${field}: ${error.message || 'validation failed'}`;
   }
+}
+
+const VALID_ROLLUP_INTERVALS = new Set<FrameworkInterval>([
+  'day',
+  'hour',
+  'month',
+  'year',
+]);
+
+/** Rejects rollup intervals outside the JSON schema enum (e.g. `week`). */
+export function validateRollupInterval(modelJson: unknown): ValidationErrorDetail[] {
+  if (!modelJson || typeof modelJson !== 'object') {
+    return [];
+  }
+  const from = (modelJson as { from?: { rollup?: { interval?: string } } }).from;
+  const interval = from?.rollup?.interval;
+  if (typeof interval !== 'string') {
+    return [];
+  }
+  if (VALID_ROLLUP_INTERVALS.has(interval as FrameworkInterval)) {
+    return [];
+  }
+  return [
+    {
+      message: `from.rollup.interval "${interval}" is invalid (allowed: day, hour, month, year). For Lightdash weekly reporting use a daily model with lightdash time_intervals, not a physical week rollup.`,
+      instancePath: '/from/rollup/interval',
+    },
+  ];
+}
+
+/**
+ * After column expansion, ensure rollup models only emit aggregatable facts at
+ * the target grain (suffix-agg facts, explicit aggs, or aggregate exprs).
+ */
+export function validateRollupOutputColumns(
+  modelJson: unknown,
+  columns: FrameworkColumn[],
+): ValidationErrorDetail[] {
+  if (!modelJson || typeof modelJson !== 'object') {
+    return [];
+  }
+  const from = (modelJson as { from?: { rollup?: unknown } }).from;
+  if (!from || !('rollup' in from) || !from.rollup) {
+    return [];
+  }
+
+  const errors: ValidationErrorDetail[] = [];
+  for (const col of columns) {
+    if (col.meta?.type !== 'fct') {
+      continue;
+    }
+    if (col.internal?.agg || col.internal?.aggs) {
+      continue;
+    }
+    const expr = col.internal?.expr;
+    if (typeof expr === 'string' && expr.length > 0) {
+      if (
+        !isAggregateExpr(expr) &&
+        !isConstantExpr(expr) &&
+        !isJinjaExpr(expr)
+      ) {
+        errors.push({
+          message: `Rollup model: fact column "${col.name}" uses non-aggregate expr "${expr}" — wrap it in sum()/max()/etc. or omit it from the rollup select.`,
+          instancePath: '/select',
+        });
+      }
+      continue;
+    }
+    if (!frameworkSuffixAgg(col.name)) {
+      errors.push({
+        message: `Rollup model: fact column "${col.name}" has no suffix aggregate and is not aggregated — it cannot appear in SELECT with GROUP BY at a coarser grain.`,
+        instancePath: '/select',
+      });
+    }
+  }
+  return errors;
 }

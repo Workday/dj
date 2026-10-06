@@ -10,6 +10,9 @@ export const BASE_AIRFLOW_PATH = path.join(__dirname, '../../airflow');
 export const BASE_MACROS_PATH = path.join(__dirname, '../../macros');
 export const BASE_TESTS_PATH = path.join(__dirname, '../../macros/tests');
 export const BASE_SCHEMAS_PATH = path.join(__dirname, '../../schemas');
+// The standalone CLI bundle (dist/cli/dj.js), a sibling of dist/extension.
+// __dirname resolves to dist/extension at runtime, so the CLI is ../cli/dj.js.
+export const BASE_CLI_DJ_PATH = path.join(__dirname, '../cli/dj.js');
 export const BASE_SKILLS_PATH = path.join(__dirname, '../../templates/skills');
 export const BASE_AGENTS_DJ_PATH = path.join(
   __dirname,

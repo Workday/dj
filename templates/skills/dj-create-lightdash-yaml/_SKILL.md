@@ -47,6 +47,10 @@ Lightdash **explore**. Before authoring:
      non-prod project, usually your preview.
 3. Capture the **preview project UUID** (printed as `.../projects/<uuid>/tables`).
 
+## DJ CLI (preferred when DJ is running)
+
+When `.dj/bin/dj system.ping` succeeds, use `model.lineage`, `model.compiled-sql`, and `model.reverse-lineage` to discover upstream fields and impact before authoring YAML (instead of grepping manifest or guessing explore shape). Invocation patterns → `dj-cli`. Routing → `dj-cli-registry`.
+
 ## Workflow
 
 1. **Resolve the explore + exact field IDs.** This is read-only, so just run the

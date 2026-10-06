@@ -1,5 +1,24 @@
 # Change Log
 
+## 2.4.0
+
+### Agent / CLI
+
+- **DJ CLI for AI agents (`.dj/bin/dj`).** When VS Code is running with DJ active, a token-authenticated CLI lets an agent drive the same operations as the UI — discover and explore models, preview/create/update/sync `.model.json` files, trace lineage, and compile or run dbt — without opening VS Code. Run `dj <operation> --help` for syntax and examples.
+- **Safer, self-documenting commands.** Commands validate their input and fail with copy-paste hints and example files; `dj <operation> --help` and the command reference under `docs/cli_commands/` list every operation.
+- **CLI-first agent skills.** The `dj-cli`, `dj-create-new-model`, `dj-pr-preflight`, and `dj-run-dbt` skills route agents through the CLI first — requiring model/lineage discovery before searching the repo, and explicit confirmation before any warehouse read or `dbt.run`.
+
+### Agent skills
+
+- **Python-model project defaults.** The python-model skills read org-specific catalog, schema, and migration rules from a per-project `project-defaults.md` (under `.agents/project/skills/<skill>/`) that survives a skills Refresh, so you customize defaults without forking the shipped skills. Copy a starter from `templates/_agents-project/skills/`.
+- **Migrate skill supports legacy `.py` ETL** as well as `.ipynb`, with workspace-aware hand-written vs `cells` authoring. Org-specific catalog, schema, and migration rules belong in project defaults, not forked `dj-*` skills.
+- **`dj-create-new-model` phased DJ CLI workflow.** The skill documents discover (`dbt.*`, full `trino.*` chain, lineage), preview/create, then compile, compiled SQL, model preview, and optional read-only `query.execute` on upstream sources — without using `dbt.run` from the create path.
+- **DJ CLI authoring payload docs and validation.** `dj-cli` and `docs/cli_commands/command-reference.md` document flat `model.create` vs wrapped `modelJson` for preview/exists/update/cte-analysis; repo examples under `examples/model-*.request.json`. The CLI returns actionable errors when `modelJson` or `originalModelPath` is missing instead of opaque handler failures.
+
+### Security
+
+- **Dependency upgrades for Snyk findings.** Bumps `fast-uri` and `brace-expansion` to patched versions that address reported URI-parsing, ReDoS, and uncontrolled-recursion vulnerabilities.
+
 ## 2.3.0
 
 ### Framework
@@ -171,7 +190,7 @@ Bring Python-based transformations into DJ as first-class models — with full l
 
 ### Agent Skills
 
-- **Create Python ETL models through your AI assistant.** When `dj.codingAgent` is enabled, a new skill at `.agents/skills/dj-create-python-model/SKILL.md` interactively guides an IDE agent through scaffolding a `.python.json` file — gathering model identity, DAG assignment, data source type, transformation needs, and output configuration. Follows a **SQL-first approach**: transformations and loading use Trino SQL (`INSERT INTO ... SELECT`, `CREATE TABLE AS SELECT`) wherever possible, with pandas DataFrames reserved only for external data ingestion and cases where SQL cannot express the logic. Defaults to `glue_development` catalog and `opus_python_source` schema for Iceberg output. The agent proactively suggests performance optimizations — partitioning strategy, predicate pushdown, column pruning, write mode selection, and staging table cleanup. Includes a full reference of SQL-first transform/load patterns alongside DataFrame-only fallbacks for nested JSON flattening and ML preprocessing.
+- **Create Python ETL models through your AI assistant.** When `dj.codingAgent` is enabled, a new skill at `.agents/skills/dj-create-python-model/SKILL.md` interactively guides an IDE agent through scaffolding a `.python.json` file — gathering model identity, DAG assignment, data source type, transformation needs, and output configuration. Follows a **SQL-first approach**: transformations and loading use Trino SQL (`INSERT INTO ... SELECT`, `CREATE TABLE AS SELECT`) wherever possible, with pandas DataFrames reserved only for external data ingestion and cases where SQL cannot express the logic. The agent proactively suggests performance optimizations — partitioning strategy, predicate pushdown, column pruning, write mode selection, and staging table cleanup. Includes a full reference of SQL-first transform/load patterns alongside DataFrame-only fallbacks for nested JSON flattening and ML preprocessing.
 - **Migrate legacy ephemeral models into inline CTEs through your AI assistant.** When `dj.codingAgent` is enabled, a new skill at `.agents/skills/dj-migrate-ephemerals-to-ctes/SKILL.md` walks an IDE agent through finding ephemeral `.model.json` files, deciding which ones can safely fold into their downstream consumers, applying the rewrite, and prompting you before any deletion. Ephemerals carrying Lightdash metadata or staging models that read from sources are flagged as unsafe so nothing is silently lost. Lets you say "audit the ephemerals under the sales group and migrate the qualifying ones" to dissolve redundant intermediate layers in one pass.
 - **Modernize legacy `.model.json` shapes through your AI assistant.** When `dj.codingAgent` is enabled, a new skill at `.agents/skills/dj-review-and-refactor-model/SKILL.md` audits a single model file (or a folder, dependency tree, or the whole workspace) and renders every finding upfront in two buckets — safe rewrites the agent can apply confidently, and judgment calls where it gives you the context and lets you pick. Nothing is edited until you confirm. Lets you say "review this model and modernize whatever's safe" and get a confirmation-driven cleanup pass that round-trips your existing Lightdash metadata, AI hints, tags, and free-form `meta` keys.
 - **Agent skills can bundle nested subdirectories.** A skill template's `references/`, `scripts/`, and `assets/` subdirectories are copied to `.agents/skills/<skill>/` alongside its `SKILL.md`, matching the [agentskills.io](https://agentskills.io) progressive-disclosure layout.

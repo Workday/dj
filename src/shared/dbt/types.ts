@@ -1,3 +1,4 @@
+import type { DbtModelSummary } from '@shared/dbt/modelCatalogSearch';
 import type {
   FrameworkColumnDataTests,
   FrameworkDataType,
@@ -33,13 +34,27 @@ export type DbtApi =
       request: null;
       response: string[];
     }
-  | {
+    | {
       type: 'dbt-fetch-available-models';
       service: 'dbt';
       request: {
         projectName: string;
       };
       response: string[];
+    }
+  | {
+      type: 'dbt-search-models';
+      service: 'dbt';
+      request: {
+        projectName: string;
+        pattern?: string;
+        topic?: string;
+        group?: string;
+        tags?: string[];
+        fromModel?: string;
+        requireLightdashExploreTag?: boolean;
+      };
+      response: DbtModelSummary[];
     }
   | {
       type: 'dbt-get-model-info';
@@ -637,6 +652,8 @@ export type SelectedModel = {
 };
 
 export type DbtRunConfig = {
+  /** Raw dbt --select string (overrides scope/lineage when set), e.g. "+int__grp__topic__name+" */
+  select?: string;
   // Initial Commands
   cleanAndDeps: boolean;
   seed: boolean;

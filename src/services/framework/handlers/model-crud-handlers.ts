@@ -13,18 +13,29 @@ import {
   getValidatorForType,
   validateCteColumnReferences,
   validateCtes,
+  validateRollupInterval,
+  validateRollupOutputColumns,
 } from '@services/modelValidation';
 import { requireProject, safeAsync } from '@services/types';
 import { jsonParse, removeEmpty } from '@shared';
 import type { ApiPayload, ApiResponse } from '@shared/api/types';
 import { apiResponse } from '@shared/api/utils';
-import type { FrameworkColumn, FrameworkModel } from '@shared/framework/types';
+import type { DbtProject } from '@shared/dbt/types';
+import type {
+  FrameworkColumn,
+  FrameworkModel,
+  ModelCreateResponse,
+  ModelCreateValidateResponse,
+} from '@shared/framework/types';
+import { validateLightdashMetrics } from '@shared/lightdash/validateMetrics';
 import * as fs from 'fs';
 import { applyEdits, modify } from 'jsonc-parser';
 import { isEqual } from 'lodash';
 import * as vscode from 'vscode';
 
 import type { FrameworkContext } from '../context';
+import { mergeModelJsonPassthrough } from '../utils/model-json-passthrough';
+import { resolveModelJsonPath } from '../utils/resolve-model-json-path';
 import { preserveColumnMetaOnUpdate } from '../utils/update-helpers';
 
 const JSONC_FORMAT_OPTIONS = {
@@ -43,6 +54,81 @@ const JSONC_FORMAT_OPTIONS = {
  */
 export class ModelCrudHandlers {
   constructor(private readonly ctx: FrameworkContext) {}
+
+  private assertValidModelJsonForAuthoring(
+    modelJson: FrameworkModel,
+    project: DbtProject,
+  ): void {
+    const validator = getValidatorForType(this.ctx.ajv, modelJson.type);
+    if (!validator) {
+      throw new Error('Model JSON Validation Not Active');
+    }
+    validator(modelJson);
+    if (validator.errors) {
+      const messages = formatValidationErrors(
+        validator.errors,
+        'model',
+        modelJson.type,
+      );
+      const error = new Error('Model JSON Invalid');
+      (error as Error & { details?: string[] }).details = messages;
+      throw error;
+    }
+
+    const cteErrors = validateCtes(modelJson);
+    if (cteErrors.length > 0) {
+      const error = new Error('CTE Validation Failed');
+      (error as Error & { details?: string[] }).details = cteErrors;
+      throw error;
+    }
+
+    const rollupIntervalErrors = validateRollupInterval(modelJson);
+    if (rollupIntervalErrors.length > 0) {
+      const error = new Error('Invalid rollup interval');
+      (error as Error & { details?: string[] }).details =
+        rollupIntervalErrors.map((e) => e.message);
+      throw error;
+    }
+
+    const dj = { config: getDjConfig() };
+    const { columns } = frameworkBuildColumns({
+      dj,
+      modelJson,
+      project,
+    });
+    const rollupColumnErrors = validateRollupOutputColumns(modelJson, columns);
+    if (rollupColumnErrors.length > 0) {
+      const error = new Error('Invalid rollup select');
+      (error as Error & { details?: string[] }).details =
+        rollupColumnErrors.map((e) => e.message);
+      throw error;
+    }
+
+    const lightdash = validateLightdashMetrics(
+      modelJson as unknown as Record<string, unknown>,
+      columns.map((c) => c.name),
+    );
+    if (lightdash.errors.length > 0) {
+      const error = new Error('Lightdash validation failed');
+      (error as Error & { details?: string[] }).details = lightdash.errors;
+      throw error;
+    }
+  }
+
+  private prepareModelJsonFromRequest(
+    request: Record<string, unknown>,
+    autoGenerateTestsConfig: ReturnType<typeof getDjConfig>['autoGenerateTests'],
+  ): FrameworkModel {
+    const templated = frameworkMakeModelTemplate(
+      request as Parameters<typeof frameworkMakeModelTemplate>[0],
+      autoGenerateTestsConfig,
+    );
+    const merged = mergeModelJsonPassthrough(
+      templated as unknown as Record<string, unknown>,
+      request,
+    );
+    return removeEmpty(merged) as unknown as FrameworkModel;
+  }
 
   /**
    * Creates a new model file from the provided model JSON.
@@ -64,20 +150,31 @@ export class ModelCrudHandlers {
     // Read configuration for auto-generating tests
     const autoGenerateTestsConfig = getDjConfig().autoGenerateTests;
 
-    const baseModelJson = frameworkMakeModelTemplate(
-      payload.request,
-      autoGenerateTestsConfig,
-    );
-
-    // Remove empty values from the model json
-    const modelJson = removeEmpty(baseModelJson);
-
     const { projectName } = payload.request;
     const project = requireProject(
       this.ctx.dbt.projects.get(projectName),
       projectName,
       'model-create',
     );
+
+    const modelJson = this.prepareModelJsonFromRequest(
+      payload.request,
+      autoGenerateTestsConfig,
+    );
+    this.assertValidModelJsonForAuthoring(modelJson, project);
+
+    if (payload.request.validateOnly) {
+      const preview = this.buildModelPreviewPayload(
+        project,
+        modelJson,
+        autoGenerateTestsConfig,
+      );
+      return apiResponse<typeof payload.type>({
+        valid: true,
+        preview,
+      } satisfies ModelCreateValidateResponse);
+    }
+
     const modelPrefix = frameworkGetModelPrefix({
       modelJson,
       project,
@@ -94,6 +191,30 @@ export class ModelCrudHandlers {
       Buffer.from(JSON.stringify(modelJson, null, '    ')),
     );
 
+    let synced = false;
+    let syncErrors: string[] | undefined;
+    try {
+      const fileInfo = await this.ctx.coder.fetchFileInfoFromPath(
+        modelUri.fsPath,
+      );
+      if (fileInfo?.type === 'framework-model') {
+        await this.ctx.handleGenerateModelFiles(fileInfo);
+        const syncResult = await this.ctx.framework.waitForSyncIdle();
+        synced = syncResult?.success ?? true;
+        const errors =
+          syncResult?.errors?.map((e) => e.message).filter(Boolean) ?? [];
+        if (errors.length) {
+          syncErrors = errors;
+        }
+      }
+    } catch (err: unknown) {
+      this.ctx.log.error('Post-create model sync failed:', err);
+      synced = false;
+      syncErrors = [
+        err instanceof Error ? err.message : 'Unknown sync error after create',
+      ];
+    }
+
     // Clear form state (non-critical operation)
     await safeAsync(
       'clear-model-create-form-state',
@@ -107,7 +228,95 @@ export class ModelCrudHandlers {
 
     this.ctx.dbt.disposeWebviewPanelModelCreate();
     vscode.window.showTextDocument(modelUri);
-    return apiResponse<typeof payload.type>('Model created');
+    const createResponse: ModelCreateResponse = {
+      message: 'Model created',
+      modelPath: modelUri.fsPath,
+      synced,
+      syncErrors,
+    };
+    return apiResponse<typeof payload.type>(createResponse);
+  }
+
+  async handleModelCreateBatch(
+    payload: Extract<
+      ApiPayload<'framework'>,
+      { type: 'framework-model-create-batch' }
+    >,
+  ): Promise<ApiResponse> {
+    const autoGenerateTestsConfig = getDjConfig().autoGenerateTests;
+    const { projectName, models, syncOnce = true } = payload.request;
+    const project = requireProject(
+      this.ctx.dbt.projects.get(projectName),
+      projectName,
+      'model-create-batch',
+    );
+
+    if (!Array.isArray(models) || models.length === 0) {
+      throw new Error('model.create-batch requires a non-empty models array');
+    }
+
+    const written: Array<{ modelPath: string; modelName: string; fileInfo: Awaited<ReturnType<FrameworkContext['coder']['fetchFileInfoFromPath']>> }> = [];
+
+    for (const raw of models) {
+      const modelJson = this.prepareModelJsonFromRequest(
+        { ...raw, projectName },
+        autoGenerateTestsConfig,
+      );
+      this.assertValidModelJsonForAuthoring(modelJson, project);
+      const modelPrefix = frameworkGetModelPrefix({ modelJson, project });
+      const modelUri = vscode.Uri.file(`${modelPrefix}.model.json`);
+      if (fs.existsSync(modelUri.fsPath)) {
+        throw new Error(
+          `Model ${frameworkGetModelName(modelJson)} already exists`,
+        );
+      }
+      await vscode.workspace.fs.writeFile(
+        modelUri,
+        Buffer.from(JSON.stringify(modelJson, null, '    ')),
+      );
+      const fileInfo = await this.ctx.coder.fetchFileInfoFromPath(
+        modelUri.fsPath,
+      );
+      written.push({
+        modelPath: modelUri.fsPath,
+        modelName: frameworkGetModelName(modelJson),
+        fileInfo,
+      });
+    }
+
+    let synced = false;
+    let batchSyncErrors: string[] | undefined;
+    if (syncOnce) {
+      try {
+        for (const entry of written) {
+          if (entry.fileInfo?.type === 'framework-model') {
+            await this.ctx.handleGenerateModelFiles(entry.fileInfo);
+          }
+        }
+        const syncResult = await this.ctx.framework.waitForSyncIdle();
+        synced = syncResult?.success ?? true;
+        const errors =
+          syncResult?.errors?.map((e) => e.message).filter(Boolean) ?? [];
+        if (errors.length) {
+          batchSyncErrors = errors;
+        }
+      } catch (err: unknown) {
+        synced = false;
+        batchSyncErrors = [
+          err instanceof Error ? err.message : 'Unknown sync error after batch create',
+        ];
+      }
+    }
+
+    return apiResponse<typeof payload.type>({
+      phase: 'done',
+      results: written.map((entry) => ({
+        modelPath: entry.modelPath,
+        modelName: entry.modelName,
+        synced,
+        syncErrors: batchSyncErrors,
+      })),
+    });
   }
 
   /**
@@ -130,12 +339,45 @@ export class ModelCrudHandlers {
       { type: 'framework-model-update' }
     >,
   ): Promise<ApiResponse> {
-    const { originalModelPath, modelJson, projectName } = payload.request;
+    const updateRequest = payload.request;
+    let originalModelPath = updateRequest.originalModelPath;
+    const { modelJson, projectName } = updateRequest;
+    const lookupModelName = updateRequest.modelName;
     const project = requireProject(
       this.ctx.dbt.projects.get(projectName),
       projectName,
       'model-update',
     );
+
+    if (Array.isArray(modelJson)) {
+      throw new Error(
+        'model.update: modelJson must be a JSON object, not an array',
+      );
+    }
+
+    if (
+      (!originalModelPath || originalModelPath.trim() === '') &&
+      typeof lookupModelName === 'string' &&
+      lookupModelName.trim() !== ''
+    ) {
+      const resolved = await resolveModelJsonPath({
+        modelName: lookupModelName,
+        project,
+        dbt: this.ctx.dbt,
+      });
+      if (!resolved) {
+        throw new Error(
+          `model.update: could not resolve modelName "${lookupModelName}" to a .model.json path`,
+        );
+      }
+      originalModelPath = resolved;
+    }
+
+    if (!originalModelPath || originalModelPath.trim() === '') {
+      throw new Error(
+        'model.update requires originalModelPath or modelName to locate the .model.json file',
+      );
+    }
 
     // Check if the original model file exists
     const originalModelUri = vscode.Uri.file(originalModelPath);
@@ -338,6 +580,9 @@ export class ModelCrudHandlers {
     if (rawFileContent && existingModelJson) {
       let updatedContent = rawFileContent;
       for (const [key, value] of Object.entries(modelJsonForValidation)) {
+        if (/^\d+$/.test(key)) {
+          continue;
+        }
         const existingValue = (
           existingModelJson as unknown as Record<string, unknown>
         )[key];
@@ -469,81 +714,76 @@ export class ModelCrudHandlers {
    * 4. Return preview data for display
    * 5. Return partial results on error (graceful degradation)
    */
+  private buildModelPreviewPayload(
+    project: DbtProject,
+    formattedModelJson: FrameworkModel,
+    _autoGenerateTestsConfig: ReturnType<
+      typeof getDjConfig
+    >['autoGenerateTests'],
+  ) {
+    const generated = frameworkGenerateModelOutput({
+      dj: { config: getDjConfig() },
+      project,
+      modelJson: formattedModelJson,
+    });
+
+    const { columns } = frameworkBuildColumns({
+      dj: { config: getDjConfig() },
+      modelJson: formattedModelJson,
+      project,
+    });
+
+    const columnMetadata = columns.map((col: FrameworkColumn) => ({
+      name: col.name,
+      description: col.description || '',
+      type: col.meta?.type === 'fct' ? ('fct' as const) : ('dim' as const),
+      dataType: col.data_type || 'string',
+    }));
+
+    const lightdash = validateLightdashMetrics(
+      formattedModelJson as unknown as Record<string, unknown>,
+      columns.map((c) => c.name),
+    );
+
+    const json = removeEmpty(formattedModelJson);
+
+    return {
+      json: JSON.stringify(json, null, 4),
+      sql: generated.sql,
+      yaml: generated.yml,
+      columns: columnMetadata,
+      lightdash,
+    };
+  }
+
   handleModelPreview(
     payload: Extract<
       ApiPayload<'framework'>,
       { type: 'framework-model-preview' }
     >,
   ): ApiResponse {
-    const { projectName, modelJson } = payload.request;
+    const { projectName, modelJson: rawModelJson } = payload.request;
     const project = requireProject(
       this.ctx.dbt.projects.get(projectName),
       projectName,
       'model-preview',
     );
 
-    let formattedModelJson = modelJson as FrameworkModel;
+    const autoGenerateTestsConfig = getDjConfig().autoGenerateTests;
+    const sourceRecord = rawModelJson as Record<string, unknown>;
+    const formattedModelJson = this.prepareModelJsonFromRequest(
+      sourceRecord,
+      autoGenerateTestsConfig,
+    );
 
-    try {
-      // Read configuration for auto-generating tests
-      const autoGenerateTestsConfig = getDjConfig().autoGenerateTests;
+    this.assertValidModelJsonForAuthoring(formattedModelJson, project);
 
-      // Use frameworkMakeModelTemplate to format the JSON properly
-      formattedModelJson = frameworkMakeModelTemplate(
-        modelJson as any,
-        autoGenerateTestsConfig,
-      );
-    } catch (error: unknown) {
-      this.ctx.log.warn('Error formatting model JSON:', error);
-    }
+    const preview = this.buildModelPreviewPayload(
+      project,
+      formattedModelJson,
+      autoGenerateTestsConfig,
+    );
 
-    try {
-      // Generate SQL and YAML using existing utility
-      const generated = frameworkGenerateModelOutput({
-        dj: { config: getDjConfig() },
-        project,
-        modelJson: formattedModelJson,
-      });
-
-      // Extract columns from frameworkBuildColumns
-      const { columns } = frameworkBuildColumns({
-        dj: { config: getDjConfig() },
-        modelJson: formattedModelJson,
-        project,
-      });
-
-      // Map columns to the expected format
-      const columnMetadata = columns.map((col: FrameworkColumn) => ({
-        name: col.name,
-        description: col.description || '',
-        type: col.meta?.type === 'fct' ? ('fct' as const) : ('dim' as const),
-        dataType: col.data_type || 'string',
-      }));
-
-      // Remove empty values from the json response
-      const json = removeEmpty(formattedModelJson);
-
-      return apiResponse<typeof payload.type>({
-        json: JSON.stringify(json, null, 4),
-        sql: generated.sql,
-        yaml: generated.yml,
-        columns: columnMetadata,
-      });
-    } catch (error: unknown) {
-      // Return partial results on error
-      this.ctx.log.warn('Error generating model preview:', error);
-
-      // Remove empty values from the json response
-      const json = removeEmpty(formattedModelJson);
-
-      const errorMessage =
-        error instanceof Error ? error.message : 'Unknown error';
-      return apiResponse<typeof payload.type>({
-        json: JSON.stringify(json, null, 4),
-        sql: `-- Error generating SQL:\n-- ${errorMessage}`,
-        yaml: `# Error generating YAML:\n# ${errorMessage}`,
-        columns: [],
-      });
-    }
+    return apiResponse<typeof payload.type>(preview);
   }
 }

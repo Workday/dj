@@ -3212,6 +3212,7 @@ export function frameworkMakeModelTemplate(
     name,
     topic,
     materialized,
+    materialization,
     from,
     select,
     group_by,
@@ -3246,6 +3247,7 @@ export function frameworkMakeModelTemplate(
 
     // Optional basic fields
     ...(materialized && { materialized }),
+    ...(materialization !== undefined && { materialization }),
     ...(description && { description }),
     ...(tags && tags.length > 0 && { tags }),
 

@@ -1,6 +1,10 @@
 import { InformationCircleIcon } from '@heroicons/react/20/solid';
 import type { Api } from '@shared/api/types';
 import type { DbtProject } from '@shared/dbt/types';
+import type {
+  ModelCreateResponse,
+  ModelCreateValidateResponse,
+} from '@shared/framework/types';
 import { makeClassName } from '@web';
 import { useApp } from '@web/context';
 import { useEnvironment } from '@web/context';
@@ -730,7 +734,7 @@ export function ModelCreate({ mode = 'create' }: ModelCreateProps) {
         ...modelJson,
       };
 
-      let resp: string;
+      let resp: string | ModelCreateResponse | ModelCreateValidateResponse;
       try {
         if (isEditMode) {
           // Edit mode: Call framework-model-update
@@ -764,8 +768,14 @@ export function ModelCreate({ mode = 'create' }: ModelCreateProps) {
         await stateSync.clearState(formType);
 
         const successMessage = isEditMode
-          ? resp || 'Model updated successfully'
-          : resp || 'Model created successfully';
+          ? (typeof resp === 'string' ? resp : 'Model updated successfully')
+          : typeof resp === 'string'
+            ? resp || 'Model created successfully'
+            : 'valid' in resp && resp.valid
+              ? 'Model validation passed'
+              : 'message' in resp
+                ? resp.message || 'Model created successfully'
+                : 'Model created successfully';
 
         await api.post({
           type: 'framework-show-message',
