@@ -16,17 +16,17 @@ import {
   normalizeDbtCompileRequest,
   normalizeWrappedModelRequest,
 } from '@services/cliBridge/requestShape';
+import {
+  formatGlobalHelp,
+  formatOperationHelpSummary,
+  listOperationHelp,
+} from '@shared/cli/operationHelp';
 import type {
   OperationContext,
   OperationDef,
   OperationRegistry,
   SideEffect,
 } from '@shared/cli/types';
-import {
-  formatGlobalHelp,
-  formatOperationHelpSummary,
-  listOperationHelp,
-} from '@shared/cli/operationHelp';
 
 /**
  * Normalize a CLI input payload into the `request` object `handleApi` expects.
@@ -637,7 +637,7 @@ export function createOperationRegistry(): OperationRegistry {
     handler: async (input, ctx) => {
       const request = readRequest(input, {
         allowEmpty: true,
-      }) as Record<string, unknown> | null;
+      });
       assertQueryExecutePayload(request);
       const sql = request!.sql as string;
       assertReadOnlySelect(sql);

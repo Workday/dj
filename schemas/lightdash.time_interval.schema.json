@@ -1,0 +1,28 @@
+{
+  "$id": "lightdash.time_interval.schema.json",
+  "title": "Schema Lightdash Time Interval",
+  "description": "Valid time interval for Lightdash dimension",
+  "type": "string",
+  "enum": [
+    "DAY",
+    "DAY_OF_WEEK_INDEX",
+    "DAY_OF_WEEK_NAME",
+    "DAY_OF_MONTH_NUM",
+    "DAY_OF_YEAR_NUM",
+    "HOUR",
+    "MILLISECOND",
+    "MINUTE",
+    "MONTH",
+    "MONTH_NAME",
+    "MONTH_NUM",
+    "QUARTER",
+    "QUARTER_NAME",
+    "QUARTER_NUM",
+    "RAW",
+    "SECOND",
+    "WEEK",
+    "WEEK_NUM",
+    "YEAR",
+    "YEAR_NUM"
+  ]
+}

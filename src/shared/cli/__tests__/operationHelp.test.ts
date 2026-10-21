@@ -1,3 +1,4 @@
+import { createOperationRegistry } from '@services/cliBridge/operationRegistry';
 import {
   CLI_OPERATION_NAMES,
   formatGlobalHelp,
@@ -5,7 +6,6 @@ import {
   getOperationHelp,
   listOperationHelp,
 } from '@shared/cli/operationHelp';
-import { createOperationRegistry } from '@services/cliBridge/operationRegistry';
 
 describe('operationHelp', () => {
   it('lists help for every bridge op except system.help', () => {

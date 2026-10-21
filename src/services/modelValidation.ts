@@ -27,7 +27,7 @@ import type { ValidationErrorDetail } from './sync/types';
 /**
  * Maps model types to their specific schema file names
  */
-const MODEL_TYPE_SCHEMA_MAP: Record<string, string> = {
+export const MODEL_TYPE_SCHEMA_MAP: Record<string, string> = {
   stg_select_source: 'model.type.stg_select_source.schema.json',
   stg_select_model: 'model.type.stg_select_model.schema.json',
   stg_union_sources: 'model.type.stg_union_sources.schema.json',

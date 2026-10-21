@@ -11,6 +11,7 @@ import {
 import { BASE_AIRFLOW_PATH, BASE_SCHEMAS_PATH } from '@services/constants';
 import type { Dbt } from '@services/dbt';
 import type { DJLogger } from '@services/djLogger';
+import { MODEL_TYPE_SCHEMA_MAP } from '@services/modelValidation';
 import type { StateManager } from '@services/statemanager';
 import {
   buildOrderedResources,
@@ -132,6 +133,7 @@ export class Framework implements ApiEnabledService<'framework'> {
   private columnLineageHandler: ColumnLineageHandler;
   private preferencesHandler: PreferencesHandler;
   private cteAnalysisHandlers: CteAnalysisHandlers;
+  private readonly schemaCache = new Map<string, unknown>();
 
   // Content hash cache for change detection - skips regenerating unchanged files
   private cacheManager = new CacheManager();
@@ -647,6 +649,7 @@ export class Framework implements ApiEnabledService<'framework'> {
               for (const { file, content } of fileContents) {
                 try {
                   const schema = JSON.parse(content);
+                  this.schemaCache.set(file, schema);
                   this.ajv.addSchema(schema, file);
                 } catch (parseErr) {
                   this.log.warn(`Failed to parse schema ${file}:`, parseErr);
@@ -702,6 +705,65 @@ export class Framework implements ApiEnabledService<'framework'> {
 
     // Check if .dj folder should be added to .gitignore
     void this.checkAndPromptForGitignore(context);
+  }
+
+  /**
+   * Refreshes the lightdash.time_interval.schema.json in .dj/schemas/ and
+   * re-registers it and dependent model schemas in AJV with the updated interval enum.
+   */
+  async refreshTimeIntervalsSchema(intervals: string[]): Promise<void> {
+    const timeIntervalSchema = {
+      $id: 'lightdash.time_interval.schema.json',
+      title: 'Schema Lightdash Time Interval',
+      description: 'Valid time interval for Lightdash dimension',
+      type: 'string',
+      enum: intervals,
+    };
+    this.schemaCache.set(
+      'lightdash.time_interval.schema.json',
+      timeIntervalSchema,
+    );
+
+    try {
+      await vscode.workspace.fs.writeFile(
+        vscode.Uri.file(
+          path.join(DJ_SCHEMAS_PATH, 'lightdash.time_interval.schema.json'),
+        ),
+        Buffer.from(JSON.stringify(timeIntervalSchema, null, 2)),
+      );
+    } catch (err: unknown) {
+      this.log.warn(
+        'Failed to write lightdash.time_interval.schema.json to disk:',
+        err,
+      );
+    }
+
+    try {
+      this.ajv.removeSchema('lightdash.time_interval.schema.json');
+      this.ajv.addSchema(
+        timeIntervalSchema,
+        'lightdash.time_interval.schema.json',
+      );
+
+      this.ajv.removeSchema('lightdash.dimension.schema.json');
+      const dimSchema = this.schemaCache.get('lightdash.dimension.schema.json');
+      if (dimSchema) {
+        this.ajv.addSchema(dimSchema, 'lightdash.dimension.schema.json');
+      }
+
+      for (const schemaFile of Object.values(MODEL_TYPE_SCHEMA_MAP)) {
+        this.ajv.removeSchema(schemaFile);
+        const cached = this.schemaCache.get(schemaFile);
+        if (cached) {
+          this.ajv.addSchema(cached, schemaFile);
+        }
+      }
+      this.log.info(
+        `Refreshed time_intervals schema in AJV with ${intervals.length} intervals`,
+      );
+    } catch (err: unknown) {
+      this.log.warn('Failed to refresh time intervals in AJV:', err);
+    }
   }
 
   /**
