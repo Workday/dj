@@ -30,14 +30,6 @@ custom_granularities:
     type: date
   bi_weekly:
     label: "Bi-Weekly"
-
-defaults:
-  additional_time_intervals:
-    date:
-      - fiscal_quarter
-    timestamp:
-      - HOUR
-      - fiscal_quarter
 `;
     await fs.promises.writeFile(
       path.join(tmpDir, 'lightdash.config.yml'),
@@ -49,11 +41,6 @@ defaults:
     const config = await provider.loadConfig(tmpDir);
 
     expect(config.customGranularities).toEqual(['fiscal_quarter', 'bi_weekly']);
-    expect(config.additionalTimeIntervals?.date).toEqual(['fiscal_quarter']);
-    expect(config.additionalTimeIntervals?.timestamp).toEqual([
-      'HOUR',
-      'fiscal_quarter',
-    ]);
   });
 
   test('DbtModelingFrameworkProvider supports lightdash.config.yaml', async () => {

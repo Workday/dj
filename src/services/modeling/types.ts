@@ -7,14 +7,6 @@ export interface ModelingFrameworkConfig {
    * Custom time granularities (e.g. from lightdash.config.yml `custom_granularities`).
    */
   customGranularities?: string[];
-
-  /**
-   * Additional time intervals declared globally (e.g. from lightdash.config.yml `defaults.additional_time_intervals`).
-   */
-  additionalTimeIntervals?: {
-    date?: string[];
-    timestamp?: string[];
-  };
 }
 
 export interface ModelingFrameworkProvider {

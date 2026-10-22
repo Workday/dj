@@ -67,32 +67,9 @@ export class DbtModelingFrameworkProvider implements ModelingFrameworkProvider {
       }
     }
 
-    let additionalTimeIntervals:
-      | ModelingFrameworkConfig['additionalTimeIntervals']
-      | undefined;
-    if (config.defaults && typeof config.defaults === 'object') {
-      const defaults = config.defaults as Record<string, unknown>;
-      if (
-        defaults.additional_time_intervals &&
-        typeof defaults.additional_time_intervals === 'object'
-      ) {
-        const ati = defaults.additional_time_intervals as Record<
-          string,
-          unknown
-        >;
-        additionalTimeIntervals = {
-          date: Array.isArray(ati.date) ? ati.date.map(String) : undefined,
-          timestamp: Array.isArray(ati.timestamp)
-            ? ati.timestamp.map(String)
-            : undefined,
-        };
-      }
-    }
-
     return {
       customGranularities:
         customGranularities.length > 0 ? customGranularities : undefined,
-      additionalTimeIntervals,
     };
   }
 }

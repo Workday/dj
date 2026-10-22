@@ -19,17 +19,17 @@
  *
  * Exit codes: 0 ok · 1 operation error · 2 usage/bad-input · 3 no live endpoint · 4 timeout
  */
+import type {
+  EndpointDescriptor,
+  RpcRequest,
+  RpcResponse,
+} from '@shared/cli/types';
 import { mergeCliPayload } from '@shared/cli/mergePayload';
 import {
   CLI_USAGE,
   formatGlobalHelp,
   formatOperationHelpSummary,
 } from '@shared/cli/operationHelp';
-import type {
-  EndpointDescriptor,
-  RpcRequest,
-  RpcResponse,
-} from '@shared/cli/types';
 import * as fs from 'fs';
 import * as net from 'net';
 import * as path from 'path';

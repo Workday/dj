@@ -14,13 +14,13 @@ import {
 } from '@services/framework/utils';
 import type { ApiPayload, ApiResponse } from '@shared/api/types';
 import { apiResponse } from '@shared/api/utils';
+import { getDbtModelId } from '@shared/dbt/utils';
 import {
   buildModelSummariesForProject,
   rankSimilarModels,
 } from '@shared/dbt/modelCatalogSearch';
-import { getDbtModelId } from '@shared/dbt/utils';
-import { buildDataCheckSql } from '@shared/framework/dataCheckTemplates';
 import type { FrameworkModel } from '@shared/framework/types';
+import { buildDataCheckSql } from '@shared/framework/dataCheckTemplates';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
