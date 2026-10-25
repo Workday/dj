@@ -5,6 +5,14 @@ import {
   GROUP_BY_DIMS,
   normalizeGroupBy,
 } from '@shared/framework/constants';
+import {
+  buildMaterializationForWizardOutput,
+  getIncrementalStrategy,
+  getMaterializationType,
+  getPartitions,
+  type MaterializationExtras,
+  pickMaterializationExtras,
+} from '@shared/framework/materialization';
 import type {
   FrameworkInterval,
   FrameworkModel,
@@ -13,6 +21,7 @@ import type {
 import type { SchemaLightdashMetric } from '@shared/schema/types/lightdash.metric.schema';
 import type { SchemaModelGroupBy } from '@shared/schema/types/model.group_by.schema';
 import type { SchemaModelLightdash } from '@shared/schema/types/model.lightdash.schema';
+import type { SchemaModelMaterialization } from '@shared/schema/types/model.materialization.schema';
 import type { SchemaModelMaterialized } from '@shared/schema/types/model.materialized.schema';
 import type {
   IncrementalStrategy,
@@ -363,7 +372,7 @@ export type ModelingStateType = {
   group: string;
   topic: string;
   type: FrameworkModel['type'] | '';
-  materialized?: SchemaModelMaterialized;
+  materialization?: SchemaModelMaterialized;
   projectName: string;
   source?: string;
 } & ModelingStateAdapter & {
@@ -384,7 +393,7 @@ export interface ModelStore {
     group: string;
     topic: string;
     type: FrameworkModel['type'] | '';
-    materialized?: SchemaModelMaterialized;
+    materialization?: SchemaModelMaterialized;
     //description?: string;
     projectName: string;
     source?: string;
@@ -427,6 +436,9 @@ export interface ModelStore {
   // lightdash?: SchemaModelLightdash;
 
   additionalFields: AdditionalFieldsSchema;
+
+  /** Nested materialization keys the wizard does not edit (format, bucket, …) */
+  materializationExtras: MaterializationExtras;
 
   /** Default incremental strategy from extension settings, fetched via preferences API */
   defaultIncrementalStrategy: string | undefined;
@@ -599,7 +611,7 @@ const initialBasicFields = {
   group: '',
   topic: '',
   type: '' as FrameworkModel['type'] | '',
-  materialized: undefined,
+  materialization: undefined,
   //description: '',
   projectName: '',
   source: '',
@@ -678,6 +690,7 @@ export const useModelStore = create<ModelStore>()(
     where: null,
     dataModeling: initialDataModeling,
     additionalFields: initialAdditionalFields,
+    materializationExtras: {},
     defaultIncrementalStrategy: undefined,
     navigationNodeType: null,
     showColumnConfiguration: false,
@@ -873,11 +886,11 @@ export const useModelStore = create<ModelStore>()(
               }, 0);
             }
 
-            // Clear materialized for mart models (they don't support it)
-            if (newBasicFields.materialized !== undefined) {
-              newBasicFields.materialized = undefined;
+            // Clear materialization for mart models (they don't support it)
+            if (newBasicFields.materialization !== undefined) {
+              newBasicFields.materialization = undefined;
               setTimeout(() => {
-                void get().saveField('materialized', null);
+                void get().saveField('materialization', null);
               }, 0);
             }
 
@@ -900,8 +913,8 @@ export const useModelStore = create<ModelStore>()(
           }
         }
 
-        // Handle materialized changes: manage default pre-hooks and clear incremental fields
-        if (field === 'materialized') {
+        // Handle materialization changes: manage default pre-hooks and clear incremental fields
+        if (field === 'materialization') {
           const defaultPreHook =
             "set session iterative_optimizer_timeout='60m'; set session query_max_planning_time='60m'";
 
@@ -1005,8 +1018,11 @@ export const useModelStore = create<ModelStore>()(
             }
           }
 
-          // Clear incremental_strategy and partitioned_by when not 'incremental'
+          // Clear incremental_strategy, partitioned_by, and extras when not incremental
           if (value !== 'incremental') {
+            if (Object.keys(get().materializationExtras).length > 0) {
+              set({ materializationExtras: {} });
+            }
             if (state.additionalFields.incremental_strategy !== undefined) {
               newAdditionalFields = {
                 ...newAdditionalFields,
@@ -1096,8 +1112,36 @@ export const useModelStore = create<ModelStore>()(
       if (data.group !== undefined) state.setBasicField('group', data.group);
       if (data.topic !== undefined) state.setBasicField('topic', data.topic);
       if (data.type !== undefined) state.setBasicField('type', data.type);
-      if (data.materialized !== undefined)
-        state.setBasicField('materialized', data.materialized);
+      const materializationInput = data as {
+        materialized?: SchemaModelMaterialized;
+        materialization?: SchemaModelMaterialization;
+        incremental_strategy?: IncrementalStrategy;
+        partitioned_by?: SchemaModelPartitionedBy;
+      };
+
+      const materializationType = getMaterializationType(materializationInput);
+      if (materializationType !== undefined) {
+        state.setBasicField('materialization', materializationType);
+      }
+
+      const strategyFromFile = getIncrementalStrategy(materializationInput);
+      if (strategyFromFile !== undefined) {
+        state.setAdditionalField('incremental_strategy', strategyFromFile);
+      }
+
+      const partitionsFromFile = getPartitions(materializationInput);
+      if (partitionsFromFile !== undefined) {
+        state.setAdditionalField('partitioned_by', partitionsFromFile);
+      }
+
+      const matField = materializationInput.materialization;
+      if (matField && typeof matField === 'object') {
+        set({
+          materializationExtras: pickMaterializationExtras(matField),
+        });
+      } else {
+        set({ materializationExtras: {} });
+      }
       if (data.projectName !== undefined)
         state.setBasicField('projectName', data.projectName);
       if (data.source !== undefined) state.setBasicField('source', data.source);
@@ -1253,10 +1297,7 @@ export const useModelStore = create<ModelStore>()(
             // `materialization: { type: "incremental", ... }` (object form).
             // Both must be checked to avoid discarding partitioned_by.
             const isIncremental =
-              data.materialized === 'incremental' ||
-              (data as any).materialization === 'incremental' ||
-              (typeof (data as any).materialization === 'object' &&
-                (data as any).materialization?.type === 'incremental');
+              getMaterializationType(materializationInput) === 'incremental';
             if (!isIncremental && key === 'partitioned_by') {
               value = undefined;
             } else if (Array.isArray(value)) {
@@ -1700,6 +1741,7 @@ export const useModelStore = create<ModelStore>()(
         where: null,
         dataModeling: initialDataModeling,
         additionalFields: initialAdditionalFields,
+        materializationExtras: {},
         navigationNodeType: null,
         showColumnConfiguration: false,
         editingColumn: null,
@@ -1946,7 +1988,21 @@ export const useModelStore = create<ModelStore>()(
       );
       Object.assign(fromObject, transformationConfigs);
 
-      const additionalFields = buildAdditionalFields(state.additionalFields);
+      const {
+        incremental_strategy: _incrementalStrategy,
+        partitioned_by: _partitionedBy,
+        ...additionalFieldsWithoutMaterialization
+      } = buildAdditionalFields(state.additionalFields) as Record<
+        string,
+        unknown
+      >;
+
+      const materialization = buildMaterializationForWizardOutput({
+        type: basicFields.materialization,
+        strategy: state.additionalFields.incremental_strategy,
+        partitions: state.additionalFields.partitioned_by,
+        extras: state.materializationExtras,
+      });
 
       // Build the base model JSON
       const modelJson: Record<string, unknown> = {
@@ -1954,15 +2010,13 @@ export const useModelStore = create<ModelStore>()(
         group: basicFields.group,
         topic: basicFields.topic,
         type: basicFields.type,
-        ...(basicFields.materialized && {
-          materialized: basicFields.materialized,
-        }),
+        ...(materialization && { materialization }),
         from: fromObject,
         select: buildSelectConfig(basicFields, modelingState),
         group_by: convertGroupByToSchemaModelGroupBy(groupBy),
         where: where || null,
         lightdash: null,
-        ...additionalFields,
+        ...additionalFieldsWithoutMaterialization,
       };
 
       // Add CTEs if defined. Strip UI-only keys + drop empty `select` /
@@ -1994,19 +2048,6 @@ export const useModelStore = create<ModelStore>()(
       const lightdashConfig = buildLightdashConfig(modelingState);
       if (lightdashConfig) {
         modelJson.lightdash = lightdashConfig;
-      }
-
-      // Only coerce to null when the UI explicitly has the field but it's
-      // empty/falsy. When absent (undefined), leave it out so the backend
-      // merge preserves the original value from the file.
-      if (modelJson.partitioned_by !== undefined) {
-        if (
-          !modelJson.partitioned_by ||
-          (Array.isArray(modelJson.partitioned_by) &&
-            modelJson.partitioned_by.length === 0)
-        ) {
-          modelJson.partitioned_by = null;
-        }
       }
 
       return modelJson;

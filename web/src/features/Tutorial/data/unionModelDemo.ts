@@ -11,7 +11,7 @@ export const unionModelDemoData: DemoData = {
   type: 'int_union_models',
   group: 'sales',
   topic: 'items',
-  materialized: 'incremental',
+  materialization: 'incremental',
 
   from: {
     model: 'stg__sales__items__order_details',

@@ -65,7 +65,9 @@ export function AdditionalFields({
   watch,
 }: AdditionalFieldsProps) {
   const type = useModelStore((state) => state.basicFields.type);
-  const materialized = useModelStore((state) => state.basicFields.materialized);
+  const materialization = useModelStore(
+    (state) => state.basicFields.materialization,
+  );
   const setAdditionalField = useModelStore((state) => state.setAdditionalField);
   const additionalFieldsSqlHooks = useModelStore(
     (state) => state.additionalFields.sql_hooks,
@@ -77,7 +79,7 @@ export function AdditionalFields({
     | undefined;
 
   // Sync store's sql_hooks to form state on mount
-  // This handles cases where materialized was changed on BasicInformation step,
+  // This handles cases where materialization was changed on BasicInformation step,
   // updating sql_hooks in the store, and user navigates to AdditionalFields step
   useEffect(() => {
     const formHooks = watch('sql_hooks');
@@ -98,7 +100,7 @@ export function AdditionalFields({
     type,
   );
 
-  const isIncrementalMaterialization = materialized === 'incremental';
+  const isIncrementalMaterialization = materialization === 'incremental';
 
   /**
    * Exclude daily filters are not available for stg_select_source, stg_union_sources and mart models
@@ -108,7 +110,7 @@ export function AdditionalFields({
   );
 
   /**
-   * Incremental Strategy is only available when materialized type is 'incremental' and non-mart model
+   * Incremental Strategy is only available when materialization type is 'incremental' and non-mart model
    */
   const showIncrementalStrategy =
     !isMartModelType && isIncrementalMaterialization;

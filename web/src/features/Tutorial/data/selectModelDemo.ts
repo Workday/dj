@@ -11,7 +11,7 @@ export const selectModelDemoData: DemoData = {
   type: 'int_select_model',
   group: 'customers',
   topic: 'profiles',
-  materialized: 'incremental',
+  materialization: 'incremental',
 
   // Data Modeling - from
   from: {

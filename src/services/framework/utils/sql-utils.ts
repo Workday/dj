@@ -44,6 +44,7 @@ import {
   PARTITION_HOURLY,
   PARTITION_MONTHLY,
 } from '@shared/framework/constants';
+import { normalizeMaterializationFromLegacyRequest } from '@shared/framework/materialization';
 import type {
   FrameworkColumn,
   FrameworkColumnAgg,
@@ -3206,13 +3207,16 @@ export function frameworkModelNodeColor({
  * @see utils.ts:2091-2733
  */
 export function frameworkMakeModelTemplate(
-  {
+  request: Api<'framework-model-create'>['request'],
+  autoGenerateTestsConfig: AutoGenerateTestsConfig = {
+    tests: { equalRowCount: { enabled: true, applyTo: ['left'] } },
+  },
+): FrameworkModel {
+  const {
     type,
     group,
     name,
     topic,
-    materialized,
-    materialization,
     from,
     select,
     group_by,
@@ -3220,9 +3224,7 @@ export function frameworkMakeModelTemplate(
     lightdash,
     description,
     tags,
-    incremental_strategy,
     sql_hooks,
-    partitioned_by,
     exclude_daily_filter,
     exclude_date_filter,
     exclude_datetime,
@@ -3230,11 +3232,19 @@ export function frameworkMakeModelTemplate(
     exclude_portal_partition_columns,
     exclude_portal_source_count,
     ctes,
-  }: Api<'framework-model-create'>['request'],
-  autoGenerateTestsConfig: AutoGenerateTestsConfig = {
-    tests: { equalRowCount: { enabled: true, applyTo: ['left'] } },
-  },
-): FrameworkModel {
+    materialized,
+    materialization,
+    incremental_strategy,
+    partitioned_by,
+  } = request;
+
+  const normalizedMaterialization = normalizeMaterializationFromLegacyRequest({
+    materialized,
+    materialization,
+    incremental_strategy,
+    partitioned_by,
+  });
+
   /**
    * Build base model object with required and optional fields
    * These fields are common across all model types
@@ -3246,26 +3256,16 @@ export function frameworkMakeModelTemplate(
     name,
 
     // Optional basic fields
-    ...(materialized && { materialized }),
-    ...(materialization !== undefined && { materialization }),
+    ...(normalizedMaterialization && {
+      materialization: normalizedMaterialization,
+    }),
     ...(description && { description }),
     ...(tags && tags.length > 0 && { tags }),
-
-    // Incremental strategy configuration
-    ...(incremental_strategy && {
-      incremental_strategy: incremental_strategy as any,
-    }),
 
     // SQL hooks configuration
     ...(sql_hooks &&
       (sql_hooks.pre || sql_hooks.post) && {
         sql_hooks: sql_hooks as any,
-      }),
-
-    // Partitioning configuration
-    ...(partitioned_by &&
-      partitioned_by.length > 0 && {
-        partitioned_by: partitioned_by as any,
       }),
 
     // Exclude filter flags

@@ -1,5 +1,11 @@
 # Change Log
 
+## 2.5.0
+
+### Model Wizard
+
+- **Create and edit models with `materialization` instead of deprecated top-level fields.** The wizard writes `materialization` (string or nested strategy/partitions) rather than `materialized`, `incremental_strategy`, and `partitioned_by`. Saving an edit removes those legacy keys from the file. jaffle_shop examples use the new shape.
+
 ## 2.4.0
 
 ### Agent / CLI

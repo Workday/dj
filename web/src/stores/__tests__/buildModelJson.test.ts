@@ -134,6 +134,81 @@ describe('useModelStore round-trip (loadInitialData -> buildModelJson)', () => {
     });
   });
 
+  test('emits materialization instead of deprecated materialized', () => {
+    useModelStore.getState().loadInitialData({
+      name: 'oms_task_stats',
+      group: 'capeng',
+      topic: 'swh',
+      projectName: 'capeng',
+      type: 'int_select_model',
+      materialization: 'ephemeral',
+      from: { model: 'stg__capeng__swh__oms_task_stats' },
+    } as never);
+
+    const out = useModelStore.getState().buildModelJson() as Record<
+      string,
+      unknown
+    >;
+    expect(out.materialization).toBe('ephemeral');
+    expect(out).not.toHaveProperty('materialized');
+  });
+
+  test('migrates legacy flat fields into materialization object', () => {
+    useModelStore.getState().loadInitialData({
+      name: 'oms_task_stats',
+      group: 'capeng',
+      topic: 'swh',
+      projectName: 'capeng',
+      type: 'int_select_model',
+      materialized: 'incremental',
+      incremental_strategy: { type: 'delete+insert' },
+      partitioned_by: ['portal_partition_daily'],
+      from: { model: 'stg__capeng__swh__oms_task_stats' },
+    } as never);
+
+    const out = useModelStore.getState().buildModelJson() as Record<
+      string,
+      unknown
+    >;
+    expect(out.materialization).toEqual({
+      type: 'incremental',
+      strategy: { type: 'delete+insert' },
+      partitions: ['portal_partition_daily'],
+    });
+    expect(out).not.toHaveProperty('incremental_strategy');
+    expect(out).not.toHaveProperty('partitioned_by');
+  });
+
+  test('preserves materialization extras when rebuilding', () => {
+    useModelStore.getState().loadInitialData({
+      name: 'oms_task_stats',
+      group: 'capeng',
+      topic: 'swh',
+      projectName: 'capeng',
+      type: 'int_select_model',
+      materialization: {
+        type: 'incremental',
+        format: 'iceberg',
+        strategy: { type: 'append' },
+      },
+      from: { model: 'stg__capeng__swh__oms_task_stats' },
+    } as never);
+
+    useModelStore.getState().setAdditionalField('incremental_strategy', {
+      type: 'delete+insert',
+    });
+
+    const out = useModelStore.getState().buildModelJson() as Record<
+      string,
+      unknown
+    >;
+    expect(out.materialization).toMatchObject({
+      type: 'incremental',
+      format: 'iceberg',
+      strategy: { type: 'delete+insert' },
+    });
+  });
+
   test('collapses group_by: [{ type: "dims" }] to the "dims" shorthand', () => {
     // The shorthand collapse is documented in docs/models/README.md.
     useModelStore.getState().loadInitialData({

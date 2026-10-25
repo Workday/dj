@@ -117,6 +117,7 @@ export type FrameworkApi =
         type: FrameworkModel['type'];
         projectName: string;
         validateOnly?: boolean;
+        /** @deprecated Legacy wizard/sync input; normalized to `materialization` in templates */
         materialized?: SchemaModelMaterialized;
         materialization?: SchemaModelMaterialization;
         source?: string; // UI field, should be excluded from actual API request
