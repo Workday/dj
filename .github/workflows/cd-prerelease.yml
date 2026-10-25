@@ -150,6 +150,9 @@ jobs:
             npm install
           fi
 
+      - name: Run tests
+        run: npm test
+
       - name: Package extension
         env:
           VSIX: ${{ steps.pkg.outputs.vsix }}
