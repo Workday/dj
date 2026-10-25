@@ -125,7 +125,7 @@ export type FrameworkApi =
         tags?: string[];
         incremental_strategy?: IncrementalStrategy;
         sql_hooks?: {
-          pre?: string | [string, ...string[]];
+          pre?: string | [string, ...string[]] | null;
           post?: string | [string, ...string[]];
         };
         partitioned_by?: [string, ...string[]];

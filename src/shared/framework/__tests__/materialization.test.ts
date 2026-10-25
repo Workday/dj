@@ -4,6 +4,7 @@ import {
   getIncrementalStrategy,
   getMaterializationType,
   getPartitions,
+  materializationInsertionIndex,
   normalizeMaterializationFromLegacyRequest,
   pickMaterializationExtras,
 } from '@shared/framework/materialization';
@@ -64,12 +65,12 @@ describe('materialization helpers', () => {
   });
 
   test('buildMaterializationForWizardOutput uses string shorthand when minimal', () => {
-    expect(
-      buildMaterializationForWizardOutput({ type: 'ephemeral' }),
-    ).toBe('ephemeral');
-    expect(
-      buildMaterializationForWizardOutput({ type: 'incremental' }),
-    ).toBe('incremental');
+    expect(buildMaterializationForWizardOutput({ type: 'ephemeral' })).toBe(
+      'ephemeral',
+    );
+    expect(buildMaterializationForWizardOutput({ type: 'incremental' })).toBe(
+      'incremental',
+    );
   });
 
   test('buildMaterializationForWizardOutput uses object when strategy or partitions set', () => {
@@ -98,5 +99,12 @@ describe('materialization helpers', () => {
       strategy: { type: 'append' },
       partitions: ['portal_partition_daily'],
     });
+  });
+
+  test('materializationInsertionIndex uses the legacy materialized slot', () => {
+    expect(
+      materializationInsertionIndex(['type', 'name', 'materialized', 'from']),
+    ).toBe(2);
+    expect(materializationInsertionIndex(['type', 'name'])).toBe(2);
   });
 });

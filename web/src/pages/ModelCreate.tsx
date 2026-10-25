@@ -1,7 +1,11 @@
 import { InformationCircleIcon } from '@heroicons/react/20/solid';
 import type { Api } from '@shared/api/types';
 import type { DbtProject } from '@shared/dbt/types';
-import { getMaterializationType } from '@shared/framework/materialization';
+import {
+  getIncrementalStrategy,
+  getMaterializationType,
+  getPartitions,
+} from '@shared/framework/materialization';
 import type {
   ModelCreateResponse,
   ModelCreateValidateResponse,
@@ -518,6 +522,16 @@ export function ModelCreate({ mode = 'create' }: ModelCreateProps) {
           if (materializationType) {
             setValue('materialization', materializationType);
           }
+          const loadedStrategy = getIncrementalStrategy(
+            dataToLoad as Parameters<typeof getIncrementalStrategy>[0],
+          );
+          setValue('incremental_strategy', loadedStrategy);
+          const loadedPartitions = getPartitions(
+            dataToLoad as Parameters<typeof getPartitions>[0],
+          );
+          if (loadedPartitions) {
+            setValue('partitioned_by', loadedPartitions);
+          }
           if (dataToLoad.projectName) {
             setValue('projectName', dataToLoad.projectName);
           } else if (_projects.length > 0) {
@@ -529,11 +543,7 @@ export function ModelCreate({ mode = 'create' }: ModelCreateProps) {
           if (dataToLoad.description)
             setValue('description', dataToLoad.description);
           if (dataToLoad.tags) setValue('tags', dataToLoad.tags);
-          if (dataToLoad.incremental_strategy)
-            setValue('incremental_strategy', dataToLoad.incremental_strategy);
           if (dataToLoad.sql_hooks) setValue('sql_hooks', dataToLoad.sql_hooks);
-          if (dataToLoad.partitioned_by)
-            setValue('partitioned_by', dataToLoad.partitioned_by);
           if (dataToLoad.exclude_daily_filter !== undefined)
             setValue('exclude_daily_filter', dataToLoad.exclude_daily_filter);
           if (dataToLoad.exclude_date_filter !== undefined)

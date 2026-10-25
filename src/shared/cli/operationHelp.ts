@@ -22,20 +22,11 @@ export type OperationHelp = {
   defaultTimeoutMs?: number;
 };
 
-const COMMON_FLAGS = [
-  '--file',
-  '--json',
-  '--workspace',
-  '--timeout',
-] as const;
+const COMMON_FLAGS = ['--file', '--json', '--workspace', '--timeout'] as const;
 
 const PROJECT_FLAGS = [...COMMON_FLAGS, '--projectName'] as const;
 
-const MODEL_NAME_FLAGS = [
-  ...PROJECT_FLAGS,
-  '--modelName',
-  '--depth',
-] as const;
+const MODEL_NAME_FLAGS = [...PROJECT_FLAGS, '--modelName', '--depth'] as const;
 
 function help(entry: OperationHelp): OperationHelp {
   return entry;
@@ -127,7 +118,8 @@ const HELP_BY_NAME: Record<string, OperationHelp> = {
   }),
   'dbt.models.search': help({
     operation: 'dbt.models.search',
-    description: 'Search models by pattern, topic, group, tags, fromModel, etc.',
+    description:
+      'Search models by pattern, topic, group, tags, fromModel, etc.',
     sideEffect: 'read',
     payloadRequired: 'optional',
     preferredInvoke: 'fileAndFlags',
@@ -312,7 +304,8 @@ const HELP_BY_NAME: Record<string, OperationHelp> = {
   }),
   'model.update': help({
     operation: 'model.update',
-    description: 'Update an existing model (merge, validate, relocate on rename).',
+    description:
+      'Update an existing model (merge, validate, relocate on rename).',
     sideEffect: 'mutate',
     payloadRequired: 'required',
     preferredInvoke: 'fileWrappedModelJson',

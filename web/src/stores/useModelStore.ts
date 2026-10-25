@@ -1,5 +1,6 @@
 import type { DbtProject } from '@shared/dbt/types';
 import {
+  DEFAULT_INCREMENTAL_PRE_HOOK,
   DEFAULT_INCREMENTAL_STRATEGY,
   FRAMEWORK_PARTITIONS,
   GROUP_BY_DIMS,
@@ -915,52 +916,11 @@ export const useModelStore = create<ModelStore>()(
 
         // Handle materialization changes: manage default pre-hooks and clear incremental fields
         if (field === 'materialization') {
-          const defaultPreHook =
-            "set session iterative_optimizer_timeout='60m'; set session query_max_planning_time='60m'";
-
-          if (value === 'incremental') {
-            // Add default pre-hook if not already present
-            const currentSqlHooks = state.additionalFields.sql_hooks;
-            const currentPreHook = currentSqlHooks?.pre;
-
-            let newPreHookValue: string | [string, ...string[]] | undefined;
-
-            if (currentPreHook) {
-              // Check if default hook already exists
-              const currentHooksArray = Array.isArray(currentPreHook)
-                ? currentPreHook
-                : [currentPreHook];
-
-              const hasDefaultHook = currentHooksArray.includes(defaultPreHook);
-
-              if (!hasDefaultHook) {
-                // Add default hook to existing hooks
-                const updatedHooks = [...currentHooksArray, defaultPreHook];
-                newPreHookValue =
-                  updatedHooks.length === 1
-                    ? updatedHooks[0]
-                    : (updatedHooks as [string, ...string[]]);
-              } else {
-                // Default hook already exists, keep current value
-                newPreHookValue = currentPreHook;
-              }
-            } else {
-              // No existing hooks, set as string (not array)
-              newPreHookValue = defaultPreHook;
-            }
-
-            newAdditionalFields = {
-              ...newAdditionalFields,
-              sql_hooks: {
-                ...currentSqlHooks,
-                pre: newPreHookValue,
-              },
-            };
-            setTimeout(() => {
-              void get().saveField('sql_hooks', newAdditionalFields.sql_hooks);
-            }, 0);
-
-            // Preselect default incremental strategy from store state (fetched via preferences API)
+          // SQL generation applies the default strategy and session pre-hook
+          // when the JSON omits them. Preselect a strategy only while creating
+          // a model. The pre-hook stays out of the file until the user edits it;
+          // `sql_hooks.pre: null` is how they turn the generated hook off.
+          if (value === 'incremental' && state.mode === 'create') {
             if (!state.additionalFields.incremental_strategy?.type) {
               const defaultStrategy =
                 state.defaultIncrementalStrategy ??
@@ -979,41 +939,24 @@ export const useModelStore = create<ModelStore>()(
                 );
               }, 0);
             }
-          } else {
-            // Remove default pre-hook when changing away from incremental
+          } else if (value !== 'incremental') {
             const currentSqlHooks = state.additionalFields.sql_hooks;
-            if (currentSqlHooks?.pre) {
-              const currentPreHook = currentSqlHooks.pre;
-
-              // Filter out default pre-hook from current hooks
-              let filteredHooks: string | [string, ...string[]] | undefined;
-              if (Array.isArray(currentPreHook)) {
-                const filteredHooksArray = currentPreHook.filter(
-                  (hook) => hook !== defaultPreHook,
-                );
-                if (filteredHooksArray.length === 0) {
-                  filteredHooks = undefined;
-                } else {
-                  filteredHooks = filteredHooksArray as [string, ...string[]];
-                }
-              } else if (currentPreHook === defaultPreHook) {
-                filteredHooks = undefined;
-              } else {
-                filteredHooks = [currentPreHook] as [string, ...string[]];
-              }
-
+            const currentPreHook = currentSqlHooks?.pre;
+            if (
+              currentPreHook === DEFAULT_INCREMENTAL_PRE_HOOK ||
+              (Array.isArray(currentPreHook) &&
+                currentPreHook.length === 1 &&
+                currentPreHook[0] === DEFAULT_INCREMENTAL_PRE_HOOK)
+            ) {
+              const { pre: _pre, ...restHooks } = currentSqlHooks ?? {};
+              const nextHooks =
+                restHooks.post !== undefined ? restHooks : undefined;
               newAdditionalFields = {
                 ...newAdditionalFields,
-                sql_hooks: {
-                  ...currentSqlHooks,
-                  pre: filteredHooks,
-                },
+                sql_hooks: nextHooks,
               };
               setTimeout(() => {
-                void get().saveField(
-                  'sql_hooks',
-                  newAdditionalFields.sql_hooks,
-                );
+                void get().saveField('sql_hooks', nextHooks ?? null);
               }, 0);
             }
           }
@@ -1121,7 +1064,14 @@ export const useModelStore = create<ModelStore>()(
 
       const materializationType = getMaterializationType(materializationInput);
       if (materializationType !== undefined) {
-        state.setBasicField('materialization', materializationType);
+        // Direct write: setBasicField('materialization') also injects the
+        // default strategy and session pre-hook, which belong on create, not load.
+        set((current) => ({
+          basicFields: {
+            ...current.basicFields,
+            materialization: materializationType,
+          },
+        }));
       }
 
       const strategyFromFile = getIncrementalStrategy(materializationInput);
@@ -1992,10 +1942,7 @@ export const useModelStore = create<ModelStore>()(
         incremental_strategy: _incrementalStrategy,
         partitioned_by: _partitionedBy,
         ...additionalFieldsWithoutMaterialization
-      } = buildAdditionalFields(state.additionalFields) as Record<
-        string,
-        unknown
-      >;
+      } = omitGeneratedPreHook(buildAdditionalFields(state.additionalFields));
 
       const materialization = buildMaterializationForWizardOutput({
         type: basicFields.materialization,
@@ -2125,6 +2072,32 @@ export function convertSchemaModelGroupByToModelStoreGroupBy(
     .map((item) => item.expr);
 
   return groupByItems;
+}
+
+function omitGeneratedPreHook(
+  fields: Record<string, unknown>,
+): Record<string, unknown> {
+  const hooks = fields.sql_hooks as
+    | { pre?: string | string[] | null; post?: unknown }
+    | undefined;
+  if (!hooks) {
+    return fields;
+  }
+  const pre = hooks.pre;
+  const isDefault =
+    pre === DEFAULT_INCREMENTAL_PRE_HOOK ||
+    (Array.isArray(pre) &&
+      pre.length === 1 &&
+      pre[0] === DEFAULT_INCREMENTAL_PRE_HOOK);
+  if (!isDefault) {
+    return fields;
+  }
+  const { pre: _pre, ...rest } = hooks;
+  if (rest.post === undefined) {
+    const { sql_hooks: _hooks, ...withoutHooks } = fields;
+    return withoutHooks;
+  }
+  return { ...fields, sql_hooks: rest };
 }
 
 // Exclude `undefined` entries so the backend merge preserves original values

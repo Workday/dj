@@ -125,10 +125,7 @@ export function matchesModelSearchFilters(
   if (filters.fromModel && summary.fromModel !== filters.fromModel) {
     return false;
   }
-  if (
-    filters.requireLightdashExploreTag &&
-    !summary.hasLightdashExplore
-  ) {
+  if (filters.requireLightdashExploreTag && !summary.hasLightdashExplore) {
     return false;
   }
   if (filters.tags?.length) {
@@ -140,8 +137,10 @@ export function matchesModelSearchFilters(
   if (
     filters.pattern &&
     !matchesPattern(summary.name, filters.pattern) &&
-    !(summary.lightdashTableLabel &&
-      matchesPattern(summary.lightdashTableLabel, filters.pattern))
+    !(
+      summary.lightdashTableLabel &&
+      matchesPattern(summary.lightdashTableLabel, filters.pattern)
+    )
   ) {
     return false;
   }
@@ -206,8 +205,6 @@ export function rankSimilarModels(
     }
   }
 
-  scored.sort(
-    (a, b) => b.score - a.score || a.name.localeCompare(b.name),
-  );
+  scored.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
   return scored.slice(0, limit);
 }

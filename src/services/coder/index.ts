@@ -33,11 +33,7 @@ import type { ApiMessage } from '@shared/api/types';
 import type { DbtProject, DbtProjectManifest } from '@shared/dbt/types';
 import { getDbtModelId, getDbtProperties } from '@shared/dbt/utils';
 import type { WebviewMessage } from '@shared/webview/types';
-import {
-  DJ_BIN_PATH,
-  DJ_CLI_ENDPOINTS_PATH,
-  WORKSPACE_ROOT,
-} from 'admin';
+import { DJ_BIN_PATH, DJ_CLI_ENDPOINTS_PATH, WORKSPACE_ROOT } from 'admin';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';

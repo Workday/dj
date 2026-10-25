@@ -182,8 +182,7 @@ export function normalizeMaterializationFromLegacyRequest(
     });
   }
 
-  const type =
-    request.type ?? getMaterializationType(request);
+  const type = request.type ?? getMaterializationType(request);
   if (!type) {
     return undefined;
   }
@@ -196,10 +195,16 @@ export function normalizeMaterializationFromLegacyRequest(
   });
 }
 
-export function deprecatedMaterializationNullSentinels(): Record<
-  string,
-  null
-> {
+/**
+ * Index at which a new `materialization` property should be inserted when
+ * replacing a legacy `materialized` key. Falls back to appending.
+ */
+export function materializationInsertionIndex(properties: string[]): number {
+  const idx = properties.indexOf('materialized');
+  return idx >= 0 ? idx : properties.length;
+}
+
+export function deprecatedMaterializationNullSentinels(): Record<string, null> {
   return Object.fromEntries(
     DEPRECATED_MATERIALIZATION_TOP_LEVEL_KEYS.map((key) => [key, null]),
   );

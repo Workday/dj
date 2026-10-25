@@ -37,6 +37,7 @@ import {
   BULK_CTE_TYPES,
   BULK_MODEL_TYPES,
   DEFAULT_INCREMENTAL_STRATEGY,
+  DEFAULT_INCREMENTAL_PRE_HOOK,
   FRAMEWORK_PARTITIONS,
   JOIN_ON_DIMS,
   normalizeGroupBy,
@@ -2291,9 +2292,10 @@ export function frameworkGenerateModelOutput({
           }
         }
 
-        // Trino session settings for long-running incremental queries
-        modelConfig.pre_hook =
-          "set session iterative_optimizer_timeout='60m'; set session query_max_planning_time='60m'";
+        // Trino session settings for long-running incremental queries.
+        // Omitted `sql_hooks.pre` keeps this hook. `null` removes it.
+        // A string or array below replaces it.
+        modelConfig.pre_hook = DEFAULT_INCREMENTAL_PRE_HOOK;
 
         // Resolve storage format (model `format` > project `storage_type`).
         // Iceberg expresses bucketing as a `bucket(col,n)` transform inside
@@ -2368,7 +2370,9 @@ export function frameworkGenerateModelOutput({
     if (modelJson.sql_hooks.post) {
       modelConfig.post_hook = modelJson.sql_hooks.post;
     }
-    if (modelJson.sql_hooks.pre) {
+    if (modelJson.sql_hooks.pre === null) {
+      delete modelConfig.pre_hook;
+    } else if (modelJson.sql_hooks.pre) {
       modelConfig.pre_hook = modelJson.sql_hooks.pre;
     }
   }
@@ -3264,7 +3268,7 @@ export function frameworkMakeModelTemplate(
 
     // SQL hooks configuration
     ...(sql_hooks &&
-      (sql_hooks.pre || sql_hooks.post) && {
+      (sql_hooks.pre !== undefined || sql_hooks.post) && {
         sql_hooks: sql_hooks as any,
       }),
 

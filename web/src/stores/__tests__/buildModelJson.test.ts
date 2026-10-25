@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, jest, test } from '@jest/globals';
+import {
+  DEFAULT_INCREMENTAL_PRE_HOOK,
+  DEFAULT_INCREMENTAL_STRATEGY,
+} from '@shared/framework/constants';
 
 jest.mock('../../utils/stateSync', () => ({
   stateSync: {
@@ -151,6 +155,70 @@ describe('useModelStore round-trip (loadInitialData -> buildModelJson)', () => {
     >;
     expect(out.materialization).toBe('ephemeral');
     expect(out).not.toHaveProperty('materialized');
+  });
+
+  test('legacy incremental without a strategy does not gain defaults', () => {
+    useModelStore.getState().setMode('edit');
+    useModelStore.getState().loadInitialData({
+      name: 'oms_task_stats',
+      group: 'capeng',
+      topic: 'swh',
+      projectName: 'capeng',
+      type: 'int_select_model',
+      materialized: 'incremental',
+      from: { model: 'stg__capeng__swh__oms_task_stats' },
+    } as never);
+
+    const out = useModelStore.getState().buildModelJson() as Record<
+      string,
+      unknown
+    >;
+    expect(out.materialization).toBe('incremental');
+    expect(out).not.toHaveProperty('sql_hooks');
+    expect(out).not.toHaveProperty('incremental_strategy');
+  });
+
+  test('omits the generated session pre-hook and keeps an explicit opt-out', () => {
+    useModelStore.getState().loadInitialData({
+      name: 'oms_task_stats',
+      group: 'capeng',
+      topic: 'swh',
+      projectName: 'capeng',
+      type: 'int_select_model',
+      materialization: 'incremental',
+      sql_hooks: { pre: DEFAULT_INCREMENTAL_PRE_HOOK },
+      from: { model: 'stg__capeng__swh__oms_task_stats' },
+    } as never);
+
+    const withDefault = useModelStore.getState().buildModelJson() as Record<
+      string,
+      unknown
+    >;
+    expect(withDefault).not.toHaveProperty('sql_hooks');
+
+    useModelStore.getState().setAdditionalField('sql_hooks', { pre: null });
+    const optedOut = useModelStore.getState().buildModelJson() as Record<
+      string,
+      unknown
+    >;
+    expect(optedOut.sql_hooks).toEqual({ pre: null });
+  });
+
+  test('create mode preselects the default incremental strategy', () => {
+    useModelStore.getState().setMode('create');
+    useModelStore.getState().setBasicField('materialization', 'incremental');
+    expect(
+      useModelStore.getState().additionalFields.incremental_strategy,
+    ).toEqual({ type: DEFAULT_INCREMENTAL_STRATEGY });
+  });
+
+  test('edit mode does not preselect a strategy when materialization changes', () => {
+    useModelStore.getState().setMode('edit');
+    useModelStore.getState().setBasicField('materialization', 'incremental');
+    expect(
+      useModelStore.getState().additionalFields.incremental_strategy,
+    ).toBeUndefined();
+    expect(useModelStore.getState().additionalFields.sql_hooks).toBeUndefined();
   });
 
   test('migrates legacy flat fields into materialization object', () => {

@@ -567,7 +567,7 @@ export function createOperationRegistry(): OperationRegistry {
   register({
     name: 'model.lineage',
     description:
-      "Get upstream/downstream lineage. CLI defaults depth to -1 (walk to sources) unless overridden. Optional maxNodes (default 50). Requires { modelName }; projectName optional when a single dbt project exists.",
+      'Get upstream/downstream lineage. CLI defaults depth to -1 (walk to sources) unless overridden. Optional maxNodes (default 50). Requires { modelName }; projectName optional when a single dbt project exists.',
     sideEffect: 'read',
     handler: async (input, ctx) => {
       const request = readRequest(input, { allowEmpty: true }) as Record<

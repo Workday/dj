@@ -106,7 +106,9 @@ export const transformFormValuesToApi = (
   const built = normalizeMaterializationFromLegacyRequest({
     materialized: legacyMaterialized as SchemaModelMaterialized | undefined,
     materialization: materialization as SchemaModelMaterialization | undefined,
-    incremental_strategy: incremental_strategy as IncrementalStrategy | undefined,
+    incremental_strategy: incremental_strategy as
+      | IncrementalStrategy
+      | undefined,
     partitioned_by: partitioned_by as SchemaModelPartitionedBy | undefined,
     extras: options.materializationExtras ?? {},
   });

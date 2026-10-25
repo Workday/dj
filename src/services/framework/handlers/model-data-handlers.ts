@@ -285,15 +285,8 @@ export class ModelDataHandlers {
   handleModelSimilar(
     payload: ApiPayload<'framework'> & { type: 'framework-model-similar' },
   ): ApiResponse {
-    const {
-      projectName,
-      modelName,
-      fromModel,
-      group,
-      topic,
-      tags,
-      limit,
-    } = payload.request;
+    const { projectName, modelName, fromModel, group, topic, tags, limit } =
+      payload.request;
     const project = this.ctx.dbt.projects.get(projectName);
     if (!project) {
       throw new Error(`Project ${projectName} not found`);
