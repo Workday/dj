@@ -1,5 +1,11 @@
 # Change Log
 
+## 2.5.0
+
+### Framework
+
+- **Dynamic Lightdash custom granularities and expanded time intervals.** Custom time granularities defined in `lightdash.config.yml` (under `custom_granularities`) are dynamically discovered and loaded into model schemas and editor autocomplete. Built-in time intervals also now include `MINUTE`, `SECOND`, and `MILLISECOND`.
+
 ## 2.4.0
 
 ### Agent / CLI
