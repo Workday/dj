@@ -54,6 +54,19 @@ export type SchemaModelTags = (
     }
 )[];
 /**
+ * Config fragments (`*.fragment.json` with `kind: "config"`) applied to this model, in order. Values set on the model itself take precedence; a later fragment overrides an earlier one; `tags` are combined and `meta` is merged key by key.
+ *
+ * @minItems 1
+ */
+export type SchemaModelFragments = [
+  SchemaFragmentName,
+  ...SchemaFragmentName[],
+];
+/**
+ * Name of a fragment or template, unique within its dbt project
+ */
+export type SchemaFragmentName = string;
+/**
  * Additional model names whose ref() edges should be forced in generated SQL via --depends_on comments (for refs hidden from dbt parse, e.g. inside {% if execute %})
  *
  * @minItems 1
@@ -525,6 +538,10 @@ export type SchemaModelSelectModelWithAgg = {
   type: 'fct';
 };
 /**
+ * Validate column type
+ */
+export type SchemaColumnType = 'dim' | 'fct';
+/**
  * Validate model group by
  */
 export type SchemaModelGroupBy =
@@ -562,6 +579,7 @@ export interface SchemaModelTypeIntLookbackModel {
   lightdash?: SchemaModelLightdash;
   tags?: SchemaModelTags;
   meta?: SchemaModelMeta;
+  fragments?: SchemaModelFragments;
   depends_on?: SchemaModelDependsOn;
   data_tests?: SchemaModelDataTests;
   materialization?: SchemaModelMaterialization;
@@ -587,6 +605,7 @@ export interface SchemaModelTypeIntLookbackModel {
       | SchemaModelSelectExprWithAgg
       | SchemaModelSelectModel
       | SchemaModelSelectModelWithAgg
+      | SchemaModelSelectFragment
     ),
     ...(
       | SchemaColumnName
@@ -596,6 +615,7 @@ export interface SchemaModelTypeIntLookbackModel {
       | SchemaModelSelectExprWithAgg
       | SchemaModelSelectModel
       | SchemaModelSelectModelWithAgg
+      | SchemaModelSelectFragment
     )[],
   ];
   from: {
@@ -875,4 +895,46 @@ export interface SchemaLightdashMetricMerge {
  */
 export interface SchemaColumnMeta {
   [k: string]: unknown | undefined;
+}
+/**
+ * Include the columns of a column fragment (`*.fragment.json` with `kind: "select"`). DJ expands the fragment into regular select items before validation and SQL/YAML generation.
+ */
+export interface SchemaModelSelectFragment {
+  /**
+   * `all_from_fragment` includes every column, `dims_from_fragment` only `dim` columns, `fcts_from_fragment` only `fct` columns.
+   */
+  type: 'all_from_fragment' | 'dims_from_fragment' | 'fcts_from_fragment';
+  fragment: SchemaFragmentName;
+  /**
+   * Fragment columns to leave out.
+   *
+   * @minItems 1
+   */
+  exclude?: [SchemaColumnName, ...SchemaColumnName[]];
+  /**
+   * Only include these fragment columns.
+   *
+   * @minItems 1
+   */
+  include?: [SchemaColumnName, ...SchemaColumnName[]];
+  /**
+   * Per-column property overrides keyed by fragment column name. Properties are merged into the fragment column; `name` cannot be overridden.
+   */
+  overrides?: {
+    [k: string]:
+      | {
+          agg?: SchemaColumnAgg;
+          aggs?: SchemaColumnAggs;
+          data_tests?: SchemaColumnDataTests;
+          data_type?: SchemaColumnDataType;
+          description?: SchemaColumnDescription;
+          exclude_from_group_by?: SchemaColumnExcludeFromGroupBy;
+          expr?: SchemaColumnExpr;
+          interval?: 'hour' | 'day' | 'month' | 'year';
+          lightdash?: SchemaColumnLightdash;
+          meta?: SchemaColumnMeta;
+          type?: SchemaColumnType;
+        }
+      | undefined;
+  };
 }

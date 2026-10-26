@@ -1,0 +1,68 @@
+{
+  "$id": "fragment.schema.json",
+  "title": "Schema Fragment",
+  "description": "A reusable set of columns (`kind: \"select\"`) or model config (`kind: \"config\"`). Column fragments are included with `all_from_fragment` / `dims_from_fragment` / `fcts_from_fragment`; config fragments are applied with the model's root `fragments` list.",
+  "allowTrailingCommas": true,
+  "anyOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name", "select"],
+      "properties": {
+        "$schema": { "type": "string" },
+        "kind": { "const": "select" },
+        "name": { "$ref": "fragment.name.schema.json" },
+        "description": { "type": "string" },
+        "select": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "anyOf": [
+              { "$ref": "column.name.schema.json" },
+              { "$ref": "model.select.col.schema.json" },
+              { "$ref": "model.select.col.with.agg.schema.json" },
+              { "$ref": "model.select.expr.schema.json" },
+              { "$ref": "model.select.expr.with.agg.schema.json" },
+              { "$ref": "model.select.interval.schema.json" },
+              { "$ref": "model.select.fragment.schema.json" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name"],
+      "properties": {
+        "$schema": { "type": "string" },
+        "kind": { "const": "config" },
+        "name": { "$ref": "fragment.name.schema.json" },
+        "description": { "type": "string" },
+        "fragments": { "$ref": "model.fragments.schema.json" },
+        "materialization": { "$ref": "model.materialization.schema.json" },
+        "tags": { "$ref": "model.tags.schema.json" },
+        "meta": { "$ref": "model.meta.schema.json" },
+        "lightdash": { "$ref": "model.lightdash.schema.json" },
+        "data_tests": { "$ref": "model.data_tests.schema.json" },
+        "sql_hooks": { "$ref": "model.sql_hooks.schema.json" },
+        "exclude_daily_filter": {
+          "$ref": "model.exclude_daily_filter.schema.json"
+        },
+        "exclude_date_filter": {
+          "$ref": "model.exclude_date_filter.schema.json"
+        },
+        "exclude_portal_partition_columns": {
+          "$ref": "model.exclude_portal_partition_columns.schema.json"
+        },
+        "exclude_datetime": { "$ref": "model.exclude_datetime.schema.json" },
+        "exclude_framework_artifacts": {
+          "$ref": "model.exclude_framework_artifacts.schema.json"
+        },
+        "exclude_portal_source_count": {
+          "$ref": "model.exclude_portal_source_count.schema.json"
+        }
+      }
+    }
+  ]
+}

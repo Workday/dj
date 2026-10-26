@@ -10,6 +10,7 @@ import type { DJService } from '@services/types';
 import { jsonParse } from '@shared';
 import type { DbtProject } from '@shared/dbt/types';
 import { getDbtModelId } from '@shared/dbt/utils';
+import { resolveModelJson } from '@shared/framework/composition';
 import {
   BULK_CTE_TYPES,
   BULK_MODEL_TYPES,
@@ -2455,8 +2456,10 @@ export class ColumnLineageService implements DJService {
   ): Promise<FrameworkModel | null> {
     try {
       const content = await fs.promises.readFile(filePath, 'utf-8');
-      // Use jsonc-parser which handles comments and trailing commas automatically
-      return jsonParse(content) as FrameworkModel;
+      // Fragments and templates are resolved so their columns trace like
+      // inline ones.
+      return resolveModelJson<FrameworkModel>(jsonParse(content), filePath)
+        .resolved;
     } catch (error: unknown) {
       const errorInfo =
         error instanceof Error
@@ -3429,7 +3432,10 @@ export class ColumnLineageService implements DJService {
       if (modelJsonPath && fs.existsSync(modelJsonPath)) {
         try {
           const content = fs.readFileSync(modelJsonPath, 'utf-8');
-          modelJson = jsonParse(content);
+          modelJson = resolveModelJson<FrameworkModel>(
+            jsonParse(content),
+            modelJsonPath,
+          ).resolved;
         } catch {
           // Ignore parse errors
         }

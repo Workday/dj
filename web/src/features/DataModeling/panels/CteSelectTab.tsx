@@ -75,7 +75,10 @@ type SelectItemKind =
   | 'fcts_from_model'
   | 'all_from_cte'
   | 'dims_from_cte'
-  | 'fcts_from_cte';
+  | 'fcts_from_cte'
+  | 'all_from_fragment'
+  | 'dims_from_fragment'
+  | 'fcts_from_fragment';
 
 type BulkMode = 'none' | 'all' | 'dims' | 'fcts';
 type BulkUpstream = 'model' | 'cte';
@@ -131,6 +134,9 @@ const MANUAL_KIND_OPTIONS: { label: string; value: SelectItemKind }[] = [
   { label: 'From upstream model (named)', value: 'from_model' },
   { label: 'From upstream model + agg', value: 'from_model_with_agg' },
   { label: 'From earlier CTE (named)', value: 'from_cte' },
+  { label: 'All columns from fragment', value: 'all_from_fragment' },
+  { label: 'Dims from fragment', value: 'dims_from_fragment' },
+  { label: 'Fcts from fragment', value: 'fcts_from_fragment' },
 ];
 
 function inferKind(item: unknown): SelectItemKind {
@@ -144,6 +150,12 @@ function inferKind(item: unknown): SelectItemKind {
     if (o.type === 'all_from_cte') return 'all_from_cte';
     if (o.type === 'dims_from_cte') return 'dims_from_cte';
     if (o.type === 'fcts_from_cte') return 'fcts_from_cte';
+    if (o.type === 'all_from_fragment') return 'all_from_fragment';
+    if (o.type === 'dims_from_fragment') return 'dims_from_fragment';
+    if (o.type === 'fcts_from_fragment') return 'fcts_from_fragment';
+  }
+  if ('fragment' in o && typeof o.fragment === 'string' && o.type) {
+    return o.type as SelectItemKind;
   }
   if ('interval' in o && typeof o.interval === 'string') return 'interval';
   if ('cte' in o && typeof o.cte === 'string') return 'from_cte';
@@ -187,6 +199,10 @@ function makeNewItem(kind: SelectItemKind): unknown {
     case 'dims_from_cte':
     case 'fcts_from_cte':
       return { type: kind, cte: '' };
+    case 'all_from_fragment':
+    case 'dims_from_fragment':
+    case 'fcts_from_fragment':
+      return { type: kind, fragment: '' };
   }
 }
 

@@ -1,4 +1,5 @@
 import type { DbtModel } from '@shared/dbt/types';
+import { resolveModelJson } from '@shared/framework/composition';
 import * as fs from 'fs';
 
 export type DbtModelSummary = {
@@ -69,7 +70,11 @@ function resolveMaterialization(json: ParsedModelJson): string | undefined {
 function readModelJsonSummary(modelJsonPath: string): ParsedModelJson | null {
   try {
     const raw = fs.readFileSync(modelJsonPath, 'utf-8');
-    return JSON.parse(raw) as ParsedModelJson;
+    const parsed = JSON.parse(raw) as ParsedModelJson;
+    // Tags, materialization and the Lightdash label can come from a
+    // fragment or template, so summarize the resolved model. Without a
+    // registered registry (tests, web mocks) this returns the input.
+    return resolveModelJson<ParsedModelJson>(parsed, modelJsonPath).resolved;
   } catch {
     return null;
   }

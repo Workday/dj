@@ -27,6 +27,8 @@ The primary purposes of the `stg_union_sources` model are:
 - **Simplified Downstream Processing:** Create a single source of truth from fragmented data sources
 - **Performance Optimization:** Reduce the need for complex joins in downstream models
 
+When each union leg shares the same column list, define those columns once in a `kind: "select"` fragment and reference `{ "type": "all_from_fragment", "fragment": "<name>" }` in each leg’s model (or in a shared template). See [Select fragments](../fragments-and-templates/02-select-fragments.md) and the [guide hub](../fragments-and-templates/README.md).
+
 ## 4. Model Configuration
 
 A `stg_union_sources` model requires the following configuration parameters:

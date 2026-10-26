@@ -355,6 +355,8 @@ export interface ModelingStateAdapter {
 
 export interface AdditionalFieldsSchema {
   description?: string;
+  /** Config fragment names applied at the model root (`fragments` in JSON). */
+  fragments?: string[];
   tags?: string[];
   incremental_strategy?: IncrementalStrategy;
   sql_hooks?: ModelSqlHooksSchemaJson;
@@ -437,6 +439,16 @@ export interface ModelStore {
   // lightdash?: SchemaModelLightdash;
 
   additionalFields: AdditionalFieldsSchema;
+
+  /** Template child authoring (`extends` / `with`); not part of merged editor body. */
+  templateAuthoring: {
+    extends?: string;
+    with?: Record<string, string>;
+  };
+
+  setTemplateAuthoring: (
+    patch: Partial<ModelStore['templateAuthoring']>,
+  ) => void;
 
   /** Nested materialization keys the wizard does not edit (format, bucket, …) */
   materializationExtras: MaterializationExtras;
@@ -691,6 +703,7 @@ export const useModelStore = create<ModelStore>()(
     where: null,
     dataModeling: initialDataModeling,
     additionalFields: initialAdditionalFields,
+    templateAuthoring: {},
     materializationExtras: {},
     defaultIncrementalStrategy: undefined,
     navigationNodeType: null,
@@ -1096,6 +1109,19 @@ export const useModelStore = create<ModelStore>()(
         state.setBasicField('projectName', data.projectName);
       if (data.source !== undefined) state.setBasicField('source', data.source);
 
+      const authoring = data as {
+        extends?: string;
+        with?: Record<string, string>;
+      };
+      if (authoring.extends) {
+        set({
+          templateAuthoring: {
+            extends: authoring.extends,
+            with: authoring.with ?? {},
+          },
+        });
+      }
+
       // Load original model path for edit mode
       if (data.originalModelPath) {
         state.setOriginalModelPath(data.originalModelPath as string);
@@ -1225,6 +1251,7 @@ export const useModelStore = create<ModelStore>()(
       // Load additional fields with validation
       const additionalFieldKeys: (keyof AdditionalFieldsSchema)[] = [
         'description',
+        'fragments',
         'tags',
         'incremental_strategy',
         'sql_hooks',
@@ -1242,7 +1269,11 @@ export const useModelStore = create<ModelStore>()(
           let value = data[key] as AdditionalFieldsSchema[typeof key];
 
           // Validate and sanitize array fields
-          if (key === 'tags' || key === 'partitioned_by') {
+          if (
+            key === 'fragments' ||
+            key === 'tags' ||
+            key === 'partitioned_by'
+          ) {
             // Models may use either `materialized: "incremental"` (string form) or
             // `materialization: { type: "incremental", ... }` (object form).
             // Both must be checked to avoid discarding partitioned_by.
@@ -1691,6 +1722,7 @@ export const useModelStore = create<ModelStore>()(
         where: null,
         dataModeling: initialDataModeling,
         additionalFields: initialAdditionalFields,
+        templateAuthoring: {},
         materializationExtras: {},
         navigationNodeType: null,
         showColumnConfiguration: false,
@@ -1997,7 +2029,25 @@ export const useModelStore = create<ModelStore>()(
         modelJson.lightdash = lightdashConfig;
       }
 
+      const { templateAuthoring } = state;
+      if (templateAuthoring.extends) {
+        modelJson.extends = templateAuthoring.extends;
+        const withParams = templateAuthoring.with ?? {};
+        const cleanedWith = Object.fromEntries(
+          Object.entries(withParams).filter(([, v]) => v !== ''),
+        );
+        if (Object.keys(cleanedWith).length > 0) {
+          modelJson.with = cleanedWith;
+        }
+      }
+
       return modelJson;
+    },
+
+    setTemplateAuthoring: (patch) => {
+      set((state) => ({
+        templateAuthoring: { ...state.templateAuthoring, ...patch },
+      }));
     },
   })),
 );
@@ -2108,7 +2158,7 @@ function omitGeneratedPreHook(
 // dedicated null-coercion (e.g. `partitioned_by`, handled by buildModelJson)
 // must NOT be listed here: they rely on `[]` reaching that path to be
 // converted to `null` for backend deletion semantics.
-const DROP_EMPTY_ARRAY_FIELDS = new Set<string>(['tags']);
+const DROP_EMPTY_ARRAY_FIELDS = new Set<string>(['tags', 'fragments']);
 
 function buildAdditionalFields(additionalFields: AdditionalFieldsSchema) {
   return Object.fromEntries(

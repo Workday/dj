@@ -1,0 +1,56 @@
+{
+  "$id": "model.select.fragment.schema.json",
+  "title": "Schema Model Select Fragment",
+  "description": "Include the columns of a column fragment (`*.fragment.json` with `kind: \"select\"`). DJ expands the fragment into regular select items before validation and SQL/YAML generation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["type", "fragment"],
+  "properties": {
+    "type": {
+      "enum": ["all_from_fragment", "dims_from_fragment", "fcts_from_fragment"],
+      "description": "`all_from_fragment` includes every column, `dims_from_fragment` only `dim` columns, `fcts_from_fragment` only `fct` columns."
+    },
+    "fragment": {
+      "$ref": "fragment.name.schema.json"
+    },
+    "exclude": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "column.name.schema.json" },
+      "description": "Fragment columns to leave out."
+    },
+    "include": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "column.name.schema.json" },
+      "description": "Only include these fragment columns."
+    },
+    "overrides": {
+      "type": "object",
+      "description": "Per-column property overrides keyed by fragment column name. Properties are merged into the fragment column; `name` cannot be overridden.",
+      "propertyNames": { "$ref": "column.name.schema.json" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "properties": {
+          "agg": { "$ref": "column.agg.schema.json" },
+          "aggs": { "$ref": "column.aggs.schema.json" },
+          "data_tests": { "$ref": "column.data_tests.schema.json" },
+          "data_type": { "$ref": "column.data_type.schema.json" },
+          "description": { "$ref": "column.description.schema.json" },
+          "exclude_from_group_by": {
+            "$ref": "column.exclude_from_group_by.schema.json"
+          },
+          "expr": { "$ref": "column.expr.schema.json" },
+          "interval": {
+            "enum": ["hour", "day", "month", "year"]
+          },
+          "lightdash": { "$ref": "column.lightdash.schema.json" },
+          "meta": { "$ref": "column.meta.schema.json" },
+          "type": { "$ref": "column.type.schema.json" }
+        }
+      }
+    }
+  }
+}

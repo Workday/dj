@@ -12,6 +12,7 @@ import type { SchemaColumnDataType } from '@shared/schema/types/column.data_type
 import type { SchemaLightdashMetric } from '@shared/schema/types/lightdash.metric.schema';
 import type { SchemaModelCTE } from '@shared/schema/types/model.cte.schema';
 import type { SchemaModelCTEs } from '@shared/schema/types/model.ctes.schema';
+import type { SchemaModelExtends } from '@shared/schema/types/model.extends.schema';
 import type { SchemaModelHaving } from '@shared/schema/types/model.having.schema';
 import type { SchemaModelLightdash } from '@shared/schema/types/model.lightdash.schema';
 import type { SchemaModelMaterialization } from '@shared/schema/types/model.materialization.schema';
@@ -261,8 +262,70 @@ export type FrameworkApi =
   | {
       type: 'framework-get-model-data';
       service: 'framework';
-      request: { modelName: string };
-      response: FrameworkModel | null;
+      request: { modelName: string; projectName?: string };
+      response: {
+        raw: FrameworkModel;
+        resolved: FrameworkModel;
+        projectName: string;
+        originalModelPath: string;
+      } | null;
+    }
+  | {
+      type: 'framework-fragment-list';
+      service: 'framework';
+      request: { projectName: string };
+      response: Array<{
+        name: string;
+        kind: 'select' | 'config';
+        filePath: string;
+        description?: string;
+      }>;
+    }
+  | {
+      type: 'framework-fragment-get';
+      service: 'framework';
+      request: { projectName: string; name: string };
+      response: {
+        name: string;
+        kind: 'select' | 'config';
+        filePath: string;
+        definition: Record<string, unknown>;
+        usedBy: string[];
+      } | null;
+    }
+  | {
+      type: 'framework-fragment-columns';
+      service: 'framework';
+      request: { projectName: string; name: string };
+      response: {
+        columns: Array<{
+          name: string;
+          type?: 'dim' | 'fct';
+          description?: string;
+        }>;
+      };
+    }
+  | {
+      type: 'framework-template-list';
+      service: 'framework';
+      request: { projectName: string };
+      response: Array<{
+        name: string;
+        filePath: string;
+        description?: string;
+        paramNames: string[];
+      }>;
+    }
+  | {
+      type: 'framework-template-get';
+      service: 'framework';
+      request: { projectName: string; name: string };
+      response: {
+        name: string;
+        filePath: string;
+        definition: Record<string, unknown>;
+        usedBy: string[];
+      } | null;
     }
   | {
       type: 'framework-model-columns';
@@ -806,7 +869,14 @@ export type FrameworkEtlSource = {
 
 export type FrameworkCTE = SchemaModelCTE;
 export type FrameworkCTEs = SchemaModelCTEs;
-export type FrameworkModel = SchemaModel;
+/**
+ * A model with a concrete body. Template children (`SchemaModelExtends`) are
+ * resolved into this shape by `resolveModelComposition` before any
+ * validation, generation or analysis runs on them.
+ */
+export type FrameworkModel = Exclude<SchemaModel, SchemaModelExtends>;
+/** Any `.model.json` as authored on disk, including template children. */
+export type FrameworkAuthoredModel = SchemaModel;
 export type FrameworkModelHaving = SchemaModelHaving;
 export type FrameworkSelectCTE = SchemaModelSelectCTE;
 export type FrameworkModelLightdash = SchemaModelLightdash;

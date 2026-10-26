@@ -90,6 +90,7 @@ export const COMMAND_ID = {
   FRAMEWORK_JUMP_MODEL: 'dj.command.frameworkJumpModel',
   FRAMEWORK_JUMP_YAML: 'dj.command.frameworkJumpYaml',
   JSON_SYNC: 'dj.command.jsonSync',
+  MODEL_PREVIEW_RESOLVED: 'dj.command.modelPreviewResolved',
   PYTHON_MODEL_CREATE: 'dj.command.pythonModelCreate',
   PYTHON_MODEL_OPEN_NOTEBOOK: 'dj.command.pythonModelOpenNotebook',
   DAG_CREATE: 'dj.command.dagCreate',

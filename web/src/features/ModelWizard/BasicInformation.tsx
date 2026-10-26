@@ -18,6 +18,7 @@ import type { Control, FieldErrors } from 'react-hook-form';
 import { Controller } from 'react-hook-form';
 
 import { FileNamePreview } from './FileNamePreview';
+import { TemplateFields } from './TemplateFields';
 import type { ModelWizardFormValues } from './types';
 
 interface BasicInformationProps {
@@ -117,11 +118,14 @@ export function BasicInformation({
         return;
       }
 
-      console.log('modelJsonContent', modelJsonContent);
+      const rawModel =
+        'raw' in modelJsonContent && modelJsonContent.raw
+          ? modelJsonContent.raw
+          : modelJsonContent;
 
       // Prepare model data similar to modelClone command
       const modelData: Record<string, unknown> = {
-        ...modelJsonContent,
+        ...rawModel,
         projectName: project.name,
         // Clear the name so user can provide a new one
         name: '',
@@ -221,6 +225,8 @@ export function BasicInformation({
           </div>
         )}
       />
+
+      <TemplateFields mode={mode} />
 
       {/* Clone Model: Commenting Clone model in the UI for now */}
       {/* eslint-disable-next-line no-constant-binary-expression -- Feature flag for clone model feature */}

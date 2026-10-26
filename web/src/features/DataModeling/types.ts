@@ -15,6 +15,9 @@ export enum SelectionType {
   ALL_FROM_CTE = 'all_from_cte',
   DIMS_FROM_CTE = 'dims_from_cte',
   FCTS_FROM_CTE = 'fcts_from_cte',
+  ALL_FROM_FRAGMENT = 'all_from_fragment',
+  DIMS_FROM_FRAGMENT = 'dims_from_fragment',
+  FCTS_FROM_FRAGMENT = 'fcts_from_fragment',
 }
 
 /**
@@ -29,10 +32,17 @@ export type SelectionSourceKind = 'model' | 'source' | 'cte';
  * directive role. Keeps `ModelColumns`, `selectionUtils`, and `SelectNode`
  * in lockstep when emitting / matching `{all,dims,fcts}_from_{model,source,cte}`.
  */
+export type FragmentSelectionSourceKind = SelectionSourceKind | 'fragment';
+
 export function selectionTypeFor(
-  kind: SelectionSourceKind,
+  kind: FragmentSelectionSourceKind,
   role: 'all' | 'dims' | 'fcts',
 ): SelectionType {
+  if (kind === 'fragment') {
+    if (role === 'all') return SelectionType.ALL_FROM_FRAGMENT;
+    if (role === 'dims') return SelectionType.DIMS_FROM_FRAGMENT;
+    return SelectionType.FCTS_FROM_FRAGMENT;
+  }
   if (kind === 'cte') {
     if (role === 'all') return SelectionType.ALL_FROM_CTE;
     if (role === 'dims') return SelectionType.DIMS_FROM_CTE;

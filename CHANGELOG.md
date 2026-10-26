@@ -2,9 +2,18 @@
 
 ## 2.5.0
 
+### Shared fragments and templates
+
+- **Reuse column sets and model config with `*.fragment.json`.** Define `kind: "select"` or `kind: "config"` fragments; reference them from models via `*_from_fragment` in `select` and optional root `fragments`. Sync resolves fragments in memory and never rewrites your authored `.model.json`.
+- **Template models with `extends` / `with`.** Author `*.template.json` bodies with `params`; child models inherit and override via `with`, optional `fragments`, and merge/replace modes for `select` and `ctes`.
+- **IDE and CLI support.** JSON Schema and diagnostics for fragment/template files; go to definition and “Used by N models” on shared files; **DJ: Preview Resolved Model JSON** on `.model.json`; CLI `fragment.*`, `template.*`, and `model.get` with `raw` + `resolved`.
+- **Documentation and examples.** Multi-page guide under `docs/fragments-and-templates/`, copy-paste JSON in `docs/examples/fragments-and-templates/`, and a working demo in `docs/examples/jaffle_shop_lightdash/` (config fragment, select fragment with overrides, and a template child mart).
+
 ### Model Wizard
 
 - **Create and edit models with `materialization` instead of deprecated top-level fields.** The wizard writes `materialization` (string or nested strategy/partitions) rather than `materialized`, `incremental_strategy`, and `partitioned_by`. Saving an edit removes those legacy keys from the file. jaffle_shop examples use the new shape.
+- **Attach config fragments in Additional Fields** when the project defines `kind: "config"` fragments, and **add select fragments** from the Data Modeling column panel.
+- **Create or edit template children** from Basic Information (template + `with` parameters). The editor works on the merged model; save runs `diffAgainstTemplate` so only deltas stay on disk.
 
 ## 2.4.0
 

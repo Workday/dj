@@ -1,0 +1,18 @@
+{
+    "type": "stg_select_source",
+    "group": "billing",
+    "topic": "costs",
+    "name": "aws",
+    "fragments": ["billing_daily_incremental"],
+    "from": { "source": "aws_billing.focus_export" },
+    "select": [
+        {
+            "type": "all_from_fragment",
+            "fragment": "focus_cost_columns",
+            "overrides": {
+                "billed_cost": { "expr": "cast(billedcost as decimal(38,10))" }
+            }
+        },
+        { "name": "provider", "type": "dim", "expr": "'aws'" }
+    ]
+}

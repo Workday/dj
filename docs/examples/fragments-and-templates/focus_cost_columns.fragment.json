@@ -1,0 +1,19 @@
+{
+    "kind": "select",
+    "name": "focus_cost_columns",
+    "select": [
+        {
+            "name": "billed_cost",
+            "type": "fct",
+            "expr": "cast(billed_cost as decimal(38,10))",
+            "description": "Billed cost",
+            "lightdash": { "metrics": ["sum"] }
+        },
+        {
+            "name": "effective_cost",
+            "type": "fct",
+            "expr": "cast(effective_cost as decimal(38,10))"
+        },
+        { "name": "charge_period_start", "type": "dim" }
+    ]
+}

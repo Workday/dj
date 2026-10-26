@@ -1,0 +1,12 @@
+{
+    "type": "mart_select_model",
+    "group": "billing",
+    "topic": "aws",
+    "name": "monthly_cost",
+    "extends": "focus_monthly_cost",
+    "with": {
+        "upstream": "stg__billing__costs__aws",
+        "provider": "aws"
+    },
+    "select": [{ "name": "aws_operation", "type": "dim" }]
+}

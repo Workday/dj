@@ -14,13 +14,13 @@ import {
 } from '@services/framework/utils';
 import type { ApiPayload, ApiResponse } from '@shared/api/types';
 import { apiResponse } from '@shared/api/utils';
-import { getDbtModelId } from '@shared/dbt/utils';
 import {
   buildModelSummariesForProject,
   rankSimilarModels,
 } from '@shared/dbt/modelCatalogSearch';
-import type { FrameworkModel } from '@shared/framework/types';
+import { getDbtModelId } from '@shared/dbt/utils';
 import { buildDataCheckSql } from '@shared/framework/dataCheckTemplates';
+import type { FrameworkModel } from '@shared/framework/types';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -109,14 +109,18 @@ export class ModelDataHandlers {
               vscode.Uri.file(modelJsonPath),
             );
             if (modelJson) {
-              const enrichedModelData = {
-                ...modelJson,
+              const raw = modelJson as FrameworkModel;
+              const resolved =
+                this.ctx.compositionStore.resolve<FrameworkModel>(
+                  project,
+                  raw,
+                ).resolved;
+              return apiResponse<typeof payload.type>({
+                raw,
+                resolved,
                 projectName: project.name,
                 originalModelPath: modelJsonPath,
-              };
-              return apiResponse<typeof payload.type>(
-                enrichedModelData as unknown as FrameworkModel,
-              );
+              });
             }
           } catch (err: unknown) {
             this.ctx.log.warn(

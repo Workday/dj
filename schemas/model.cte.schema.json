@@ -143,6 +143,9 @@
           },
           {
             "$ref": "model.select.cte.schema.json"
+          },
+          {
+            "$ref": "model.select.fragment.schema.json"
           }
         ]
       }

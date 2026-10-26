@@ -1,0 +1,9 @@
+{
+  "$id": "model.fragments.schema.json",
+  "title": "Schema Model Fragments",
+  "description": "Config fragments (`*.fragment.json` with `kind: \"config\"`) applied to this model, in order. Values set on the model itself take precedence; a later fragment overrides an earlier one; `tags` are combined and `meta` is merged key by key.",
+  "type": "array",
+  "minItems": 1,
+  "uniqueItems": true,
+  "items": { "$ref": "fragment.name.schema.json" }
+}

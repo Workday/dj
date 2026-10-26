@@ -1,0 +1,52 @@
+{
+  "$id": "model.extends.schema.json",
+  "title": "Schema Model Extends",
+  "description": "A model that extends a template (`*.template.json`). The template supplies the model body; this file holds the identity fields, the template parameters and any differences. Full validation runs on the resolved model.",
+  "type": "object",
+  "required": ["extends", "group", "name", "topic", "type"],
+  "properties": {
+    "type": {
+      "enum": [
+        "stg_select_source",
+        "stg_select_model",
+        "stg_union_sources",
+        "int_select_model",
+        "int_join_column",
+        "int_join_models",
+        "int_lookback_model",
+        "int_rollup_model",
+        "int_union_models",
+        "mart_select_model",
+        "mart_join_models"
+      ]
+    },
+    "group": { "$ref": "model.group.schema.json" },
+    "topic": { "$ref": "model.topic.schema.json" },
+    "name": { "$ref": "model.name.schema.json" },
+    "extends": { "$ref": "fragment.name.schema.json" },
+    "with": { "$ref": "model.with.schema.json" },
+    "fragments": { "$ref": "model.fragments.schema.json" },
+    "select": { "type": "array" },
+    "ctes": { "type": "array" },
+    "select_exclude": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Inherited select items to remove: a column name, or `<type>:<ref>` for a bulk select (for example `dims_from_cte:monthly`)."
+    },
+    "ctes_exclude": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Names of inherited CTEs to remove."
+    },
+    "select_mode": {
+      "enum": ["merge", "replace"],
+      "description": "`merge` (default) merges `select` into the template's by identity; `replace` uses this `select` as-is."
+    },
+    "ctes_mode": {
+      "enum": ["merge", "replace"],
+      "description": "`merge` (default) merges `ctes` into the template's by name; `replace` uses these `ctes` as-is."
+    }
+  }
+}

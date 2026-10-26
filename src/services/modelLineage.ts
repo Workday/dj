@@ -12,6 +12,7 @@ import type {
   DbtProjectManifestSource,
 } from '@shared/dbt/types';
 import { getDbtModelId } from '@shared/dbt/utils';
+import { loadResolvedModelJson } from '@shared/framework/composition/node';
 import type {
   LightdashLineageNode,
   LineageData,
@@ -765,10 +766,14 @@ export class ModelLineage {
       if (!fs.existsSync(modelJsonPath)) {
         return node;
       }
-      const parsed = JSON.parse(fs.readFileSync(modelJsonPath, 'utf-8')) as {
+      // Tags and the Lightdash label can come from a fragment or template.
+      const parsed = loadResolvedModelJson<{
         lightdash?: { table?: { label?: string } };
         tags?: string[];
-      };
+      }>(modelJsonPath)?.resolved;
+      if (!parsed) {
+        return node;
+      }
       const tags = parsed.tags ?? node.tags;
       return {
         ...node,
@@ -1085,7 +1090,7 @@ export class ModelLineage {
       };
     }
 
-    let columns = Object.keys(rawResults[0]);
+    const columns = Object.keys(rawResults[0]);
     const rows = rawResults.map((row) => columns.map((col) => row[col]));
     return { columns, schemaColumns, rows, rowCount: rows.length };
   }

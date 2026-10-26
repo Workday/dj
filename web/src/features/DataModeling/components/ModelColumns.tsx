@@ -13,7 +13,7 @@ import {
   getSelectedColumns,
   modelColumnSelectionList,
 } from '../../../utils/dataModeling';
-import type { SelectionSourceKind } from '../types';
+import type { FragmentSelectionSourceKind } from '../types';
 import { SelectionType } from '../types';
 import { ColumnSection } from './ColumnSection';
 
@@ -49,7 +49,7 @@ interface ModelColumnsProps {
    * radio-options branch and the bulk-directive variants emitted onto the
    * model JSON (`{all,dims,fcts}_from_{model,source,cte}`).
    */
-  sourceKind?: SelectionSourceKind;
+  sourceKind?: FragmentSelectionSourceKind;
   onColumnLineageClick?: (columnName: string) => void; // Callback for column lineage navigation
 }
 
@@ -64,7 +64,7 @@ export const ModelColumns: React.FC<ModelColumnsProps> = ({
 }) => {
   // Prefer the explicit `sourceKind`; fall back to the older `isSourceModel`
   // boolean so unmigrated call sites continue to work unchanged.
-  const effectiveKind: SelectionSourceKind =
+  const effectiveKind: FragmentSelectionSourceKind =
     sourceKind ?? (isSourceModel ? 'source' : 'model');
   // Determine initial filter type from defaultValue or empty string
   const [filterType, setFilterType] = useState<SelectionType | ''>(
@@ -159,6 +159,13 @@ export const ModelColumns: React.FC<ModelColumnsProps> = ({
         { value: SelectionType.FCTS_FROM_CTE, label: 'Fcts' },
       ];
     }
+    if (effectiveKind === 'fragment') {
+      return [
+        { value: SelectionType.ALL_FROM_FRAGMENT, label: 'All From Fragment' },
+        { value: SelectionType.DIMS_FROM_FRAGMENT, label: 'Dims' },
+        { value: SelectionType.FCTS_FROM_FRAGMENT, label: 'Fcts' },
+      ];
+    }
     return [
       { value: SelectionType.ALL_FROM_MODEL, label: 'All From Model' },
       { value: SelectionType.DIMS_FROM_MODEL, label: 'Dims' },
@@ -185,18 +192,21 @@ export const ModelColumns: React.FC<ModelColumnsProps> = ({
         case SelectionType.DIMS_FROM_MODEL:
         case SelectionType.DIMS_FROM_SOURCE:
         case SelectionType.DIMS_FROM_CTE:
+        case SelectionType.DIMS_FROM_FRAGMENT:
           return columns
             .filter((col) => col.type === 'dimension')
             .map((col) => col.name);
         case SelectionType.FCTS_FROM_MODEL:
         case SelectionType.FCTS_FROM_SOURCE:
         case SelectionType.FCTS_FROM_CTE:
+        case SelectionType.FCTS_FROM_FRAGMENT:
           return columns
             .filter((col) => col.type === 'fact')
             .map((col) => col.name);
         case SelectionType.ALL_FROM_MODEL:
         case SelectionType.ALL_FROM_SOURCE:
         case SelectionType.ALL_FROM_CTE:
+        case SelectionType.ALL_FROM_FRAGMENT:
         default:
           return columns.map((col) => col.name);
       }
@@ -210,7 +220,9 @@ export const ModelColumns: React.FC<ModelColumnsProps> = ({
       ? SelectionType.ALL_FROM_SOURCE
       : effectiveKind === 'cte'
         ? SelectionType.ALL_FROM_CTE
-        : SelectionType.ALL_FROM_MODEL);
+        : effectiveKind === 'fragment'
+          ? SelectionType.ALL_FROM_FRAGMENT
+          : SelectionType.ALL_FROM_MODEL);
 
   const availableColumns = getAvailableColumnsForType(currentSelectionType);
 

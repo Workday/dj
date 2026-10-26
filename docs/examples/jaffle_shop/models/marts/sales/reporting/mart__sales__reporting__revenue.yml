@@ -14,6 +14,9 @@ models:
         - json
         - lightdash-explore
         - mart
+    meta:
+      required_filters:
+        - datetime: inThePast 14 days
     columns:
       - name: customer_id
         data_type: varchar
@@ -24,7 +27,8 @@ models:
             id: model.jaffle_shop.stg__sales__orders__standardized
           dimension:
             type: string
-            label: Customer Id
+            label: Customer ID
+            group_label: Customer Fields
       - name: customer_name
         data_type: varchar
         description: Customer full name, trimmed of whitespace
@@ -35,6 +39,15 @@ models:
           dimension:
             type: string
             label: Customer Name
+      - name: datetime
+        data_type: timestamp(6)
+        description: Event Datetime Column
+        meta:
+          type: dim
+          dimension:
+            type: timestamp
+            label: Datetime
+            sql: portal_partition_hourly
       - name: is_weekend_order
         data_type: varchar
         description: Boolean flag for weekend orders
@@ -53,8 +66,9 @@ models:
           origin:
             id: model.jaffle_shop.stg__sales__orders__standardized
           dimension:
-            type: string
+            type: date
             label: Order Date
+            group_label: Order Fields
       - name: order_id
         data_type: varchar
         description: Unique identifier for each order
@@ -64,7 +78,14 @@ models:
             id: model.jaffle_shop.stg__sales__orders__standardized
           dimension:
             type: string
-            label: Order Id
+            label: Order ID
+            group_label: Order Fields
+          metrics:
+            metric_order_count:
+              ai_hint: Use this to count total orders or analyze order volume trends over time
+              type: count_distinct
+              label: Number of Orders
+              group_label: Order Metrics
       - name: order_month
         data_type: varchar
         description: Order month
@@ -127,7 +148,8 @@ models:
             id: model.jaffle_shop.stg__sales__orders__standardized
           dimension:
             type: string
-            label: Store Id
+            label: Store ID
+            group_label: Store Fields
       - name: store_name
         data_type: varchar
         description: Store location name
@@ -170,4 +192,31 @@ models:
           dimension:
             type: string
             label: Total Dollars
+            hidden: true
+      - name: portal_partition_monthly
+        data_type: date
+        description: Monthly Partition Column
+        meta:
+          type: dim
+          dimension:
+            type: date
+            label: Portal Partition Monthly
+            hidden: true
+      - name: portal_partition_daily
+        data_type: date
+        description: Daily Partition Column
+        meta:
+          type: dim
+          dimension:
+            type: date
+            label: Portal Partition Daily
+            hidden: true
+      - name: portal_partition_hourly
+        data_type: timestamp(6)
+        description: Hourly Partition Column
+        meta:
+          type: dim
+          dimension:
+            type: timestamp
+            label: Portal Partition Hourly
             hidden: true

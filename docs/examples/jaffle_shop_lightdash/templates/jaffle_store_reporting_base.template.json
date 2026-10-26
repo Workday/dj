@@ -1,0 +1,22 @@
+{
+    "name": "jaffle_store_reporting_base",
+    "description": "Store-level reporting mart skeleton over an enriched orders model",
+    "params": {
+        "upstream": {
+            "type": "model_ref",
+            "description": "Intermediate model with store and order attributes (e.g. int__sales__orders__enriched)"
+        }
+    },
+    "model": {
+        "type": "mart_select_model",
+        "fragments": ["jaffle_lightdash_explore"],
+        "from": { "model": "${upstream}" },
+        "select": [
+            {
+                "type": "all_from_model",
+                "model": "${upstream}",
+                "include": ["store_id", "store_name", "order_date"]
+            }
+        ]
+    }
+}

@@ -3,9 +3,7 @@
     "group": "sales",
     "topic": "reporting",
     "name": "revenue",
-    "tags": [
-        "lightdash-explore"
-    ],
+    "fragments": ["jaffle_lightdash_explore"],
     "from": {
         "model": "int__sales__orders__enriched"
     },

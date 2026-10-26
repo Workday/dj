@@ -9,39 +9,11 @@
     },
     "select": [
         {
-            "name": "item_id",
-            "expr": "id",
-            "type": "dim",
-            "description": "Unique identifier for each order item",
-            "lightdash": {
-                "dimension": {
-                    "group_label": "Product Fields",
-                    "label": "Order ID"
-                }
-            }
-        },
-        {
-            "name": "order_id",
-            "expr": "order_id",
-            "type": "dim",
-            "description": "Foreign key to orders table",
-            "lightdash": {
-                "dimension": {
-                    "group_label": "Product Fields",
-                    "label": "Order ID"
-                }
-            }
-        },
-        {
-            "name": "product_sku",
-            "expr": "sku",
-            "type": "dim",
-            "description": "Product SKU identifier",
-            "lightdash": {
-                "dimension": {
-                    "group_label": "Product Fields",
-                    "label": "Product SKU"
-                }
+            "type": "all_from_fragment",
+            "fragment": "jaffle_item_line_dims",
+            "overrides": {
+                "item_id": { "expr": "id" },
+                "product_sku": { "expr": "sku" }
             }
         },
         {

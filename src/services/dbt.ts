@@ -42,6 +42,10 @@ import { getHtml } from '@services/webview/utils';
 import { assertExhaustive, jsonParse } from '@shared';
 import type { ApiPayload, ApiResponse } from '@shared/api/types';
 import { apiResponse } from '@shared/api/utils';
+import {
+  buildModelSummariesForProject,
+  matchesModelSearchFilters,
+} from '@shared/dbt/modelCatalogSearch';
 import type {
   DbtModel,
   DbtProject,
@@ -55,10 +59,7 @@ import {
   getDbtModelId,
   getDbtProjectProperties,
 } from '@shared/dbt/utils';
-import {
-  buildModelSummariesForProject,
-  matchesModelSearchFilters,
-} from '@shared/dbt/modelCatalogSearch';
+import { loadResolvedModelJson } from '@shared/framework/composition/node';
 import { PARTITION_DAILY } from '@shared/framework/constants';
 import type { FrameworkSchemaBase } from '@shared/framework/types';
 import type { TreeData, TreeItem } from 'admin';
@@ -942,6 +943,12 @@ export class Dbt implements ApiEnabledService<'dbt'> {
 
           const modelJsonContent = fs.readFileSync(jsonPath, 'utf8');
           const modelJson = jsonParse(modelJsonContent);
+          // Detect tests on the resolved model so fragment and template
+          // columns count. Existing tests still come from the raw file: a
+          // config fragment may supply `data_tests` that must not be copied
+          // into the model, and the write-back below edits the raw text.
+          const resolvedJson =
+            loadResolvedModelJson(jsonPath)?.resolved ?? modelJson;
 
           let testsToAdd: Array<{
             type: string;
@@ -951,7 +958,7 @@ export class Dbt implements ApiEnabledService<'dbt'> {
           }> = [];
 
           if (autoDetect) {
-            testsToAdd = this.detectApplicableTests(modelJson);
+            testsToAdd = this.detectApplicableTests(resolvedJson);
           } else if (tests) {
             testsToAdd = tests
               .map((test) => {
@@ -961,11 +968,11 @@ export class Dbt implements ApiEnabledService<'dbt'> {
                 ) {
                   const compareModel =
                     test.compare_model ||
-                    (modelJson.from?.model
-                      ? `ref('${modelJson.from.model}')`
+                    (resolvedJson.from?.model
+                      ? `ref('${resolvedJson.from.model}')`
                       : null);
 
-                  if (!compareModel || !modelJson.from?.join?.length) {
+                  if (!compareModel || !resolvedJson.from?.join?.length) {
                     this.log.info(
                       `Skipping ${test.type} for ${modelName}: model doesn't have joins or compare_model`,
                     );
@@ -977,7 +984,7 @@ export class Dbt implements ApiEnabledService<'dbt'> {
                     compare_model: compareModel,
                     join_type:
                       test.join_type ||
-                      modelJson.from?.join?.[0]?.type ||
+                      resolvedJson.from?.join?.[0]?.type ||
                       'left',
                   };
                 }
@@ -985,7 +992,7 @@ export class Dbt implements ApiEnabledService<'dbt'> {
                 if (test.type === 'no_null_aggregates') {
                   if (!test.column_name || test.column_name.trim() === '') {
                     const aggregateCols = this.detectAggregateColumns(
-                      modelJson.select,
+                      resolvedJson.select,
                     );
                     if (aggregateCols.length === 0) {
                       this.log.info(

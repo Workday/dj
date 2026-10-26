@@ -3,22 +3,11 @@
     "group": "sales",
     "topic": "reporting",
     "name": "profitability",
-    "tags": [
-        "lightdash-explore"
-    ],
-    "from": {
-        "model": "int__sales__orders__enriched"
+    "extends": "jaffle_store_reporting_base",
+    "with": {
+        "upstream": "int__sales__orders__enriched"
     },
     "select": [
-        {
-            "type": "all_from_model",
-            "model": "int__sales__orders__enriched",
-            "include": [
-                "store_id",
-                "store_name",
-                "order_date"
-            ]
-        },
         {
             "name": "order_year_month",
             "expr": "DATE_TRUNC('month', order_date)",

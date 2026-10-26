@@ -54,6 +54,19 @@ export type SchemaModelTags = (
     }
 )[];
 /**
+ * Config fragments (`*.fragment.json` with `kind: "config"`) applied to this model, in order. Values set on the model itself take precedence; a later fragment overrides an earlier one; `tags` are combined and `meta` is merged key by key.
+ *
+ * @minItems 1
+ */
+export type SchemaModelFragments = [
+  SchemaFragmentName,
+  ...SchemaFragmentName[],
+];
+/**
+ * Name of a fragment or template, unique within its dbt project
+ */
+export type SchemaFragmentName = string;
+/**
  * Additional model names whose ref() edges should be forced in generated SQL via --depends_on comments (for refs hidden from dbt parse, e.g. inside {% if execute %})
  *
  * @minItems 1
@@ -365,6 +378,7 @@ export interface SchemaModelTypeIntJoinColumn {
   lightdash?: SchemaModelLightdash;
   tags?: SchemaModelTags;
   meta?: SchemaModelMeta;
+  fragments?: SchemaModelFragments;
   depends_on?: SchemaModelDependsOn;
   data_tests?: SchemaModelDataTests;
   materialization?: SchemaModelMaterialization;

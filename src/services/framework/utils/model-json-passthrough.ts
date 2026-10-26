@@ -28,6 +28,13 @@ export const MODEL_JSON_PASSTHROUGH_KEYS = [
   'exclude_framework_artifacts',
   'exclude_portal_partition_columns',
   'exclude_portal_source_count',
+  'fragments',
+  'extends',
+  'with',
+  'select_exclude',
+  'ctes_exclude',
+  'select_mode',
+  'ctes_mode',
 ] as const;
 
 export function mergeModelJsonPassthrough<T extends Record<string, unknown>>(

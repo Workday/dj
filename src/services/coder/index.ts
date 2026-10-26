@@ -32,6 +32,7 @@ import { sqlFormat } from '@services/utils/sql';
 import type { ApiMessage } from '@shared/api/types';
 import type { DbtProject, DbtProjectManifest } from '@shared/dbt/types';
 import { getDbtModelId, getDbtProperties } from '@shared/dbt/utils';
+import { sharedFileKindForPath } from '@shared/framework/composition';
 import type { WebviewMessage } from '@shared/webview/types';
 import { DJ_BIN_PATH, DJ_CLI_ENDPOINTS_PATH, WORKSPACE_ROOT } from 'admin';
 import * as fs from 'fs';
@@ -992,6 +993,11 @@ export class Coder {
         );
         return;
       }
+      if (action === 'debounce' && sharedFileKindForPath(uri.fsPath)) {
+        this.log.info(`DEBOUNCE: ${type} event for shared file: ${uri.fsPath}`);
+        this.framework.compositionHandlers.handleSharedFileEvent(uri, type);
+        return;
+      }
       if (action === 'debounce') {
         this.log.info(
           `DEBOUNCE: ${type} event for framework file: ${uri.fsPath}`,
@@ -1303,6 +1309,12 @@ export class Coder {
         return;
       }
       return this.handleWatcherEvent({ type: 'create', uri });
+    });
+    watcher.onDidDelete(async (uri) => {
+      if (ignoreRegex.test(uri.fsPath) || !sharedFileKindForPath(uri.fsPath)) {
+        return;
+      }
+      return this.handleWatcherEvent({ type: 'delete', uri });
     });
     return watcher;
   }

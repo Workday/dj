@@ -23,6 +23,8 @@ docs/examples/jaffle_shop_lightdash/    # You are here!
 ├── ../TUTORIAL.md                      # Step-by-step learning guide
 ├── dbt_project.yml                     # dbt project configuration
 ├── profiles.yml                        # Trino connection settings
+├── fragments/                          # Shared *.fragment.json (config + select)
+├── templates/                          # Shared *.template.json
 ├── models/                             # All dbt models (16 total)
 │   ├── groups.yml                      # Business group definitions
 │   ├── sources/development/            # Raw data source definitions
@@ -156,6 +158,18 @@ dbt run --select mart__sales__reporting__revenue
 # Development commands
 dbt parse                         # Validate models
 ```
+
+## Fragments & templates in this project
+
+This example project includes shared files next to `models/` so DJ discovery picks them up during sync. See the [fragments and templates guide](../../fragments-and-templates/README.md) for concepts; paths below show what each file demonstrates.
+
+| File | Kind | Used by |
+| ---- | ---- | ------- |
+| [`fragments/jaffle_lightdash_explore.fragment.json`](fragments/jaffle_lightdash_explore.fragment.json) | Config (`tags: lightdash-explore`) | [`mart__sales__reporting__revenue`](models/marts/sales/reporting/mart__sales__reporting__revenue.model.json) via root `"fragments"` |
+| [`fragments/jaffle_item_line_dims.fragment.json`](fragments/jaffle_item_line_dims.fragment.json) | Select (item line dimensions) | [`stg__sales__items__order_details`](models/staging/sales/items/stg__sales__items__order_details.model.json) via `all_from_fragment` + `overrides` for source column names (`id`, `sku`) |
+| [`templates/jaffle_store_reporting_base.template.json`](templates/jaffle_store_reporting_base.template.json) | Template (`upstream` param) | [`mart__sales__reporting__profitability`](models/marts/sales/reporting/mart__sales__reporting__profitability.model.json) via `extends` / `with` |
+
+After editing `.model.json` or shared files, run **DJ: Sync to SQL and YML** so generated `.sql` and `.yml` stay in sync.
 
 ## What's Next?
 

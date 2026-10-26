@@ -98,6 +98,11 @@ export class Api {
       case 'framework-check-model-exists':
       case 'framework-preferences':
       case 'framework-model-cte-analysis':
+      case 'framework-fragment-list':
+      case 'framework-fragment-get':
+      case 'framework-fragment-columns':
+      case 'framework-template-list':
+      case 'framework-template-get':
         return (await this.framework.handleApi(
           payload as any,
         )) as ApiResponse<T>;

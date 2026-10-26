@@ -16,17 +16,17 @@ import {
   normalizeDbtCompileRequest,
   normalizeWrappedModelRequest,
 } from '@services/cliBridge/requestShape';
+import {
+  formatGlobalHelp,
+  formatOperationHelpSummary,
+  listOperationHelp,
+} from '@shared/cli/operationHelp';
 import type {
   OperationContext,
   OperationDef,
   OperationRegistry,
   SideEffect,
 } from '@shared/cli/types';
-import {
-  formatGlobalHelp,
-  formatOperationHelpSummary,
-  listOperationHelp,
-} from '@shared/cli/operationHelp';
 
 /**
  * Normalize a CLI input payload into the `request` object `handleApi` expects.
@@ -303,10 +303,35 @@ export function createOperationRegistry(): OperationRegistry {
     'List a table’s columns. Requires { catalog, schema, table }.',
   );
 
-  registerForward(
+  registerModelNameOp(
     'model.get',
     'framework-get-model-data',
-    'Read an existing model’s .model.json (template for update or extend). Requires { modelName }.',
+    'Read an existing model’s .model.json as { raw, resolved } (resolved expands fragments and templates). Requires { modelName }; projectName optional when a single dbt project exists.',
+    'examples/model-get.request.json',
+  );
+  registerForward(
+    'fragment.list',
+    'framework-fragment-list',
+    'List fragment definitions in a project. projectName optional when a single dbt project exists.',
+    { project: true },
+  );
+  registerForward(
+    'fragment.get',
+    'framework-fragment-get',
+    'Read one fragment by name, including usedBy model names. Requires { name }; projectName optional when a single dbt project exists.',
+    { project: true },
+  );
+  registerForward(
+    'template.list',
+    'framework-template-list',
+    'List template definitions in a project. projectName optional when a single dbt project exists.',
+    { project: true },
+  );
+  registerForward(
+    'template.get',
+    'framework-template-get',
+    'Read one template by name, including usedBy model names. Requires { name }; projectName optional when a single dbt project exists.',
+    { project: true },
   );
   registerModelNameOp(
     'model.columns',
@@ -637,7 +662,7 @@ export function createOperationRegistry(): OperationRegistry {
     handler: async (input, ctx) => {
       const request = readRequest(input, {
         allowEmpty: true,
-      }) as Record<string, unknown> | null;
+      });
       assertQueryExecutePayload(request);
       const sql = request!.sql as string;
       assertReadOnlySelect(sql);

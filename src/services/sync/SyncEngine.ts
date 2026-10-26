@@ -6,15 +6,25 @@
  *
  */
 
+import {
+  modelExistsFor,
+  modelNameFromPath,
+} from '@services/framework/composition-store';
 import type { AutoGenerateTestsConfig } from '@services/framework/utils';
 import { frameworkGetModelName } from '@services/framework/utils';
 import { jsonParse } from '@shared';
 import type { DbtProject } from '@shared/dbt/types';
+import {
+  compositionIssuesToDetails,
+  type CompositionRegistry,
+  mapDetailsToModelFile,
+  resolveModelComposition,
+} from '@shared/framework/composition';
 import type { FrameworkModel, FrameworkSyncOp } from '@shared/framework/types';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
-import type { CacheManager } from './cacheManager';
+import { type CacheManager, modelCacheKey } from './cacheManager';
 import { SYNC_BATCH_SIZES } from './constants';
 import {
   buildOrderedResources,
@@ -78,8 +88,9 @@ export class SyncEngine {
   private async discoverFrameworkDependencies(params: {
     project: DbtProject;
     jsonUris: vscode.Uri[];
+    compositionRegistry?: CompositionRegistry;
   }): Promise<Map<string, string[]>> {
-    const { project, jsonUris } = params;
+    const { project, jsonUris, compositionRegistry } = params;
     const frameworkDependencies = new Map<string, string[]>();
 
     // Filter for model.json files in this project
@@ -93,13 +104,30 @@ export class SyncEngine {
       `Discovering framework dependencies for ${modelJsonUris.length} models in ${project.name}`,
     );
 
+    const modelExists = modelExistsFor(
+      project,
+      modelJsonUris.map((uri) => modelNameFromPath(uri.fsPath)),
+    );
+
     // Process all model files in parallel for speed
     await Promise.all(
       modelJsonUris.map(async (uri) => {
         try {
           const fileContent = await vscode.workspace.fs.readFile(uri);
           const jsonContent = fileContent.toString();
-          const modelJson = jsonParse(jsonContent) as FrameworkModel;
+          const rawModel = jsonParse(jsonContent);
+          // Template parameters such as `${upstream}` only become real edges
+          // once resolved, so dependencies come from the resolved model.
+          const composition = resolveModelComposition<FrameworkModel>(
+            rawModel,
+            compositionRegistry,
+            { modelExists },
+          );
+          compositionRegistry?.recordUsage(
+            uri.fsPath,
+            composition.dependencies,
+          );
+          const modelJson = composition.resolved;
           const modelName = frameworkGetModelName(modelJson);
           const resourceId = `model.${project.name}.${modelName}`;
 
@@ -134,6 +162,7 @@ export class SyncEngine {
       cacheManager,
       roots,
       autoGenerateTestsConfig,
+      compositionRegistry,
     } = params;
 
     const modelProcessor = new ModelProcessor(
@@ -195,6 +224,7 @@ export class SyncEngine {
     let frameworkDependencies = await this.discoverFrameworkDependencies({
       project,
       jsonUris,
+      compositionRegistry,
     });
 
     if (roots?.length) {
@@ -293,6 +323,7 @@ export class SyncEngine {
           frameworkDependencies = await this.discoverFrameworkDependencies({
             project,
             jsonUris,
+            compositionRegistry,
           });
           orderedResources = buildOrderedResources({
             project,
@@ -390,6 +421,13 @@ export class SyncEngine {
         cacheManager,
         changedParentIds: allChangedResourceIds,
         autoGenerateTestsConfig,
+        compositionRegistry,
+        modelExists: modelExistsFor(
+          project,
+          jsonUris
+            .filter((uri) => uri.fsPath.endsWith('.model.json'))
+            .map((uri) => modelNameFromPath(uri.fsPath)),
+        ),
       });
 
       processedCount += levelResult.processedCount;
@@ -477,6 +515,7 @@ export class SyncEngine {
         jsonUris,
         project,
         extensionConfig: this.config.extensionConfig,
+        compositionRegistry,
       });
 
       allOperations.push(...renameOps);
@@ -567,6 +606,8 @@ export class SyncEngine {
     cacheManager: CacheManager;
     changedParentIds: Set<string>;
     autoGenerateTestsConfig?: AutoGenerateTestsConfig;
+    compositionRegistry?: CompositionRegistry;
+    modelExists?: (name: string) => boolean;
   }): Promise<{
     processedCount: number;
     skippedCount: number;
@@ -583,6 +624,8 @@ export class SyncEngine {
       sourceProcessor,
       cacheManager,
       changedParentIds,
+      compositionRegistry,
+      modelExists,
     } = params;
     let { project } = params;
 
@@ -616,6 +659,21 @@ export class SyncEngine {
             const fileContent = await vscode.workspace.fs.readFile(jsonUri);
             let jsonContent = fileContent.toString();
 
+            // `jsonContent` stays the raw file text (the only thing ever
+            // written back); validation and generation use `resolvedModel`.
+            const composition =
+              resource.type === 'model'
+                ? resolveModelComposition<FrameworkModel>(
+                    jsonParse(jsonContent),
+                    compositionRegistry,
+                    { modelExists },
+                  )
+                : undefined;
+            const fingerprint =
+              composition?.composed && compositionRegistry
+                ? compositionRegistry.fingerprint(composition.dependencies)
+                : '';
+
             // Check if any parent had content changes in this sync
             const hasChangedParent = resource.parentIds.some((parentId) =>
               changedParentIds.has(parentId),
@@ -626,7 +684,10 @@ export class SyncEngine {
             if (
               this.config.enableChangeDetection &&
               !hasChangedParent &&
-              !cacheManager.hasJsonChanged(resource.pathJson, jsonContent)
+              !cacheManager.hasJsonChanged(
+                resource.pathJson,
+                modelCacheKey(jsonContent, fingerprint),
+              )
             ) {
               // True cache hit - skip validation and generation
               return {
@@ -639,13 +700,31 @@ export class SyncEngine {
               };
             }
 
+            let resolvedModel = composition?.resolved;
+            const compositionDetails = composition
+              ? compositionIssuesToDetails(composition.issues)
+              : [];
+            if (composition?.hasErrors) {
+              const errorDetails = compositionDetails.filter(
+                (d) => d.severity === 'error',
+              );
+              const message = errorDetails.map((d) => d.message).join('\n');
+              this.callbacks.onModelValidationError?.(
+                jsonUri,
+                message,
+                errorDetails,
+                jsonContent,
+              );
+              errors.push({ resourceId: resource.id, message });
+              return { resource, result: null };
+            }
+
             // Cache miss or changed - proceed with validation and generation
             // Validate and optionally enhance if validation service is available
             if (this.validationService) {
-              if (resource.type === 'model') {
-                const modelJson = jsonParse(jsonContent) as FrameworkModel;
+              if (resource.type === 'model' && resolvedModel) {
                 const validation = this.validationService.validateModel({
-                  modelJson,
+                  modelJson: resolvedModel,
                   pathJson: resource.pathJson,
                   config: (params as any).autoGenerateTestsConfig,
                   projectPath: project.pathSystem,
@@ -656,7 +735,11 @@ export class SyncEngine {
                   this.callbacks.onModelValidationError?.(
                     jsonUri,
                     validation.error ?? 'Validation failed',
-                    validation.errors,
+                    validation.errors &&
+                      mapDetailsToModelFile(
+                        validation.errors,
+                        composition?.provenance ?? [],
+                      ),
                     jsonContent,
                   );
                   errors.push({
@@ -666,9 +749,13 @@ export class SyncEngine {
                   return { resource, result: null };
                 }
 
-                // Use enhanced JSON if available (includes auto-generated tests)
+                // Auto-generated tests are detected on the resolved model and
+                // applied to the raw text as JSONC edits.
                 if (validation.enhancedJsonContent) {
                   jsonContent = validation.enhancedJsonContent;
+                }
+                if (validation.enhancedModelJson) {
+                  resolvedModel = validation.enhancedModelJson;
                 }
               } else if (resource.type === 'source') {
                 const sourceJson = jsonParse(jsonContent);
@@ -699,6 +786,15 @@ export class SyncEngine {
                   resource,
                   jsonContent,
                   project,
+                  modelJson: resolvedModel,
+                  composition: composition?.composed
+                    ? {
+                        provenance: composition.provenance,
+                        dependencies: composition.dependencies,
+                        warnings: compositionDetails,
+                        fingerprint,
+                      }
+                    : undefined,
                 });
                 return { resource, result: modelResult };
               }

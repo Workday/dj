@@ -24,7 +24,6 @@ import {
   SyncQueue,
   type SyncResult,
   type SyncRoot,
-  type ValidationErrorDetail,
 } from '@services/sync';
 import type { ApiEnabledService } from '@services/types';
 import { showOrOpenFile } from '@services/utils/fileNavigation';
@@ -32,6 +31,7 @@ import { assertExhaustive, jsonParse } from '@shared';
 import type { ApiPayload, ApiResponse } from '@shared/api/types';
 import { apiResponse } from '@shared/api/utils';
 import type { DbtProject, DbtResourceType } from '@shared/dbt/types';
+import { setCompositionRegistryProvider } from '@shared/framework/composition';
 import type {
   FrameworkDataType,
   FrameworkModel,
@@ -42,19 +42,16 @@ import { DJ_SCHEMAS_PATH, WORKSPACE_ROOT } from 'admin';
 import type { ValidateFunction } from 'ajv';
 import { Ajv } from 'ajv';
 import * as fs from 'fs';
-import {
-  applyEdits,
-  findNodeAtLocation,
-  modify,
-  parseTree,
-} from 'jsonc-parser';
+import { applyEdits, modify } from 'jsonc-parser';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
+import { CompositionStore } from './composition-store';
 import { FRAMEWORK_JSON_SYNC_EXCLUDE_PATHS } from './constants';
 import { FrameworkContext } from './context';
 import type { FrameworkState } from './FrameworkState';
 import { ColumnLineageHandler } from './handlers/column-lineage-handler';
+import { CompositionHandlers } from './handlers/composition-handlers';
 import { CteAnalysisHandlers } from './handlers/cte-analysis-handlers';
 import { ModelCrudHandlers } from './handlers/model-crud-handlers';
 import { ModelDataHandlers } from './handlers/model-data-handlers';
@@ -75,6 +72,10 @@ import {
   generateTrinoIoPy,
   workspaceHasPythonModels,
 } from './utils';
+import {
+  buildPositionedDiagnostics,
+  resolveValidationDiagnostics,
+} from './utils/json-diagnostics';
 import { resolveModelJsonPath } from './utils/resolve-model-json-path';
 
 /**
@@ -106,6 +107,16 @@ export class Framework implements ApiEnabledService<'framework'> {
   // Private VS Code resources
   private readonly diagnosticModelJson: vscode.DiagnosticCollection;
   private readonly diagnosticSourceJson: vscode.DiagnosticCollection;
+  private readonly diagnosticFragmentJson: vscode.DiagnosticCollection;
+  private readonly diagnosticTemplateJson: vscode.DiagnosticCollection;
+
+  /** Per-project fragments and templates, plus their reverse index. */
+  private readonly compositionStore = new CompositionStore();
+
+  /** Registry of shared `*.fragment.json` / `*.template.json` files. */
+  get sharedCompositionStore(): CompositionStore {
+    return this.compositionStore;
+  }
 
   // State-driven sync queue (replaces syncsPending/syncsRunning/setInterval)
   syncQueue!: SyncQueue;
@@ -132,6 +143,7 @@ export class Framework implements ApiEnabledService<'framework'> {
   private columnLineageHandler: ColumnLineageHandler;
   private preferencesHandler: PreferencesHandler;
   private cteAnalysisHandlers: CteAnalysisHandlers;
+  compositionHandlers: CompositionHandlers;
 
   // Content hash cache for change detection - skips regenerating unchanged files
   private cacheManager = new CacheManager();
@@ -182,6 +194,10 @@ export class Framework implements ApiEnabledService<'framework'> {
       vscode.languages.createDiagnosticCollection('modelJson');
     this.diagnosticSourceJson =
       vscode.languages.createDiagnosticCollection('sourceJson');
+    this.diagnosticFragmentJson =
+      vscode.languages.createDiagnosticCollection('fragmentJson');
+    this.diagnosticTemplateJson =
+      vscode.languages.createDiagnosticCollection('templateJson');
 
     // 3. Initialize handlers with context
     const ctx = new FrameworkContext(this);
@@ -192,6 +208,15 @@ export class Framework implements ApiEnabledService<'framework'> {
     this.columnLineageHandler = new ColumnLineageHandler(ctx);
     this.preferencesHandler = new PreferencesHandler(ctx);
     this.cteAnalysisHandlers = new CteAnalysisHandlers(ctx);
+    this.compositionHandlers = new CompositionHandlers(ctx);
+    setCompositionRegistryProvider((modelFilePath) => {
+      const project = this.compositionHandlers.projectForPath(modelFilePath);
+      if (!project) {
+        return undefined;
+      }
+      void this.compositionHandlers.ensureLoaded(project);
+      return this.compositionStore.registryFor(project);
+    });
 
     // 4. Initialize file watchers
     this.initializeFileWatchers();
@@ -604,6 +629,21 @@ export class Framework implements ApiEnabledService<'framework'> {
       case 'framework-model-cte-analysis':
         return await this.cteAnalysisHandlers.handleCteAnalysis(payload);
 
+      case 'framework-fragment-list':
+        return await this.compositionHandlers.handleFragmentList(payload);
+
+      case 'framework-fragment-get':
+        return await this.compositionHandlers.handleFragmentGet(payload);
+
+      case 'framework-fragment-columns':
+        return await this.compositionHandlers.handleFragmentColumns(payload);
+
+      case 'framework-template-list':
+        return await this.compositionHandlers.handleTemplateList(payload);
+
+      case 'framework-template-get':
+        return await this.compositionHandlers.handleTemplateGet(payload);
+
       default:
         return assertExhaustive<ApiResponse>(payload);
     }
@@ -693,6 +733,14 @@ export class Framework implements ApiEnabledService<'framework'> {
       {
         fileMatch: ['*.python.json'],
         url: '.dj/schemas/python-model.schema.json',
+      },
+      {
+        fileMatch: ['*.fragment.json'],
+        url: '.dj/schemas/fragment.schema.json',
+      },
+      {
+        fileMatch: ['*.template.json'],
+        url: '.dj/schemas/template.schema.json',
       },
     ]);
 
@@ -1032,6 +1080,40 @@ export class Framework implements ApiEnabledService<'framework'> {
       ),
     );
 
+    context.subscriptions.push(
+      vscode.commands.registerCommand(
+        COMMAND_ID.MODEL_PREVIEW_RESOLVED,
+        async (uri?: vscode.Uri) => {
+          const filePath =
+            uri?.fsPath ?? vscode.window.activeTextEditor?.document.uri.fsPath;
+          if (!filePath?.endsWith('.model.json')) {
+            return;
+          }
+          const project = this.dbt.getProjectFromPath(filePath);
+          if (!project) {
+            return;
+          }
+          const raw = await this.fetchModelJson(vscode.Uri.file(filePath));
+          if (!raw) {
+            return;
+          }
+          const { resolved, hasErrors, issues } =
+            this.compositionStore.resolve<FrameworkModel>(project, raw);
+          const header = hasErrors
+            ? `// Composition errors (${issues.length}) — preview may be incomplete\n`
+            : '';
+          const doc = await vscode.workspace.openTextDocument({
+            language: 'jsonc',
+            content: header + JSON.stringify(resolved, null, 2),
+          });
+          await vscode.window.showTextDocument(doc, {
+            preview: true,
+            viewColumn: vscode.ViewColumn.Beside,
+          });
+        },
+      ),
+    );
+
     // PYTHON_MODEL_OPEN_NOTEBOOK - open ephemeral notebook for a .python.json / .python.py file
     context.subscriptions.push(
       vscode.commands.registerCommand(
@@ -1238,6 +1320,67 @@ export class Framework implements ApiEnabledService<'framework'> {
                 new vscode.Position(sourceLine, 0),
               );
             }
+
+            const wordRange = document.getWordRangeAtPosition(
+              position,
+              /[A-Za-z0-9_-]+/,
+            );
+            if (wordRange) {
+              const symbol = document.getText(wordRange);
+              const registry = this.compositionStore.registryFor(project);
+              const fragment = registry.getFragment(symbol);
+              if (fragment.status === 'found' && fragment.entry.filePath) {
+                return new vscode.Location(
+                  vscode.Uri.file(fragment.entry.filePath),
+                  new vscode.Position(0, 0),
+                );
+              }
+              const template = registry.getTemplate(symbol);
+              if (template.status === 'found' && template.entry.filePath) {
+                return new vscode.Location(
+                  vscode.Uri.file(template.entry.filePath),
+                  new vscode.Position(0, 0),
+                );
+              }
+            }
+          },
+        },
+      ),
+    );
+
+    context.subscriptions.push(
+      vscode.languages.registerCodeLensProvider(
+        { pattern: '**/*.{fragment,template}.json' },
+        {
+          provideCodeLenses: (document, _token) => {
+            const project = this.dbt.getProjectFromPath(document.uri.fsPath);
+            if (!project) {
+              return [];
+            }
+            let name: string | undefined;
+            try {
+              const parsed = jsonParse(document.getText()) as { name?: string };
+              name = parsed.name;
+            } catch {
+              return [];
+            }
+            if (!name) {
+              return [];
+            }
+            const kind = document.fileName.endsWith('.fragment.json')
+              ? 'fragment'
+              : 'template';
+            const usedBy = this.compositionStore
+              .registryFor(project)
+              .usedBy(kind, name);
+            const line = document.lineAt(0);
+            const range = new vscode.Range(0, 0, 0, line.text.length);
+            return [
+              new vscode.CodeLens(range, {
+                title: `Used by ${usedBy.length} model${usedBy.length === 1 ? '' : 's'}`,
+                command: '',
+              }),
+            ];
           },
         },
       ),
@@ -1595,6 +1738,12 @@ export class Framework implements ApiEnabledService<'framework'> {
             // Read auto-test generation config
             const autoGenerateTestsConfig = getDjConfig().autoGenerateTests;
 
+            // A full sync re-reads shared files so changes made while the
+            // watcher was routed elsewhere (e.g. a git checkout) are seen.
+            if (!roots || !this.compositionHandlers.isLoaded(_project)) {
+              await this.compositionHandlers.loadProject(_project);
+            }
+
             // Create the SyncEngine
             const engine = new SyncEngine(
               {
@@ -1621,6 +1770,7 @@ export class Framework implements ApiEnabledService<'framework'> {
               lastFileChange: this.coder.lastFileChange,
               forceReparse: this.lastSyncHadRenames,
               autoGenerateTestsConfig,
+              compositionRegistry: this.compositionStore.registryFor(_project),
               parseManifest: async (project) => {
                 const manifest = await this.getApi().handleApi({
                   type: 'dbt-parse-project',
@@ -1640,6 +1790,10 @@ export class Framework implements ApiEnabledService<'framework'> {
                 return manifest;
               },
             });
+
+            if (!result.aborted) {
+              this.compositionStore.markIndexed(_project);
+            }
 
             // Log sync results
             this.log.info(
@@ -1931,6 +2085,8 @@ export class Framework implements ApiEnabledService<'framework'> {
     progress: vscode.Progress<{ increment?: number; message?: string }>,
     lastReportedPercent: { current: number },
   ): SyncCallbacks {
+    const readSharedText = (filePath: string) =>
+      this.compositionStore.getText(filePath);
     return {
       // Report progress updates
       onProgress: (msg) => {
@@ -1959,6 +2115,8 @@ export class Framework implements ApiEnabledService<'framework'> {
           message,
           errors,
           jsonContent,
+          vscode.DiagnosticSeverity.Error,
+          readSharedText,
         );
         this.diagnosticModelJson.set(uri, diagnostics);
       },
@@ -1969,6 +2127,7 @@ export class Framework implements ApiEnabledService<'framework'> {
           errors,
           jsonContent,
           vscode.DiagnosticSeverity.Warning,
+          readSharedText,
         );
         this.diagnosticModelJson.set(uri, diagnostics);
       },
@@ -1982,6 +2141,7 @@ export class Framework implements ApiEnabledService<'framework'> {
           warnings,
           jsonContent,
           vscode.DiagnosticSeverity.Warning,
+          readSharedText,
         );
         this.diagnosticModelJson.set(uri, [...existing, ...positioned]);
       },
@@ -2997,123 +3157,4 @@ with DAG(
     this.statusBarItem.dispose();
     this.dbt.deactivate();
   }
-}
-
-/**
- * Convert a JSON pointer (e.g. "/tables/0/freshness") to path segments
- * compatible with jsonc-parser's `findNodeAtLocation`.
- * Numeric segments become numbers so array indices resolve correctly.
- */
-function instancePathToSegments(instancePath: string): (string | number)[] {
-  if (!instancePath || instancePath === '/') {
-    return [];
-  }
-  return instancePath
-    .replace(/^\//, '')
-    .split('/')
-    .map((seg) => (/^\d+$/.test(seg) ? Number(seg) : seg));
-}
-
-/**
- * Convert a character offset in `text` to a zero-based { line, col } position.
- */
-function offsetToPosition(
-  text: string,
-  offset: number,
-): { line: number; col: number } {
-  let line = 0;
-  let col = 0;
-  for (let i = 0; i < offset && i < text.length; i++) {
-    if (text[i] === '\n') {
-      line++;
-      col = 0;
-    } else {
-      col++;
-    }
-  }
-  return { line, col };
-}
-
-/**
- * Build per-error `vscode.Diagnostic[]` with positions resolved from JSON source.
- * Falls back to a single diagnostic at line 0 when structured errors are unavailable.
- */
-function resolveValidationDiagnostics(
-  fallbackMessage: string,
-  errors?: ValidationErrorDetail[],
-  jsonContent?: string,
-  severity: vscode.DiagnosticSeverity = vscode.DiagnosticSeverity.Error,
-): vscode.Diagnostic[] {
-  if (!errors?.length || !jsonContent) {
-    return [
-      new vscode.Diagnostic(
-        new vscode.Range(0, 0, 0, 0),
-        fallbackMessage,
-        severity,
-      ),
-    ];
-  }
-  // Pass the channel default through so warning-channel callers
-  // (`onModelValidationWarning`) render details without an explicit
-  // `severity` override as Warning rather than Error. Per-detail
-  // `severity: 'error'` overrides still win inside
-  // `buildPositionedDiagnostics` so a warning batch can carry a hard error
-  // (e.g. `validateDjIcebergPartitionOverwrite`) on the same URI.
-  return buildPositionedDiagnostics(errors, jsonContent, severity);
-}
-
-/**
- * Build `vscode.Diagnostic[]` from structured `ValidationErrorDetail[]` with
- * JSON-pointer positions resolved against the provided source text.
- *
- * Shared by the error path (`resolveValidationDiagnostics`) and the lint
- * warning path (`onModelValidationLintWarnings`) so positioning behaves
- * identically for both.
- */
-function buildPositionedDiagnostics(
-  details: ValidationErrorDetail[],
-  jsonContent: string,
-  severity: vscode.DiagnosticSeverity,
-): vscode.Diagnostic[] {
-  const tree = parseTree(jsonContent, undefined, {
-    allowTrailingComma: true,
-  });
-
-  return details.map((detail) => {
-    let range = new vscode.Range(0, 0, 0, 0);
-
-    if (tree) {
-      const segments = instancePathToSegments(detail.instancePath);
-      const node = findNodeAtLocation(tree, segments);
-
-      if (node) {
-        const start = offsetToPosition(jsonContent, node.offset);
-        const end = offsetToPosition(jsonContent, node.offset + node.length);
-        range = new vscode.Range(start.line, start.col, end.line, end.col);
-      } else if (segments.length > 0) {
-        // Property doesn't exist (e.g. missing required field) — point to parent
-        const parentNode = findNodeAtLocation(tree, segments.slice(0, -1));
-        if (parentNode) {
-          const start = offsetToPosition(jsonContent, parentNode.offset);
-          range = new vscode.Range(
-            start.line,
-            start.col,
-            start.line,
-            start.col,
-          );
-        }
-      }
-    }
-
-    // Per-detail severity wins so a single batched callback can carry a
-    // mix of errors and warnings (e.g. validateDjIcebergPartitionOverwrite
-    // emits an Error alongside other post-generation warnings).
-    const resolvedSeverity =
-      detail.severity === 'error'
-        ? vscode.DiagnosticSeverity.Error
-        : detail.severity === 'warning'
-          ? vscode.DiagnosticSeverity.Warning
-          : severity;
-    return new vscode.Diagnostic(range, detail.message, resolvedSeverity);
-  });
 }

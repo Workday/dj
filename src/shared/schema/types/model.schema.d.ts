@@ -19,7 +19,8 @@ export type SchemaModel =
   | SchemaModelTypeIntRollupModel
   | SchemaModelTypeIntUnionModels
   | SchemaModelTypeMartSelectModel
-  | SchemaModelTypeMartJoinModels;
+  | SchemaModelTypeMartJoinModels
+  | SchemaModelExtends;
 /**
  * Validate group reference
  */
@@ -46,6 +47,19 @@ export type SchemaModelTags = (
       type?: 'ai_hints' | 'exclude' | 'inherit' | 'local';
     }
 )[];
+/**
+ * Config fragments (`*.fragment.json` with `kind: "config"`) applied to this model, in order. Values set on the model itself take precedence; a later fragment overrides an earlier one; `tags` are combined and `meta` is merged key by key.
+ *
+ * @minItems 1
+ */
+export type SchemaModelFragments = [
+  SchemaFragmentName,
+  ...SchemaFragmentName[],
+];
+/**
+ * Name of a fragment or template, unique within its dbt project
+ */
+export type SchemaFragmentName = string;
 /**
  * Additional model names whose ref() edges should be forced in generated SQL via --depends_on comments (for refs hidden from dbt parse, e.g. inside {% if execute %})
  *
@@ -398,6 +412,26 @@ export type SchemaModelSelectSource =
  * Validate source ids
  */
 export type SchemaRefSourceId = string;
+/**
+ * Automatically creates new aggregation columns, "hll" is HyperLogLog (used to approximate count distinct), and "tdigest" is T-Digest (used to approximate percentiles)
+ */
+export type SchemaColumnAgg =
+  | 'count'
+  | 'hll'
+  | 'max'
+  | 'min'
+  | 'sum'
+  | 'tdigest';
+/**
+ * The aggregate functions to apply to the fact, this will generate a new column per agg specified, and automatically the agg type to the column name, e.g. column_count, column_sum. "hll" is HyperLogLog (used to approximate count distinct), and "tdigest" is T-Digest (used to approximate percentiles)
+ *
+ * @minItems 1
+ */
+export type SchemaColumnAggs = [SchemaColumnAgg, ...SchemaColumnAgg[]];
+/**
+ * Validate column type
+ */
+export type SchemaColumnType = 'dim' | 'fct';
 /**
  * SQL WHERE
  */
@@ -780,22 +814,6 @@ export type SchemaModelSelectColWithAgg = {
   type: 'fct';
 };
 /**
- * Automatically creates new aggregation columns, "hll" is HyperLogLog (used to approximate count distinct), and "tdigest" is T-Digest (used to approximate percentiles)
- */
-export type SchemaColumnAgg =
-  | 'count'
-  | 'hll'
-  | 'max'
-  | 'min'
-  | 'sum'
-  | 'tdigest';
-/**
- * The aggregate functions to apply to the fact, this will generate a new column per agg specified, and automatically the agg type to the column name, e.g. column_count, column_sum. "hll" is HyperLogLog (used to approximate count distinct), and "tdigest" is T-Digest (used to approximate percentiles)
- *
- * @minItems 1
- */
-export type SchemaColumnAggs = [SchemaColumnAgg, ...SchemaColumnAgg[]];
-/**
  * Validate selecting a new column using an expression and creating an agg
  */
 export type SchemaModelSelectExprWithAgg = {
@@ -910,6 +928,7 @@ export interface SchemaModelTypeStgSelectSource {
   description?: SchemaModelDescription;
   tags?: SchemaModelTags;
   meta?: SchemaModelMeta;
+  fragments?: SchemaModelFragments;
   depends_on?: SchemaModelDependsOn;
   materialization?: SchemaModelMaterialization;
   materialized?: SchemaModelMaterialized;
@@ -933,6 +952,7 @@ export interface SchemaModelTypeStgSelectSource {
       | SchemaModelSelectExpr
       | SchemaModelSelectInterval
       | SchemaModelSelectSource
+      | SchemaModelSelectFragment
     ),
     ...(
       | SchemaColumnName
@@ -940,6 +960,7 @@ export interface SchemaModelTypeStgSelectSource {
       | SchemaModelSelectExpr
       | SchemaModelSelectInterval
       | SchemaModelSelectSource
+      | SchemaModelSelectFragment
     )[],
   ];
   from: {
@@ -1182,6 +1203,48 @@ export interface SchemaModelSelectInterval {
   type?: 'dim';
 }
 /**
+ * Include the columns of a column fragment (`*.fragment.json` with `kind: "select"`). DJ expands the fragment into regular select items before validation and SQL/YAML generation.
+ */
+export interface SchemaModelSelectFragment {
+  /**
+   * `all_from_fragment` includes every column, `dims_from_fragment` only `dim` columns, `fcts_from_fragment` only `fct` columns.
+   */
+  type: 'all_from_fragment' | 'dims_from_fragment' | 'fcts_from_fragment';
+  fragment: SchemaFragmentName;
+  /**
+   * Fragment columns to leave out.
+   *
+   * @minItems 1
+   */
+  exclude?: [SchemaColumnName, ...SchemaColumnName[]];
+  /**
+   * Only include these fragment columns.
+   *
+   * @minItems 1
+   */
+  include?: [SchemaColumnName, ...SchemaColumnName[]];
+  /**
+   * Per-column property overrides keyed by fragment column name. Properties are merged into the fragment column; `name` cannot be overridden.
+   */
+  overrides?: {
+    [k: string]:
+      | {
+          agg?: SchemaColumnAgg;
+          aggs?: SchemaColumnAggs;
+          data_tests?: SchemaColumnDataTests;
+          data_type?: SchemaColumnDataType;
+          description?: SchemaColumnDescription;
+          exclude_from_group_by?: SchemaColumnExcludeFromGroupBy;
+          expr?: SchemaColumnExpr;
+          interval?: 'hour' | 'day' | 'month' | 'year';
+          lightdash?: SchemaColumnLightdash;
+          meta?: SchemaColumnMeta;
+          type?: SchemaColumnType;
+        }
+      | undefined;
+  };
+}
+/**
  * Defines an inline subquery for use in WHERE or HAVING conditions. Supports IN, NOT IN, EXISTS, NOT EXISTS, and scalar comparison operators.
  */
 export interface SchemaModelSubquery {
@@ -1238,6 +1301,7 @@ export interface SchemaModelTypeStgSelectModel {
   description?: SchemaModelDescription;
   tags?: SchemaModelTags;
   meta?: SchemaModelMeta;
+  fragments?: SchemaModelFragments;
   depends_on?: SchemaModelDependsOn;
   materialization?: SchemaModelMaterialization;
   materialized?: SchemaModelMaterialized;
@@ -1264,6 +1328,7 @@ export interface SchemaModelTypeStgSelectModel {
       | SchemaModelSelectExpr
       | SchemaModelSelectInterval
       | SchemaModelSelectModel
+      | SchemaModelSelectFragment
     ),
     ...(
       | SchemaColumnName
@@ -1271,6 +1336,7 @@ export interface SchemaModelTypeStgSelectModel {
       | SchemaModelSelectExpr
       | SchemaModelSelectInterval
       | SchemaModelSelectModel
+      | SchemaModelSelectFragment
     )[],
   ];
 }
@@ -1285,6 +1351,7 @@ export interface SchemaModelTypeStgUnionSources {
   description?: SchemaModelDescription;
   tags?: SchemaModelTags;
   meta?: SchemaModelMeta;
+  fragments?: SchemaModelFragments;
   depends_on?: SchemaModelDependsOn;
   materialization?: SchemaModelMaterialization;
   materialized?: SchemaModelMaterialized;
@@ -1308,6 +1375,7 @@ export interface SchemaModelTypeStgUnionSources {
       | SchemaModelSelectExpr
       | SchemaModelSelectInterval
       | SchemaModelSelectSource
+      | SchemaModelSelectFragment
     ),
     ...(
       | SchemaColumnName
@@ -1315,6 +1383,7 @@ export interface SchemaModelTypeStgUnionSources {
       | SchemaModelSelectExpr
       | SchemaModelSelectInterval
       | SchemaModelSelectSource
+      | SchemaModelSelectFragment
     )[],
   ];
   from: {
@@ -1338,6 +1407,7 @@ export interface SchemaModelTypeIntSelectModel {
   lightdash?: SchemaModelLightdash;
   tags?: SchemaModelTags;
   meta?: SchemaModelMeta;
+  fragments?: SchemaModelFragments;
   depends_on?: SchemaModelDependsOn;
   data_tests?: SchemaModelDataTests;
   materialization?: SchemaModelMaterialization;
@@ -1371,6 +1441,7 @@ export interface SchemaModelTypeIntSelectModel {
       | SchemaModelSelectModel
       | SchemaModelSelectModelWithAgg
       | SchemaModelSelectCTE
+      | SchemaModelSelectFragment
     ),
     ...(
       | SchemaColumnName
@@ -1382,6 +1453,7 @@ export interface SchemaModelTypeIntSelectModel {
       | SchemaModelSelectModel
       | SchemaModelSelectModelWithAgg
       | SchemaModelSelectCTE
+      | SchemaModelSelectFragment
     )[],
   ];
   where?: SchemaModelWhere;
@@ -1502,6 +1574,7 @@ export interface SchemaModelCTE {
       | SchemaModelSelectModel
       | SchemaModelSelectModelWithAgg
       | SchemaModelSelectCTE
+      | SchemaModelSelectFragment
     ),
     ...(
       | SchemaColumnName
@@ -1513,6 +1586,7 @@ export interface SchemaModelCTE {
       | SchemaModelSelectModel
       | SchemaModelSelectModelWithAgg
       | SchemaModelSelectCTE
+      | SchemaModelSelectFragment
     )[],
   ];
   exclude_date_filter?: SchemaModelExcludeDateFilter;
@@ -1548,6 +1622,7 @@ export interface SchemaModelTypeIntJoinColumn {
   lightdash?: SchemaModelLightdash;
   tags?: SchemaModelTags;
   meta?: SchemaModelMeta;
+  fragments?: SchemaModelFragments;
   depends_on?: SchemaModelDependsOn;
   data_tests?: SchemaModelDataTests;
   materialization?: SchemaModelMaterialization;
@@ -1622,6 +1697,7 @@ export interface SchemaModelTypeIntJoinModels {
   lightdash?: SchemaModelLightdash;
   tags?: SchemaModelTags;
   meta?: SchemaModelMeta;
+  fragments?: SchemaModelFragments;
   depends_on?: SchemaModelDependsOn;
   data_tests?: SchemaModelDataTests;
   materialization?: SchemaModelMaterialization;
@@ -1654,6 +1730,7 @@ export interface SchemaModelTypeIntJoinModels {
       | SchemaModelSelectModel
       | SchemaModelSelectModelWithAgg
       | SchemaModelSelectCTE
+      | SchemaModelSelectFragment
     ),
     ...(
       | SchemaModelSelectColWithAgg
@@ -1663,6 +1740,7 @@ export interface SchemaModelTypeIntJoinModels {
       | SchemaModelSelectModel
       | SchemaModelSelectModelWithAgg
       | SchemaModelSelectCTE
+      | SchemaModelSelectFragment
     )[],
   ];
   from:
@@ -1691,6 +1769,7 @@ export interface SchemaModelTypeIntLookbackModel {
   lightdash?: SchemaModelLightdash;
   tags?: SchemaModelTags;
   meta?: SchemaModelMeta;
+  fragments?: SchemaModelFragments;
   depends_on?: SchemaModelDependsOn;
   data_tests?: SchemaModelDataTests;
   materialization?: SchemaModelMaterialization;
@@ -1716,6 +1795,7 @@ export interface SchemaModelTypeIntLookbackModel {
       | SchemaModelSelectExprWithAgg
       | SchemaModelSelectModel
       | SchemaModelSelectModelWithAgg
+      | SchemaModelSelectFragment
     ),
     ...(
       | SchemaColumnName
@@ -1725,6 +1805,7 @@ export interface SchemaModelTypeIntLookbackModel {
       | SchemaModelSelectExprWithAgg
       | SchemaModelSelectModel
       | SchemaModelSelectModelWithAgg
+      | SchemaModelSelectFragment
     )[],
   ];
   from: {
@@ -1754,6 +1835,7 @@ export interface SchemaModelTypeIntRollupModel {
   lightdash?: SchemaModelLightdash;
   tags?: SchemaModelTags;
   meta?: SchemaModelMeta;
+  fragments?: SchemaModelFragments;
   depends_on?: SchemaModelDependsOn;
   data_tests?: SchemaModelDataTests;
   materialization?: SchemaModelMaterialization;
@@ -1784,6 +1866,7 @@ export interface SchemaModelTypeIntUnionModels {
   lightdash?: SchemaModelLightdash;
   tags?: SchemaModelTags;
   meta?: SchemaModelMeta;
+  fragments?: SchemaModelFragments;
   depends_on?: SchemaModelDependsOn;
   data_tests?: SchemaModelDataTests;
   materialization?: SchemaModelMaterialization;
@@ -1802,11 +1885,17 @@ export interface SchemaModelTypeIntUnionModels {
    * @minItems 1
    */
   select?: [
-    SchemaModelSelectExpr | SchemaModelSelectModel | SchemaModelSelectCTE,
+    (
+      | SchemaModelSelectExpr
+      | SchemaModelSelectModel
+      | SchemaModelSelectCTE
+      | SchemaModelSelectFragment
+    ),
     ...(
       | SchemaModelSelectExpr
       | SchemaModelSelectModel
       | SchemaModelSelectCTE
+      | SchemaModelSelectFragment
     )[],
   ];
   from:
@@ -1846,6 +1935,7 @@ export interface SchemaModelTypeMartSelectModel {
   lightdash?: SchemaModelLightdash;
   tags?: SchemaModelTags;
   meta?: SchemaModelMeta;
+  fragments?: SchemaModelFragments;
   depends_on?: SchemaModelDependsOn;
   group_by?: SchemaModelGroupBy;
   exclude_portal_partition_columns?: SchemaModelExcludePortalPartitionColumns;
@@ -1864,6 +1954,7 @@ export interface SchemaModelTypeMartSelectModel {
       | SchemaModelSelectInterval
       | SchemaModelSelectModel
       | SchemaModelSelectCTE
+      | SchemaModelSelectFragment
     ),
     ...(
       | SchemaColumnName
@@ -1872,6 +1963,7 @@ export interface SchemaModelTypeMartSelectModel {
       | SchemaModelSelectInterval
       | SchemaModelSelectModel
       | SchemaModelSelectCTE
+      | SchemaModelSelectFragment
     )[],
   ];
   from:
@@ -1897,6 +1989,7 @@ export interface SchemaModelTypeMartJoinModels {
   lightdash?: SchemaModelLightdash;
   tags?: SchemaModelTags;
   meta?: SchemaModelMeta;
+  fragments?: SchemaModelFragments;
   depends_on?: SchemaModelDependsOn;
   group_by?: SchemaModelGroupBy;
   having?: SchemaModelHaving;
@@ -1917,6 +2010,7 @@ export interface SchemaModelTypeMartJoinModels {
       | SchemaModelSelectModel
       | SchemaModelSelectModelWithAgg
       | SchemaModelSelectCTE
+      | SchemaModelSelectFragment
     ),
     ...(
       | SchemaModelSelectColWithAgg
@@ -1926,6 +2020,7 @@ export interface SchemaModelTypeMartJoinModels {
       | SchemaModelSelectModel
       | SchemaModelSelectModelWithAgg
       | SchemaModelSelectCTE
+      | SchemaModelSelectFragment
     )[],
   ];
   where?: SchemaModelWhere;
@@ -1941,4 +2036,56 @@ export interface SchemaModelTypeMartJoinModels {
         cte: string;
         join?: SchemaModelFromJoinModels;
       };
+}
+/**
+ * A model that extends a template (`*.template.json`). The template supplies the model body; this file holds the identity fields, the template parameters and any differences. Full validation runs on the resolved model.
+ */
+export interface SchemaModelExtends {
+  type:
+    | 'stg_select_source'
+    | 'stg_select_model'
+    | 'stg_union_sources'
+    | 'int_select_model'
+    | 'int_join_column'
+    | 'int_join_models'
+    | 'int_lookback_model'
+    | 'int_rollup_model'
+    | 'int_union_models'
+    | 'mart_select_model'
+    | 'mart_join_models';
+  group: SchemaModelGroup;
+  topic: SchemaModelTopic;
+  name: SchemaModelName;
+  extends: SchemaFragmentName;
+  with?: SchemaModelWith;
+  fragments?: SchemaModelFragments;
+  select?: unknown[];
+  ctes?: unknown[];
+  /**
+   * Inherited select items to remove: a column name, or `<type>:<ref>` for a bulk select (for example `dims_from_cte:monthly`).
+   *
+   * @minItems 1
+   */
+  select_exclude?: [string, ...string[]];
+  /**
+   * Names of inherited CTEs to remove.
+   *
+   * @minItems 1
+   */
+  ctes_exclude?: [string, ...string[]];
+  /**
+   * `merge` (default) merges `select` into the template's by identity; `replace` uses this `select` as-is.
+   */
+  select_mode?: 'merge' | 'replace';
+  /**
+   * `merge` (default) merges `ctes` into the template's by name; `replace` uses these `ctes` as-is.
+   */
+  ctes_mode?: 'merge' | 'replace';
+  [k: string]: unknown | undefined;
+}
+/**
+ * Parameter values for the template named in `extends`
+ */
+export interface SchemaModelWith {
+  [k: string]: string | undefined;
 }

@@ -504,6 +504,14 @@ export type SchemaModelSelectCTE =
       include?: [SchemaColumnName, ...SchemaColumnName[]];
     };
 /**
+ * Name of a fragment or template, unique within its dbt project
+ */
+export type SchemaFragmentName = string;
+/**
+ * Validate column type
+ */
+export type SchemaColumnType = 'dim' | 'fct';
+/**
  * Will prevent the automatic date filters from getting added
  */
 export type SchemaModelExcludeDateFilter = boolean;
@@ -665,6 +673,7 @@ export interface SchemaModelCTE {
       | SchemaModelSelectModel
       | SchemaModelSelectModelWithAgg
       | SchemaModelSelectCTE
+      | SchemaModelSelectFragment
     ),
     ...(
       | SchemaColumnName
@@ -676,6 +685,7 @@ export interface SchemaModelCTE {
       | SchemaModelSelectModel
       | SchemaModelSelectModelWithAgg
       | SchemaModelSelectCTE
+      | SchemaModelSelectFragment
     )[],
   ];
   exclude_date_filter?: SchemaModelExcludeDateFilter;
@@ -949,4 +959,46 @@ export interface SchemaModelSelectInterval {
   name: 'datetime';
   data_tests?: SchemaColumnDataTests;
   type?: 'dim';
+}
+/**
+ * Include the columns of a column fragment (`*.fragment.json` with `kind: "select"`). DJ expands the fragment into regular select items before validation and SQL/YAML generation.
+ */
+export interface SchemaModelSelectFragment {
+  /**
+   * `all_from_fragment` includes every column, `dims_from_fragment` only `dim` columns, `fcts_from_fragment` only `fct` columns.
+   */
+  type: 'all_from_fragment' | 'dims_from_fragment' | 'fcts_from_fragment';
+  fragment: SchemaFragmentName;
+  /**
+   * Fragment columns to leave out.
+   *
+   * @minItems 1
+   */
+  exclude?: [SchemaColumnName, ...SchemaColumnName[]];
+  /**
+   * Only include these fragment columns.
+   *
+   * @minItems 1
+   */
+  include?: [SchemaColumnName, ...SchemaColumnName[]];
+  /**
+   * Per-column property overrides keyed by fragment column name. Properties are merged into the fragment column; `name` cannot be overridden.
+   */
+  overrides?: {
+    [k: string]:
+      | {
+          agg?: SchemaColumnAgg;
+          aggs?: SchemaColumnAggs;
+          data_tests?: SchemaColumnDataTests;
+          data_type?: SchemaColumnDataType;
+          description?: SchemaColumnDescription;
+          exclude_from_group_by?: SchemaColumnExcludeFromGroupBy;
+          expr?: SchemaColumnExpr;
+          interval?: 'hour' | 'day' | 'month' | 'year';
+          lightdash?: SchemaColumnLightdash;
+          meta?: SchemaColumnMeta;
+          type?: SchemaColumnType;
+        }
+      | undefined;
+  };
 }

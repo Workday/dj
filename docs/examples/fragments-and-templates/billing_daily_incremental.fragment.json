@@ -1,0 +1,11 @@
+{
+    "kind": "config",
+    "name": "billing_daily_incremental",
+    "materialization": {
+        "type": "incremental",
+        "format": "iceberg",
+        "strategy": { "type": "delete+insert" }
+    },
+    "tags": ["billing"],
+    "meta": { "owner": "finops", "sla": { "hours": 24 } }
+}

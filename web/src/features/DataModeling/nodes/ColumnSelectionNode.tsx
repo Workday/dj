@@ -34,6 +34,7 @@ import { AddColumnBasic } from '../components/AddColumnBasic';
 import { ColumnDetails } from '../components/ColumnDetails';
 import DataTypeBadge from '../components/DataTypeBadge';
 import { ErrorMessage } from '../components/ErrorMessage';
+import { FragmentSelectPicker } from '../components/FragmentSelectPicker';
 import { ActionType } from '../types';
 
 interface Column {
@@ -209,12 +210,31 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
   }, [fetchProjectData]);
 
   // Fetch columns based on modelingState.select configuration
-  const fetchColumnsFromSelect = useCallback(() => {
+  const fetchColumnsFromSelect = useCallback(async () => {
+    if (!modelingState.select || modelingState.select.length === 0) {
+      setColumns([]);
+      setLoading(false);
+      return;
+    }
+
+    const hasFragmentSelect = modelingState.select.some(
+      (item) => typeof item !== 'string' && 'fragment' in item,
+    );
+    const needsManifest = modelingState.select.some(
+      (item) =>
+        typeof item !== 'string' && ('model' in item || 'source' in item),
+    );
+
     if (
-      !currentProject?.manifest?.nodes ||
-      !modelingState.select ||
-      modelingState.select.length === 0
+      needsManifest &&
+      (!currentProject?.manifest?.nodes || !currentProject?.manifest?.sources)
     ) {
+      setColumns([]);
+      setLoading(false);
+      return;
+    }
+
+    if (hasFragmentSelect && !basicFields.projectName) {
       setColumns([]);
       setLoading(false);
       return;
@@ -228,6 +248,51 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
       for (const selectItem of modelingState.select) {
         // Skip string column names and expr-based columns - they're handled separately below
         if (typeof selectItem === 'string') {
+          continue;
+        }
+
+        if (
+          'fragment' in selectItem &&
+          typeof selectItem.fragment === 'string' &&
+          basicFields.projectName
+        ) {
+          const fragmentName = selectItem.fragment;
+          const selectionType =
+            'type' in selectItem ? selectItem.type : undefined;
+          const include: string[] =
+            'include' in selectItem && selectItem.include
+              ? selectItem.include
+              : [];
+          const exclude: string[] =
+            'exclude' in selectItem && selectItem.exclude
+              ? selectItem.exclude
+              : [];
+          const resp = await api.post({
+            type: 'framework-fragment-columns',
+            request: {
+              projectName: basicFields.projectName,
+              name: fragmentName,
+            },
+          });
+          let fragColumns: Column[] = (resp?.columns ?? []).map((c) => ({
+            name: c.name,
+            dataType: 'string',
+            type: c.type === 'fct' ? 'fact' : 'dimension',
+            description: '',
+            modelName: `fragment:${fragmentName}`,
+          }));
+          const selTypeStr = (selectionType as string | undefined) ?? '';
+          if (selTypeStr === 'dims_from_fragment') {
+            fragColumns = fragColumns.filter((c) => c.type === 'dimension');
+          } else if (selTypeStr === 'fcts_from_fragment') {
+            fragColumns = fragColumns.filter((c) => c.type === 'fact');
+          }
+          if (include.length > 0) {
+            fragColumns = fragColumns.filter((c) => include.includes(c.name));
+          } else if (exclude.length > 0) {
+            fragColumns = fragColumns.filter((c) => !exclude.includes(c.name));
+          }
+          allColumns.push(...fragColumns);
           continue;
         }
 
@@ -282,6 +347,10 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
             cteColumns = cteColumns.filter((c) => !exclude.includes(c.name));
           }
           allColumns.push(...cteColumns);
+          continue;
+        }
+
+        if (!currentProject?.manifest) {
           continue;
         }
 
@@ -541,11 +610,17 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
     } finally {
       setLoading(false);
     }
-  }, [currentProject, modelingState.select, cteAnalysisColumns]);
+  }, [
+    api,
+    basicFields.projectName,
+    currentProject,
+    modelingState.select,
+    cteAnalysisColumns,
+  ]);
 
   // Fetch columns when modelingState.select changes
   useEffect(() => {
-    fetchColumnsFromSelect();
+    void fetchColumnsFromSelect();
   }, [fetchColumnsFromSelect]);
 
   // Filter columns based on search term
@@ -1411,7 +1486,21 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
       )}
 
       {!shouldShowAddColumnBasic && !editingColumn && isAddColumnAllowed && (
-        <div className="border-t border-neutral p-4 text-center flex justify-center bg-surface">
+        <div className="border-t border-neutral p-4 text-center flex justify-center gap-4 bg-surface">
+          <Popover
+            trigger={
+              <Button
+                className="text-lg font-semibold text-foreground"
+                icon={<PlusIcon className="h-4 w-4" />}
+                variant="iconButton"
+                label="Add from fragment"
+              />
+            }
+            anchor="top"
+            panelClassName="w-[min(32rem,90vw)] p-4"
+          >
+            {(close) => <FragmentSelectPicker onClose={close} />}
+          </Popover>
           <Button
             className="text-lg font-semibold text-foreground"
             icon={<PlusIcon className="h-4 w-4" />}

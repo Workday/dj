@@ -398,9 +398,14 @@ Need time-based analysis? → Use int_lookback_model or int_rollup_model
 1. **Check the specific model documentation** for detailed examples
 2. **Validate against schemas** in `/schemas/` directory
 3. **Review jaffle shop examples** for consistent patterns
-4. **Test with sample data** before production deployment
+4. **Reuse column sets and config** with [fragments and templates](../fragments-and-templates/README.md)
+5. **Test with sample data** before production deployment
 
 ## Advanced Topics
+
+### Shared fragments and templates
+
+See **[Fragments and templates](../fragments-and-templates/README.md)** for select/config fragments, template children (`extends` / `with`), and how sync resolves shared files without rewriting authored `.model.json`.
 
 ### Inline CTEs and Pre-Aggregation
 

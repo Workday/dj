@@ -1,0 +1,31 @@
+{
+    "name": "focus_monthly_cost",
+    "params": {
+        "upstream": { "type": "model_ref" },
+        "provider": { "type": "string" }
+    },
+    "model": {
+        "type": "mart_select_model",
+        "fragments": ["billing_daily_incremental"],
+        "tags": ["mart"],
+        "ctes": [
+            {
+                "name": "monthly",
+                "from": { "model": "${upstream}", "rollup": { "interval": "month" } },
+                "select": [{ "type": "all_from_model", "model": "${upstream}" }]
+            }
+        ],
+        "from": { "cte": "monthly" },
+        "select": [
+            { "type": "dims_from_cte", "cte": "monthly" },
+            {
+                "name": "billed_cost",
+                "type": "fct",
+                "expr": "sum(billed_cost)",
+                "lightdash": { "metrics": ["sum"] }
+            },
+            { "name": "provider", "type": "dim", "expr": "'${provider}'" }
+        ],
+        "group_by": "dims"
+    }
+}

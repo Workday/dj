@@ -98,6 +98,10 @@
         "title": "DJ: Sync to SQL and YML"
       },
       {
+        "command": "dj.command.modelPreviewResolved",
+        "title": "DJ: Preview Resolved Model JSON"
+      },
+      {
         "command": "dj.command.lightdashPreview",
         "icon": "$(lightbulb-sparkle)",
         "title": "DJ: Start Lightdash Preview"
@@ -790,6 +794,11 @@
         {
           "command": "dj.command.modelClone",
           "group": "navigation@2"
+        },
+        {
+          "command": "dj.command.modelPreviewResolved",
+          "group": "navigation@3",
+          "when": "resourceFilename =~ /[.](model)[.](json)$/"
         }
       ],
       "editor/title/run": [],
