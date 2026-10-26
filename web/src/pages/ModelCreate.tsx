@@ -14,6 +14,7 @@ import { makeClassName } from '@web';
 import { useApp } from '@web/context';
 import { useEnvironment } from '@web/context';
 import { DialogBox, Spinner } from '@web/elements';
+import { formatDuplicateColumnMessage } from '@web/features/DataModeling/utils/columnOutputDuplicates';
 import { ActionType } from '@web/features/DataModeling/types';
 import {
   AdditionalFields,
@@ -674,6 +675,12 @@ export function ModelCreate({ mode = 'create' }: ModelCreateProps) {
         errors.push(
           `CTE validation failed (${cteErrors.length} error${cteErrors.length === 1 ? '' : 's'}). Open the affected CTE from the canvas to fix.`,
         );
+      }
+
+      const duplicateNames =
+        useModelStore.getState().columnSelectionDiagnostics.duplicateNames;
+      if (duplicateNames.length > 0) {
+        errors.push(formatDuplicateColumnMessage(duplicateNames));
       }
     }
 

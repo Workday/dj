@@ -113,7 +113,7 @@ For the mechanics of running each tool under this policy, load [reference/runnin
 3. **Follow the naming convention** strictly: `<layer>__<group>__<topic>__<name>`
 4. **Reference models by their full name** (e.g., `int__my_group__my_topic__daily_summary`).
 5. **Reference sources** as `<database>__<schema>.<table_name>`.
-6. **Materialization defaults** to view-like behavior. Prefer `"materialization": "incremental"` (or the structured object form) over legacy `"materialized"`. Both `materialized` and `materialization` are accepted; when both are present, `materialization` takes precedence. Optional `sql_hooks` (`pre`/`post`) exist on staging and intermediate types only — not on marts.
+6. **Materialization defaults** to view-like behavior. On **new or edited** models use only `"materialization"` (string or structured object) — do not author legacy `"materialized"`, `"incremental_strategy"`, or `"partitioned_by"`. Sync and the wizard drop those keys when saving. Optional `sql_hooks` (`pre`/`post`) exist on staging and intermediate types only — not on marts.
 7. **Scheduling is inherited** from sources — don't try to configure schedules on models.
 8. **Tags** can be simple strings or objects with `{ "tag": "name", "type": "exclude" | "inherit" | "local" | "ai_hints" }`.
 9. **`group_by`** accepts column name strings, `{ "expr": "..." }` objects, or the shorthand `"dims"` (or `[{ "type": "dims" }]`) to group by all dimension columns automatically. The string `"dims"` is equivalent to `[{ "type": "dims" }]`. Similarly, join `on` accepts `"dims"` to auto-join on all shared dimension columns.

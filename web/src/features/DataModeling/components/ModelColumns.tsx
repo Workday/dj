@@ -474,7 +474,8 @@ export const ModelColumns: React.FC<ModelColumnsProps> = ({
 
       {(filterType === SelectionType.ALL_FROM_MODEL ||
         filterType === SelectionType.ALL_FROM_SOURCE ||
-        filterType === SelectionType.ALL_FROM_CTE) && (
+        filterType === SelectionType.ALL_FROM_CTE ||
+        filterType === SelectionType.ALL_FROM_FRAGMENT) && (
         <>
           <ColumnSection
             title="Dimensions"
@@ -497,7 +498,8 @@ export const ModelColumns: React.FC<ModelColumnsProps> = ({
 
       {effectiveKind !== 'source' &&
         (filterType === SelectionType.DIMS_FROM_MODEL ||
-          filterType === SelectionType.DIMS_FROM_CTE) && (
+          filterType === SelectionType.DIMS_FROM_CTE ||
+          filterType === SelectionType.DIMS_FROM_FRAGMENT) && (
           <ColumnSection
             title="Dimensions"
             tooltip="Categorical columns used for grouping and filtering"
@@ -510,7 +512,8 @@ export const ModelColumns: React.FC<ModelColumnsProps> = ({
 
       {effectiveKind !== 'source' &&
         (filterType === SelectionType.FCTS_FROM_MODEL ||
-          filterType === SelectionType.FCTS_FROM_CTE) && (
+          filterType === SelectionType.FCTS_FROM_CTE ||
+          filterType === SelectionType.FCTS_FROM_FRAGMENT) && (
           <ColumnSection
             title="Facts"
             tooltip="Numerical columns used for calculations and aggregations"

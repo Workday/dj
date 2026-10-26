@@ -546,6 +546,12 @@ export interface ModelStore {
   navigationNodeType: string | null;
   setNavigationNodeType: (nodeType: string | null) => void;
 
+  /** Synced from Column Selection preview when output column names collide. */
+  columnSelectionDiagnostics: { duplicateNames: string[] };
+  setColumnSelectionDiagnostics: (diagnostics: {
+    duplicateNames: string[];
+  }) => void;
+
   // Column Configuration Node visibility
   showColumnConfiguration: boolean;
   setShowColumnConfiguration: (show: boolean) => void;
@@ -707,6 +713,7 @@ export const useModelStore = create<ModelStore>()(
     materializationExtras: {},
     defaultIncrementalStrategy: undefined,
     navigationNodeType: null,
+    columnSelectionDiagnostics: { duplicateNames: [] },
     showColumnConfiguration: false,
     showAddColumnModal: false,
     editingColumn: null,
@@ -1659,6 +1666,12 @@ export const useModelStore = create<ModelStore>()(
     setNavigationNodeType: (nodeType: string | null) => {
       set(() => ({
         navigationNodeType: nodeType,
+      }));
+    },
+
+    setColumnSelectionDiagnostics: (diagnostics) => {
+      set(() => ({
+        columnSelectionDiagnostics: diagnostics,
       }));
     },
 

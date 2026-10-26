@@ -1,3 +1,4 @@
+import { formatDuplicateColumnMessage } from '@web/features/DataModeling/utils/columnOutputDuplicates';
 import type { ModelingStateAdapter } from '@web/stores/useModelStore';
 
 import { modelValidationRules } from './formValidation';
@@ -50,6 +51,7 @@ export interface NodeValidationResult {
     | 'rollup'
     | 'lookback'
     | 'union'
+    | 'columnSelection'
     | null;
   errorMessage: string | null;
 }
@@ -173,11 +175,31 @@ export function validateUnionNode(
   };
 }
 
+// ==================== COLUMN SELECTION VALIDATION ====================
+
+export function validateColumnSelectionNode(
+  duplicateNames: string[],
+): NodeValidationResult {
+  if (duplicateNames.length === 0) {
+    return {
+      isValid: true,
+      nodeType: 'columnSelection',
+      errorMessage: null,
+    };
+  }
+  return {
+    isValid: false,
+    nodeType: 'columnSelection',
+    errorMessage: formatDuplicateColumnMessage(duplicateNames),
+  };
+}
+
 // ==================== COMBINED VALIDATION ====================
 
 export function getFirstInvalidNode(
   modelingState: ModelingStateAdapter,
   modelType?: string | null,
+  columnSelectionDuplicateNames: string[] = [],
 ): NodeValidationResult | null {
   const validations: NodeValidationResult[] = [];
 
@@ -203,6 +225,15 @@ export function getFirstInvalidNode(
     validations.push(validateUnionNode(modelingState));
   }
 
+  if (
+    Array.isArray(modelingState.select) &&
+    modelingState.select.length > 0
+  ) {
+    validations.push(
+      validateColumnSelectionNode(columnSelectionDuplicateNames),
+    );
+  }
+
   // Return first invalid node
   return validations.find((v) => !v.isValid) || null;
 }
@@ -219,6 +250,7 @@ export function validateStep(
   basicFields: Record<string, unknown>,
   modelingState?: ModelingStateAdapter,
   modelType?: string | null,
+  columnSelectionDuplicateNames: string[] = [],
 ): StepValidationResult {
   switch (step) {
     case 0: {
@@ -230,7 +262,11 @@ export function validateStep(
       if (!modelingState) {
         return { isValid: true };
       }
-      const invalidNode = getFirstInvalidNode(modelingState, modelType);
+      const invalidNode = getFirstInvalidNode(
+        modelingState,
+        modelType,
+        columnSelectionDuplicateNames,
+      );
       return {
         isValid: !invalidNode || invalidNode.isValid,
         errors: invalidNode,
@@ -262,6 +298,7 @@ export function getNodeTypeForNavigation(
     rollup: 'rollupNode',
     lookback: 'lookbackNode',
     union: 'unionNode',
+    columnSelection: 'columnSelectionNode',
   };
 
   return nodeType ? nodeTypeMap[nodeType] || null : null;

@@ -57,7 +57,7 @@ Use the `materialization` field instead of the legacy `materialized` + `incremen
 
 ### Legacy Incremental Configuration
 
-Still supported but prefer `materialization` above:
+**Do not author on new models** — migration reference only (DJ still parses these keys on old files):
 
 ```jsonc
 {

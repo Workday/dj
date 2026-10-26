@@ -91,6 +91,7 @@ export const COMMAND_ID = {
   FRAMEWORK_JUMP_YAML: 'dj.command.frameworkJumpYaml',
   JSON_SYNC: 'dj.command.jsonSync',
   MODEL_PREVIEW_RESOLVED: 'dj.command.modelPreviewResolved',
+  COMPOSITION_SHOW_USED_BY: 'dj.command.compositionShowUsedBy',
   PYTHON_MODEL_CREATE: 'dj.command.pythonModelCreate',
   PYTHON_MODEL_OPEN_NOTEBOOK: 'dj.command.pythonModelOpenNotebook',
   DAG_CREATE: 'dj.command.dagCreate',

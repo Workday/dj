@@ -109,6 +109,8 @@ export class SyncEngine {
       modelJsonUris.map((uri) => modelNameFromPath(uri.fsPath)),
     );
 
+    compositionRegistry?.clearAllUsage();
+
     // Process all model files in parallel for speed
     await Promise.all(
       modelJsonUris.map(async (uri) => {

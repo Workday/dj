@@ -912,6 +912,11 @@ export class Coder {
               this.log.error(`DEBOUNCE: No model ID found for ${filePath}`);
               return;
             }
+            await this.framework.compositionHandlers.indexModelUsageForFile(
+              info.project,
+              filePath,
+              info.modelJson,
+            );
             this.log.info(
               `DEBOUNCE: Enqueuing sync for ${id} (modelName=${modelName}, pathJson: ${filePath})`,
             );

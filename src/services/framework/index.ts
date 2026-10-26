@@ -373,7 +373,7 @@ export class Framework implements ApiEnabledService<'framework'> {
     }
 
     const info = await this.coder.fetchFileInfoFromPath(modelPath);
-    if (!info || info.type !== 'framework-model') {
+    if (info?.type !== 'framework-model') {
       throw new Error(`Could not load framework model at ${modelPath}`);
     }
 
@@ -1082,6 +1082,51 @@ export class Framework implements ApiEnabledService<'framework'> {
 
     context.subscriptions.push(
       vscode.commands.registerCommand(
+        COMMAND_ID.COMPOSITION_SHOW_USED_BY,
+        async (args: {
+          projectName: string;
+          kind: 'fragment' | 'template';
+          name: string;
+        }) => {
+          const project = this.dbt.projects.get(args.projectName);
+          if (!project) {
+            return;
+          }
+          await this.compositionHandlers.ensureLoaded(project);
+          const usedBy = this.compositionStore
+            .registryFor(project)
+            .usedBy(args.kind, args.name);
+          if (usedBy.length === 0) {
+            void vscode.window.showInformationMessage(
+              'No models reference this shared file.',
+            );
+            return;
+          }
+          const pick = await vscode.window.showQuickPick(usedBy, {
+            placeHolder: 'Open model',
+          });
+          if (!pick) {
+            return;
+          }
+          const uris = await vscode.workspace.findFiles(
+            new vscode.RelativePattern(
+              project.pathSystem,
+              `**/${pick}.model.json`,
+            ),
+          );
+          if (uris[0]) {
+            await vscode.window.showTextDocument(uris[0]);
+          } else {
+            void vscode.window.showWarningMessage(
+              `Could not find ${pick}.model.json in the project.`,
+            );
+          }
+        },
+      ),
+    );
+
+    context.subscriptions.push(
+      vscode.commands.registerCommand(
         COMMAND_ID.MODEL_PREVIEW_RESOLVED,
         async (uri?: vscode.Uri) => {
           const filePath =
@@ -1227,8 +1272,12 @@ export class Framework implements ApiEnabledService<'framework'> {
       vscode.languages.registerDefinitionProvider(
         { pattern: '**/*.model.json' },
         {
-          provideDefinition: (document, position, _token) => {
+          provideDefinition: async (document, position, _token) => {
             const textLine = document.lineAt(position.line).text;
+            const project = this.dbt.getProjectFromPath(document.uri.fsPath);
+            if (!project) {
+              return;
+            }
 
             const macroName = textLine.match(
               /{{ ((?:[A-z]|[0-9]|_|-|\.)+)\((?:.*)\) }}/,
@@ -1241,15 +1290,6 @@ export class Framework implements ApiEnabledService<'framework'> {
             const sourceId = textLine.match(
               /"((?:[A-z]|[0-9]|_)+\.(?:[A-z]|[0-9]|_)+)"/,
             )?.[1];
-
-            if (!(macroName || modelName || sourceId)) {
-              return;
-            }
-
-            const project = this.dbt.getProjectFromPath(document.fileName);
-            if (!project) {
-              return;
-            }
 
             if (macroName) {
               const macro =
@@ -1321,6 +1361,8 @@ export class Framework implements ApiEnabledService<'framework'> {
               );
             }
 
+            await this.compositionHandlers.ensureLoaded(project);
+
             const wordRange = document.getWordRangeAtPosition(
               position,
               /[A-Za-z0-9_-]+/,
@@ -1352,11 +1394,12 @@ export class Framework implements ApiEnabledService<'framework'> {
       vscode.languages.registerCodeLensProvider(
         { pattern: '**/*.{fragment,template}.json' },
         {
-          provideCodeLenses: (document, _token) => {
+          provideCodeLenses: async (document, _token) => {
             const project = this.dbt.getProjectFromPath(document.uri.fsPath);
             if (!project) {
               return [];
             }
+            await this.compositionHandlers.ensureLoaded(project);
             let name: string | undefined;
             try {
               const parsed = jsonParse(document.getText()) as { name?: string };
@@ -1378,7 +1421,8 @@ export class Framework implements ApiEnabledService<'framework'> {
             return [
               new vscode.CodeLens(range, {
                 title: `Used by ${usedBy.length} model${usedBy.length === 1 ? '' : 's'}`,
-                command: '',
+                command: COMMAND_ID.COMPOSITION_SHOW_USED_BY,
+                arguments: [{ projectName: project.name, kind, name }],
               }),
             ];
           },
@@ -1485,7 +1529,6 @@ export class Framework implements ApiEnabledService<'framework'> {
     }
 
     const { filePath, modelJson, project } = info;
-    const uri = vscode.Uri.file(filePath);
 
     // Get model ID
     const modelId = frameworkGetModelId({ modelJson, project });
@@ -1670,8 +1713,7 @@ export class Framework implements ApiEnabledService<'framework'> {
     if (info?.type !== 'framework-source') {
       return;
     }
-    const { filePath, project, sourceJson } = info;
-    const uri = vscode.Uri.file(filePath);
+    const { filePath: _filePath, project, sourceJson } = info;
 
     // Get source IDs
     const sourceIds = frameworkGetSourceIds({ project, sourceJson });
@@ -1941,7 +1983,7 @@ export class Framework implements ApiEnabledService<'framework'> {
       '**/*.{model.json,source.json}',
     );
     this.jsonFileWatcher.onDidChange(this.handleJsonChange.bind(this));
-    this.jsonFileWatcher.onDidDelete(this.handleJsonChange.bind(this));
+    this.jsonFileWatcher.onDidDelete(this.handleJsonDelete.bind(this));
 
     // Watch SQL files (excluding dbt_packages, node_modules, etc.)
     this.sqlFileWatcher = vscode.workspace.createFileSystemWatcher(
@@ -2030,6 +2072,17 @@ export class Framework implements ApiEnabledService<'framework'> {
   private handleJsonChange(uri: vscode.Uri) {
     this.cacheManager.invalidate(uri.fsPath);
     this.log.debug(`Cache invalidated for ${uri.fsPath} (JSON changed)`);
+  }
+
+  private handleJsonDelete(uri: vscode.Uri) {
+    this.cacheManager.invalidate(uri.fsPath);
+    if (!uri.fsPath.endsWith('.model.json')) {
+      return;
+    }
+    const project = this.compositionHandlers.projectForPath(uri.fsPath);
+    if (project) {
+      this.compositionHandlers.clearModelCompositionUsage(project, uri.fsPath);
+    }
   }
 
   /**

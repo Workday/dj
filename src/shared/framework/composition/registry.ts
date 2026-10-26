@@ -124,6 +124,11 @@ export class CompositionRegistry {
     this.usage.delete(modelKey);
   }
 
+  /** Drop the reverse index; callers re-scan models before recording again. */
+  clearAllUsage(): void {
+    this.usage.clear();
+  }
+
   /** Model keys that use the named fragment or template (transitively). */
   usedBy(kind: SharedFileKind, name: string): string[] {
     const out: string[] = [];

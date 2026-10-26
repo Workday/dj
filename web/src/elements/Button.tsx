@@ -29,12 +29,13 @@ export function Button({
   variant,
   icon,
   iconLabelClassName,
+  children,
   ...props
 }: ButtonProps) {
   const _props = {
     ...props,
     disabled: loading || props.disabled,
-    children: loading ? <Spinner size={10} /> : label ?? '',
+    children: loading ? <Spinner size={10} /> : (children ?? label ?? ''),
     type,
   };
   switch (variant) {

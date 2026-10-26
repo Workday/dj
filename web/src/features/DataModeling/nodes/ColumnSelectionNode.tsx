@@ -8,6 +8,7 @@ import {
   InformationCircleIcon,
   MagnifyingGlassIcon,
   TrashIcon,
+  XCircleIcon,
 } from '@heroicons/react/24/outline';
 import type { DbtProject } from '@shared/dbt/types';
 import LineageIcon from '@web/assets/icons/lineage.svg?react';
@@ -36,6 +37,11 @@ import DataTypeBadge from '../components/DataTypeBadge';
 import { ErrorMessage } from '../components/ErrorMessage';
 import { FragmentSelectPicker } from '../components/FragmentSelectPicker';
 import { ActionType } from '../types';
+import {
+  findDuplicateOutputColumns,
+  isSelectItemDraggable,
+  resolveColumnSelectBinding,
+} from '../utils/columnOutputDuplicates';
 
 interface Column {
   name: string;
@@ -62,6 +68,7 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
     setNavigationNodeType,
     showAddColumnModal,
     setShowAddColumnModal,
+    setColumnSelectionDiagnostics,
   } = useModelStore();
 
   // Tutorial store integration - NEW: Use enum-based state
@@ -115,6 +122,7 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<boolean>(false);
   const [columnToDelete, setColumnToDelete] = useState<Column | null>(null);
+  const [showFragmentPicker, setShowFragmentPicker] = useState(false);
 
   const columnsContainerRef = useRef<HTMLDivElement>(null);
   const previousColumnsLengthRef = useRef<number>(0);
@@ -366,7 +374,7 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
             ? selectItem.exclude
             : [];
 
-        if (!modelName) continue;
+        if (!modelName) {continue;}
 
         const columns: Column[] = [];
 
@@ -580,7 +588,6 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
         );
 
         if (hasDerivedColumn) {
-          // If this is a derived column, keep it
           if (column.modelName === 'Derived Column') {
             return (
               index ===
@@ -590,8 +597,16 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
               )
             );
           }
-          // If this is not a derived column but a derived column exists with same name, skip it
-          return false;
+          // Drop plain string passthroughs when a derived row shares the name
+          if (column.modelName === '') {
+            return false;
+          }
+          return (
+            index ===
+            self.findIndex(
+              (c) => c.modelName === column.modelName && c.name === column.name,
+            )
+          );
         }
 
         // Default deduplication: keep first occurrence based on modelName and name
@@ -625,13 +640,22 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
 
   // Filter columns based on search term
   const filteredColumns = useMemo(() => {
-    if (!searchTerm) return columns;
+    if (!searchTerm) {return columns;}
     return columns.filter(
       (column) =>
         column.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         column.modelName.toLowerCase().includes(searchTerm.toLowerCase()),
     );
   }, [columns, searchTerm]);
+
+  const { duplicateNames } = useMemo(
+    () => findDuplicateOutputColumns(columns),
+    [columns],
+  );
+
+  useEffect(() => {
+    setColumnSelectionDiagnostics({ duplicateNames });
+  }, [duplicateNames, setColumnSelectionDiagnostics]);
 
   // Determine if there are any dimension columns in the current filtered set (or full set if needed)
   const hasDimensions = useMemo(
@@ -647,11 +671,11 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
 
     // Check if we have model selections that reference seeds
     for (const selectItem of modelingState.select || []) {
-      if (typeof selectItem !== 'object' || !selectItem) continue;
-      if (!('model' in selectItem) || !('type' in selectItem)) continue;
+      if (typeof selectItem !== 'object' || !selectItem) {continue;}
+      if (!('model' in selectItem) || !('type' in selectItem)) {continue;}
 
       const modelName = selectItem.model;
-      if (!modelName) continue;
+      if (!modelName) {continue;}
 
       // Check if this model is a seed
       const seedKey = `seed.${currentProject.name}.${modelName}`;
@@ -724,17 +748,20 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
   // Handler for configure button click
   const handleConfigureColumn = useCallback(
     (column: Column) => {
-      // Find the column in modelingState.select
-      const selectItem = modelingState.select.find(
-        (item) =>
-          typeof item !== 'string' &&
-          'name' in item &&
-          item.name === column.name,
+      const binding = resolveColumnSelectBinding(
+        column,
+        modelingState.select,
+        isSelectItemDraggable,
       );
+      const selectItem = binding.actualSelectItem;
 
-      if (selectItem) {
-        // Set as editing column and show configuration
-        setEditingColumn(selectItem, column.name);
+      if (
+        selectItem &&
+        typeof selectItem === 'object' &&
+        selectItem !== null &&
+        'name' in selectItem
+      ) {
+        setEditingColumn(selectItem as SchemaSelect, column.name);
         setShowColumnConfiguration(true);
         // Navigate to ColumnConfigurationNode
         setNavigationNodeType('columnConfigurationNode');
@@ -770,7 +797,7 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
   // Handler for opening Column Lineage with a specific column
   const handleColumnLineageClick = useCallback(
     (column: Column) => {
-      if (!currentProject?.manifest) return;
+      if (!currentProject?.manifest) {return;}
 
       // For derived columns, use the current model being created
       // For columns from other models, find the source model in manifest
@@ -811,7 +838,7 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
           currentProject.manifest.sources || {},
         ).find((key) => {
           const source = currentProject.manifest.sources[key];
-          if (!source?.source_name || !source?.name) return false;
+          if (!source?.source_name || !source?.name) {return false;}
           const fullSourceName = `${source.source_name}.${source.name}`;
           return fullSourceName === column.modelName;
         });
@@ -921,12 +948,12 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
   // Handler for drag and drop reordering
   const handleDragEnd = useCallback(
     (result: DropResult) => {
-      if (!result.destination) return;
+      if (!result.destination) {return;}
 
       const sourceIndex = result.source.index;
       const destinationIndex = result.destination.index;
 
-      if (sourceIndex === destinationIndex) return;
+      if (sourceIndex === destinationIndex) {return;}
 
       // Get current select array
       const currentSelect = [...modelingState.select];
@@ -942,34 +969,6 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
     },
     [modelingState.select, updateSelectState],
   );
-
-  // Helper to determine if a select item is draggable
-  const isDraggable = useCallback((selectItem: unknown): boolean => {
-    // String column names are draggable
-    if (typeof selectItem === 'string') {
-      return true;
-    }
-
-    // Expr-based columns (derived columns) are draggable
-    if (
-      typeof selectItem === 'object' &&
-      selectItem !== null &&
-      'expr' in selectItem
-    ) {
-      return true;
-    }
-
-    // Group columns (model/source selections) are NOT draggable
-    if (
-      typeof selectItem === 'object' &&
-      selectItem !== null &&
-      ('model' in selectItem || 'source' in selectItem)
-    ) {
-      return false;
-    }
-
-    return false;
-  }, []);
 
   return (
     <div
@@ -996,6 +995,21 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
             </p>
           </div>
         </div>
+
+        {duplicateNames.length > 0 && (
+          <div className="bg-message-error rounded-lg p-3">
+            <div className="flex items-start gap-2">
+              <XCircleIcon className="w-5 h-5 text-message-error-contrast flex-shrink-0 mt-0.5" />
+              <div className="text-sm text-message-error-contrast leading-relaxed">
+                <p className="font-medium">Duplicate output columns</p>
+                <p>
+                  {duplicateNames.join(', ')} — remove or rename one of the
+                  entries below before continuing.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* group by and search input */}
         <div className="flex items-center gap-2 justify-between">
@@ -1108,39 +1122,19 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
                     {filteredColumns.map((column, displayIndex) => {
                       const isExpanded =
                         effectiveExpandedColumnIndex === displayIndex;
-                      const selectItem = modelingState.select.find(
-                        (item) =>
-                          typeof item !== 'string' &&
-                          'name' in item &&
-                          item.name === column.name,
+                      const binding = resolveColumnSelectBinding(
+                        column,
+                        modelingState.select,
+                        isSelectItemDraggable,
                       );
+                      const actualSelectItem =
+                        binding.actualSelectItem as SchemaSelect | undefined;
+                      const selectIndex = binding.selectIndex;
+                      const canDrag = binding.canDrag;
 
-                      // Find the actual select item and its index in the select array
-                      let actualSelectItem: SchemaSelect | undefined;
-                      let selectIndex = -1;
-
-                      for (let i = 0; i < modelingState.select.length; i++) {
-                        const item = modelingState.select[i];
-                        if (typeof item === 'string' && item === column.name) {
-                          actualSelectItem = item;
-                          selectIndex = i;
-                          break;
-                        }
-                        if (
-                          typeof item === 'object' &&
-                          item !== null &&
-                          'name' in item &&
-                          item.name === column.name
-                        ) {
-                          actualSelectItem = item;
-                          selectIndex = i;
-                          break;
-                        }
-                      }
-
-                      const canDrag = actualSelectItem
-                        ? isDraggable(actualSelectItem)
-                        : false;
+                      const isDuplicateRow = duplicateNames.includes(
+                        column.name,
+                      );
 
                       // Generate stable ID based on column content
                       let stableId: string;
@@ -1161,7 +1155,7 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
                         <Draggable
                           key={stableId}
                           draggableId={stableId}
-                          index={selectIndex >= 0 ? selectIndex : displayIndex}
+                          index={canDrag ? selectIndex : displayIndex}
                           isDragDisabled={!canDrag}
                         >
                           {(provided, snapshot) => (
@@ -1171,7 +1165,9 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
                               className={`rounded-lg relative select-none ${
                                 snapshot.isDragging
                                   ? 'bg-transparent'
-                                  : 'border border-neutral bg-background'
+                                  : isDuplicateRow
+                                    ? 'border border-red-500 bg-background'
+                                    : 'border border-neutral bg-background'
                               }`}
                               style={{
                                 ...provided.draggableProps.style,
@@ -1433,10 +1429,11 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
                               {/* Expanded Column Details - only show when not dragging */}
                               {!snapshot.isDragging &&
                                 isExpanded &&
-                                selectItem && (
+                                actualSelectItem &&
+                                typeof actualSelectItem === 'object' && (
                                   <ColumnDetails
                                     selectItem={
-                                      selectItem as Record<string, unknown>
+                                      actualSelectItem as Record<string, unknown>
                                     }
                                   />
                                 )}
@@ -1453,6 +1450,17 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
           </div>
         )}
       </div>
+
+      {showFragmentPicker && !editingColumn && isAddColumnAllowed && (
+        <div className="border-t border-neutral p-4">
+          <h4 className="text-sm font-semibold text-foreground mb-4">
+            Add from fragment
+          </h4>
+          <FragmentSelectPicker
+            onClose={() => setShowFragmentPicker(false)}
+          />
+        </div>
+      )}
 
       {shouldShowAddColumnBasic && !editingColumn && isAddColumnAllowed && (
         <AddColumnBasic
@@ -1485,22 +1493,21 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
         />
       )}
 
-      {!shouldShowAddColumnBasic && !editingColumn && isAddColumnAllowed && (
+      {!shouldShowAddColumnBasic &&
+        !showFragmentPicker &&
+        !editingColumn &&
+        isAddColumnAllowed && (
         <div className="border-t border-neutral p-4 text-center flex justify-center gap-4 bg-surface">
-          <Popover
-            trigger={
-              <Button
-                className="text-lg font-semibold text-foreground"
-                icon={<PlusIcon className="h-4 w-4" />}
-                variant="iconButton"
-                label="Add from fragment"
-              />
-            }
-            anchor="top"
-            panelClassName="w-[min(32rem,90vw)] p-4"
-          >
-            {(close) => <FragmentSelectPicker onClose={close} />}
-          </Popover>
+          <Button
+            className="text-lg font-semibold text-foreground"
+            icon={<PlusIcon className="h-4 w-4" />}
+            variant="iconButton"
+            label="Add from fragment"
+            onClick={() => {
+              setShowAddColumnModal(false);
+              setShowFragmentPicker(true);
+            }}
+          />
           <Button
             className="text-lg font-semibold text-foreground"
             icon={<PlusIcon className="h-4 w-4" />}
@@ -1508,6 +1515,7 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
             label="Add Columns Manually"
             onClick={() => {
               if (!isPlayTutorialActive) {
+                setShowFragmentPicker(false);
                 setShowAddColumnModal(true);
 
                 // If assist mode is active OR assist tutorial is running, show the add-column-button guide first

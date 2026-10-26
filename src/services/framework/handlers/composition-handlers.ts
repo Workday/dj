@@ -6,15 +6,19 @@ import type { ApiPayload, ApiResponse } from '@shared/api/types';
 import { apiResponse } from '@shared/api/utils';
 import type { DbtProject } from '@shared/dbt/types';
 import {
+  CompositionRegistry,
   FRAGMENT_SELECT_TYPES,
+  resolveModelComposition,
   type SharedFileKind,
   sharedFileKindForPath,
 } from '@shared/framework/composition';
+import type { FrameworkModel } from '@shared/framework/types';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
 import {
   type CompositionStore,
+  modelExistsFor,
   modelNameFromPath,
   type SharedFileChange,
 } from '../composition-store';
@@ -22,6 +26,7 @@ import type { FrameworkContext } from '../context';
 import { buildPositionedDiagnostics } from '../utils/json-diagnostics';
 
 const SHARED_FILE_GLOB = '**/*.{fragment,template}.json';
+const MODEL_JSON_GLOB = '**/*.model.json';
 const SHARED_FILE_EXCLUDE = '**/{node_modules,dbt_packages,target,.dj}/**';
 
 const SCHEMA_FOR_KIND: Record<SharedFileKind, string> = {
@@ -118,6 +123,9 @@ export class CompositionHandlers {
   /** Load the project's shared files once; concurrent callers share the load. */
   ensureLoaded(project: DbtProject): Promise<void> {
     if (this.isLoaded(project)) {
+      if (!this.store.isIndexed(project)) {
+        return this.indexModelCompositionUsage(project);
+      }
       return Promise.resolve();
     }
     let loading = this.loading.get(project.name);
@@ -161,6 +169,112 @@ export class CompositionHandlers {
       }
     }
     this.validateProject(project);
+    await this.indexModelCompositionUsage(project);
+  }
+
+  /**
+   * Scan every `.model.json` in the project and populate the registry reverse
+   * index (`usedBy`). Matches sync discovery so CodeLens and `fragment.get`
+   * work before the first full JSON sync.
+   */
+  async indexModelCompositionUsage(project: DbtProject): Promise<void> {
+    const registry = this.store.registryFor(project);
+    const modelUris = await vscode.workspace.findFiles(
+      new vscode.RelativePattern(project.pathSystem, MODEL_JSON_GLOB),
+      SHARED_FILE_EXCLUDE,
+    );
+    const modelExists = await this.modelExistsForProject(project);
+    registry.clearAllUsage();
+    await Promise.all(
+      modelUris.map((uri) =>
+        this.indexModelUsageAtPath(
+          project,
+          uri.fsPath,
+          registry,
+          modelExists,
+        ),
+      ),
+    );
+    this.store.markIndexed(project);
+  }
+
+  /**
+   * Update the reverse index for one model after a save (or watcher event).
+   * No-op when shared files are not loaded yet — `loadProject` runs a full scan.
+   */
+  async indexModelUsageForFile(
+    project: DbtProject,
+    modelPath: string,
+    rawModel?: unknown,
+  ): Promise<void> {
+    if (!this.isLoaded(project)) {
+      await this.loadProject(project);
+      return;
+    }
+    const registry = this.store.registryFor(project);
+    const modelExists = await this.modelExistsForProject(project);
+    if (rawModel !== undefined) {
+      try {
+        const composition = resolveModelComposition<FrameworkModel>(
+          rawModel,
+          registry,
+          { modelExists },
+        );
+        registry.recordUsage(modelPath, composition.dependencies);
+      } catch {
+        registry.clearUsage(modelPath);
+      }
+    } else {
+      await this.indexModelUsageAtPath(
+        project,
+        modelPath,
+        registry,
+        modelExists,
+      );
+    }
+    this.store.markIndexed(project);
+  }
+
+  clearModelCompositionUsage(
+    project: DbtProject,
+    modelPath: string,
+  ): void {
+    if (!this.isLoaded(project)) {
+      return;
+    }
+    this.store.registryFor(project).clearUsage(modelPath);
+  }
+
+  private async modelExistsForProject(
+    project: DbtProject,
+  ): Promise<(name: string) => boolean> {
+    const modelUris = await vscode.workspace.findFiles(
+      new vscode.RelativePattern(project.pathSystem, MODEL_JSON_GLOB),
+      SHARED_FILE_EXCLUDE,
+    );
+    return modelExistsFor(
+      project,
+      modelUris.map((uri) => modelNameFromPath(uri.fsPath)),
+    );
+  }
+
+  private async indexModelUsageAtPath(
+    _project: DbtProject,
+    modelPath: string,
+    registry: CompositionRegistry,
+    modelExists: (name: string) => boolean,
+  ): Promise<void> {
+    try {
+      const raw = jsonParse(
+        (await vscode.workspace.fs.readFile(vscode.Uri.file(modelPath))).toString(),
+      );
+      const composition = resolveModelComposition<FrameworkModel>(raw, registry, {
+        modelExists,
+      });
+      registry.recordUsage(modelPath, composition.dependencies);
+    } catch {
+      registry.clearUsage(modelPath);
+    }
   }
 
   /** Debounced entry point for watcher events on shared files. */

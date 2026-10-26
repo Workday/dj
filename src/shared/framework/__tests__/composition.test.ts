@@ -708,6 +708,17 @@ describe('diffAgainstTemplate', () => {
 });
 
 describe('composition registry usage', () => {
+  test('clearAllUsage resets the reverse index', () => {
+    const registry = new CompositionRegistry();
+    registry.recordUsage('/models/m.model.json', {
+      fragments: ['focus_cost_columns'],
+      templates: [],
+    });
+    expect(registry.usedBy('fragment', 'focus_cost_columns')).toHaveLength(1);
+    registry.clearAllUsage();
+    expect(registry.usedBy('fragment', 'focus_cost_columns')).toHaveLength(0);
+  });
+
   test('recordUsage and usedBy track fragment dependencies', () => {
     const registry = registryWith({
       '/p/cols.fragment.json': costColumns,
