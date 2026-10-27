@@ -258,6 +258,30 @@ export type SchemaLightdashCaseSensitive = boolean;
  */
 export type SchemaLightdashAIHint = string | string[];
 /**
+ * Valid time interval for Lightdash dimension
+ */
+export type SchemaLightdashTimeInterval =
+  | 'DAY'
+  | 'DAY_OF_WEEK_INDEX'
+  | 'DAY_OF_WEEK_NAME'
+  | 'DAY_OF_MONTH_NUM'
+  | 'DAY_OF_YEAR_NUM'
+  | 'HOUR'
+  | 'MILLISECOND'
+  | 'MINUTE'
+  | 'MONTH'
+  | 'MONTH_NAME'
+  | 'MONTH_NUM'
+  | 'QUARTER'
+  | 'QUARTER_NAME'
+  | 'QUARTER_NUM'
+  | 'RAW'
+  | 'SECOND'
+  | 'WEEK'
+  | 'WEEK_NUM'
+  | 'YEAR'
+  | 'YEAR_NUM';
+/**
  * Validate Lightdash metric name
  */
 export type SchemaLightdashMetricName = string;
@@ -555,27 +579,7 @@ export interface SchemaLightdashDimension {
   /**
    * The time intervals for the lightdash dimension
    */
-  time_intervals?:
-    | 'OFF'
-    | (
-        | 'DAY'
-        | 'DAY_OF_WEEK_INDEX'
-        | 'DAY_OF_WEEK_NAME'
-        | 'DAY_OF_MONTH_NUM'
-        | 'DAY_OF_YEAR_NUM'
-        | 'HOUR'
-        | 'MONTH'
-        | 'MONTH_NAME'
-        | 'MONTH_NUM'
-        | 'QUARTER'
-        | 'QUARTER_NAME'
-        | 'QUARTER_NUM'
-        | 'RAW'
-        | 'WEEK'
-        | 'WEEK_NUM'
-        | 'YEAR'
-        | 'YEAR_NUM'
-      )[];
+  time_intervals?: 'OFF' | SchemaLightdashTimeInterval[];
   type?: 'boolean' | 'date' | 'number' | 'string' | 'timestamp';
   /**
    * The URLs for the lightdash dimension
