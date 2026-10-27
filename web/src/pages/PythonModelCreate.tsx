@@ -5,7 +5,7 @@ import {
 } from '@heroicons/react/24/outline';
 import type { Api } from '@shared/api/types';
 import type { DbtProject } from '@shared/dbt/types';
-import type { PythonModelGroup } from '@shared/framework/types';
+import type { KpoSizeSpec } from '@shared/framework/types';
 import { EXTERNAL_LINKS } from '@shared/web/constants';
 import { useApp } from '@web/context/useApp';
 import { useEnvironment } from '@web/context/useEnvironment';
@@ -17,6 +17,7 @@ import {
   Switch,
   TagInput,
 } from '@web/elements';
+import { formatKpoSizeInfo } from '@web/features/PythonModel/formatKpoSizeInfo';
 import {
   Controller,
   FieldInputText,
@@ -28,11 +29,10 @@ import _ from 'lodash';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { usePersistedForm } from '../hooks/usePersistedForm';
+import { generateGroupOptions } from '../utils/formOptions';
 import { stateSync } from '../utils/stateSync';
 
 type Values = Api<'framework-python-model-create'>['request'];
-
-const DEFAULT_GROUPS: string[] = ['ml', 'etl', 'analytics', 'others'];
 
 const PREDEFINED_TAGS = [
   'python-model',
@@ -71,14 +71,8 @@ export function PythonModelCreate() {
   const [isProjectsLoading, setIsProjectsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [availableDags, setAvailableDags] = useState<string[]>([]);
-  const [groupOptions, setGroupOptions] = useState<
-    { label: string; value: PythonModelGroup }[]
-  >(
-    DEFAULT_GROUPS.map((g) => ({
-      label: g.charAt(0).toUpperCase() + g.slice(1),
-      value: g,
-    })),
-  );
+  const [isDagsLoading, setIsDagsLoading] = useState(false);
+  const [kpoSizes, setKpoSizes] = useState<Record<string, KpoSizeSpec>>({});
 
   const projectName = watch('projectName');
   const name = watch('name');
@@ -86,6 +80,8 @@ export function PythonModelCreate() {
   const topic = watch('topic');
   const dags = watch('dags');
   const tags = watch('tags');
+  const compute = watch('compute');
+  const kpoSize = watch('kpo_size');
 
   const hasFormData = useMemo(() => {
     return !!(
@@ -107,11 +103,37 @@ export function PythonModelCreate() {
     [projects],
   );
 
+  const selectedProject = useMemo(
+    () => projects?.find((p) => p.name === projectName) ?? null,
+    [projects, projectName],
+  );
+  const groupOptions = useMemo(
+    () => generateGroupOptions(selectedProject),
+    [selectedProject],
+  );
+
   const disableSubmit = useMemo(() => {
-    return (
-      !projectName || !name || !group || !topic || !dags || dags.length === 0
-    );
-  }, [projectName, name, group, topic, dags]);
+    if (isDagsLoading || !projectName || !group || !topic || !dags?.length) {
+      return true;
+    }
+    return !name;
+  }, [isDagsLoading, projectName, name, group, topic, dags]);
+
+  const kpoSizeOptions = useMemo(
+    () =>
+      Object.keys(kpoSizes).map((size) => ({
+        label: size.charAt(0).toUpperCase() + size.slice(1),
+        value: size,
+      })),
+    [kpoSizes],
+  );
+
+  const kpoSizeInfo = useMemo(() => {
+    if (compute !== 'kpo' || !kpoSize || !kpoSizes[kpoSize]) {
+      return null;
+    }
+    return formatKpoSizeInfo(kpoSizes[kpoSize]);
+  }, [compute, kpoSize, kpoSizes]);
 
   const onClose = useCallback(async () => {
     try {
@@ -130,9 +152,14 @@ export function PythonModelCreate() {
         setIsSubmitting(true);
         setShowErrorDialog(false);
         setErrorMessage('');
+        const { compute: formCompute, kpo_size, ...rest } = values;
+        const request: Values =
+          formCompute === 'kpo'
+            ? { ...rest, compute: 'kpo', kpo_size: kpo_size ?? 'small' }
+            : rest;
         const resp = await api.post({
           type: 'framework-python-model-create',
-          request: values,
+          request,
         });
         setSuccess(resp);
         void onClose();
@@ -170,6 +197,7 @@ export function PythonModelCreate() {
           setValue('projectName', _projects[0].name);
         }
         setValue('model_type', 'python');
+        setValue('compute', 'airflow');
         setValue('description', '');
         setValue('namespace', '');
         setValue('table_name', '');
@@ -182,25 +210,18 @@ export function PythonModelCreate() {
     };
     void fetchProjects();
 
-    const fetchGroups = async () => {
+    const fetchKpoSizes = async () => {
       try {
         const response = await api.post({
-          type: 'framework-get-python-model-groups',
+          type: 'framework-get-kpo-sizes',
           request: null,
         });
-        if (response.groups.length > 0) {
-          setGroupOptions(
-            response.groups.map((g) => ({
-              label: g.charAt(0).toUpperCase() + g.slice(1),
-              value: g,
-            })),
-          );
-        }
+        setKpoSizes(response.sizes);
       } catch {
-        // Fall back to defaults
+        // Form still works with schema defaults
       }
     };
-    void fetchGroups();
+    void fetchKpoSizes();
   });
 
   // Fetch available DAGs when project changes
@@ -208,8 +229,11 @@ export function PythonModelCreate() {
     const fetchAvailableDags = async () => {
       if (!projectName) {
         setAvailableDags([]);
+        setIsDagsLoading(false);
         return;
       }
+      setAvailableDags([]);
+      setIsDagsLoading(true);
       try {
         const response = await api.post({
           type: 'framework-get-available-dags',
@@ -219,6 +243,8 @@ export function PythonModelCreate() {
       } catch (err) {
         console.error('Error fetching available DAGs:', err);
         setAvailableDags([]);
+      } finally {
+        setIsDagsLoading(false);
       }
     };
     void fetchAvailableDags();
@@ -234,6 +260,7 @@ export function PythonModelCreate() {
       namespace: '',
       table_name: '',
       model_type: 'python',
+      compute: 'airflow',
       dags: [],
       enable_notebook: true,
       tags: undefined,
@@ -424,10 +451,63 @@ export function PythonModelCreate() {
               error={errors.dags as any}
               label="Select DAG"
               options={availableDags.map((d) => ({ label: d, value: d }))}
+              disabled={isDagsLoading || !projectName}
+              placeholder={isDagsLoading ? 'Loading DAGs...' : 'Select a DAG'}
               tooltipText="The DAG where this model will run. The model will execute as part of the run_python_models task in the selected DAG."
             />
           )}
         />
+
+        <Controller
+          control={control}
+          name="compute"
+          render={({ field }) => (
+            <FieldSelectSingle
+              {...field}
+              value={field.value ?? 'airflow'}
+              label="Compute"
+              options={[
+                { label: 'Airflow worker', value: 'airflow' },
+                { label: 'KPO (Kubernetes pod)', value: 'kpo' },
+              ]}
+              tooltipText="Where the Python model runs: Airflow worker is the default (omit compute in .python.json); choose KPO to launch a pod on EKS."
+            />
+          )}
+        />
+
+        {compute === 'kpo' && (
+          <>
+            <Controller
+              control={control}
+              name="kpo_size"
+              render={({ field }) => (
+                <FieldSelectSingle
+                  {...field}
+                  value={field.value ?? 'small'}
+                  label="Pod size"
+                  options={
+                    kpoSizeOptions.length > 0
+                      ? kpoSizeOptions
+                      : [
+                          { label: 'Small', value: 'small' },
+                          { label: 'Medium', value: 'medium' },
+                          { label: 'Large', value: 'large' },
+                          { label: 'Xlarge', value: 'xlarge' },
+                        ]
+                  }
+                  tooltipText="Kubernetes pod resource preset for this model when using KPO compute."
+                />
+              )}
+            />
+            {kpoSizeInfo && (
+              <Alert
+                variant="info"
+                label="Pod resources"
+                description={kpoSizeInfo}
+              />
+            )}
+          </>
+        )}
 
         <Controller
           control={control}

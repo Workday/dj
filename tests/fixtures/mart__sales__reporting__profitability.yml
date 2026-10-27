@@ -12,8 +12,12 @@ models:
     config:
       tags:
         - json
+        - lightdash
         - lightdash-explore
         - mart
+    meta:
+      required_filters:
+        - datetime: inThePast 14 days
     columns:
       - name: avg_order_value_dollars
         data_type: varchar
@@ -26,6 +30,22 @@ models:
             type: string
             label: Avg Order Value Dollars
             hidden: true
+          metrics:
+            metric_aov_by_segment:
+              ai_hint: Use this to compare average order values across stores, time periods,
+                or customer segments
+              type: average
+              label: AOV by Segment
+              group_label: Profitability Metrics
+      - name: datetime
+        data_type: timestamp(6)
+        description: Event Datetime Column
+        meta:
+          type: dim
+          dimension:
+            type: timestamp
+            label: Datetime
+            sql: portal_partition_hourly
       - name: order_count
         data_type: varchar
         description: Number of orders
@@ -37,6 +57,12 @@ models:
             type: string
             label: Order Count
             hidden: true
+          metrics:
+            metric_order_volume:
+              ai_hint: Use this to analyze transaction volume trends and store performance
+              type: sum
+              label: Order Volume
+              group_label: Profitability Metrics
       - name: order_date
         data_type: varchar
         description: Date when order was placed
@@ -45,8 +71,9 @@ models:
           origin:
             id: model.jaffle_shop.stg__sales__orders__standardized
           dimension:
-            type: string
+            type: date
             label: Order Date
+            group_label: Order Fields
       - name: order_year_month
         data_type: varchar
         description: Order year-month
@@ -81,6 +108,13 @@ models:
             type: string
             label: Revenue Per Day
             hidden: true
+          metrics:
+            metric_daily_revenue:
+              ai_hint: Use this to analyze daily sales patterns and identify peak revenue days
+                for staffing and inventory
+              type: sum
+              label: Daily Revenue
+              group_label: Profitability Metrics
       - name: store_id
         data_type: varchar
         description: Foreign key to store
@@ -90,7 +124,8 @@ models:
             id: model.jaffle_shop.stg__sales__orders__standardized
           dimension:
             type: string
-            label: Store Id
+            label: Store ID
+            group_label: Store Fields
       - name: store_name
         data_type: varchar
         description: Store location name
@@ -112,6 +147,13 @@ models:
             type: string
             label: Total Revenue Dollars
             hidden: true
+          metrics:
+            metric_aggregated_revenue:
+              ai_hint: Use this for store-level or time-based revenue aggregation and
+                profitability analysis
+              type: sum
+              label: Aggregated Revenue
+              group_label: Profitability Metrics
       - name: total_tax_collected_dollars
         data_type: varchar
         description: Total tax collected in dollars
@@ -122,4 +164,37 @@ models:
           dimension:
             type: string
             label: Total Tax Collected Dollars
+            hidden: true
+          metrics:
+            metric_aggregated_tax:
+              ai_hint: Use this for tax reporting by store location or time period
+              type: sum
+              label: Aggregated Tax
+              group_label: Profitability Metrics
+      - name: portal_partition_monthly
+        data_type: date
+        description: Monthly Partition Column
+        meta:
+          type: dim
+          dimension:
+            type: date
+            label: Portal Partition Monthly
+            hidden: true
+      - name: portal_partition_daily
+        data_type: date
+        description: Daily Partition Column
+        meta:
+          type: dim
+          dimension:
+            type: date
+            label: Portal Partition Daily
+            hidden: true
+      - name: portal_partition_hourly
+        data_type: timestamp(6)
+        description: Hourly Partition Column
+        meta:
+          type: dim
+          dimension:
+            type: timestamp
+            label: Portal Partition Hourly
             hidden: true

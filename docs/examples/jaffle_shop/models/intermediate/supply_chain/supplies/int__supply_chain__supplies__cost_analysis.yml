@@ -28,6 +28,19 @@ models:
           type: fct
           origin:
             id: model.jaffle_shop.stg__supply_chain__supplies__inventory
+          metrics:
+            metric_supply_cost_total:
+              ai_hint: Use this to calculate total supply chain costs and analyze cost of
+                goods sold (COGS)
+              type: sum
+              label: Total Supply Cost
+              group_label: Supply Chain Metrics
+            metric_supply_cost_average:
+              ai_hint: Use this to understand average cost per supply item for inventory
+                management
+              type: average
+              label: Average Supply Cost
+              group_label: Supply Chain Metrics
       - name: cost_tier
         data_type: varchar
         description: Supply cost tier classification
@@ -61,6 +74,9 @@ models:
           type: dim
           origin:
             id: model.jaffle_shop.stg__products__catalog__catalog
+          dimension:
+            label: Product Name
+            group_label: Product Fields
       - name: product_price_dollars
         data_type: varchar
         description: Product price in dollars
@@ -68,6 +84,13 @@ models:
           type: fct
           origin:
             id: model.jaffle_shop.stg__products__catalog__catalog
+          metrics:
+            metric_product_price_dollars_sum:
+              ai_hint: Use this metric to calculate total product catalog value or analyze
+                average product pricing
+              type: sum
+              label: Total Product Value
+              group_label: Product Metrics
       - name: product_sku
         data_type: varchar
         description: Associated product SKU
@@ -82,6 +105,9 @@ models:
           type: dim
           origin:
             id: model.jaffle_shop.stg__products__catalog__catalog
+          dimension:
+            label: Product Type
+            group_label: Product Fields
       - name: supply_category
         data_type: varchar
         description: Supply category classification
@@ -110,3 +136,10 @@ models:
           type: fct
           origin:
             id: model.jaffle_shop.int__supply_chain__supplies__cost_analysis
+          metrics:
+            metric_avg_cost_ratio:
+              ai_hint: Use this to analyze profit margins and identify products with
+                unfavorable cost structures
+              type: average
+              label: Average Cost-to-Price Ratio
+              group_label: Profitability Metrics

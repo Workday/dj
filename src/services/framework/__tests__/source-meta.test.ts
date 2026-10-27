@@ -41,13 +41,13 @@ const project: DbtProject = createTestProject({ name: 'project' });
 
 /**
  * Mirrors the `raw_orders` entry from the jaffle shop fixture at
- * docs/examples/jaffle_shop_lightdash/.../development__jaffle_shop_lightdash_dev_seeds.source.json
+ * docs/examples/jaffle_shop/.../development__jaffle_shop_dev_seeds.source.json
  * which already exercises the typed `event_datetime` and `partition_date`
  * meta keys. Free-form keys are layered on top in the tests below.
  */
 const baseSourceJson: FrameworkSource = {
   database: 'development',
-  schema: 'jaffle_shop_lightdash_dev_seeds',
+  schema: 'jaffle_shop_dev_seeds',
   tables: [
     {
       name: 'raw_orders',

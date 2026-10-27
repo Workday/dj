@@ -30,11 +30,16 @@ import {
   generatePythonModelScaffoldPy,
   stripNotebookOnlyCells,
 } from '@services/framework/utils';
+import {
+  getPythonModelCatalogDefaultsForWorkspace,
+  loadTopicPythonModelConfigs,
+} from '@services/framework/utils/python-model-upstream';
 import { workspaceHasPythonModels } from '@services/framework/utils/source-etl-python-workspace';
 import type {
   PythonModelCell,
   PythonModelConfig,
 } from '@shared/framework/types';
+import { enrichPythonModelUpstreamSources } from '@shared/pymodel/python-upstream-inference';
 import { DJ_PYTHON_TEMP_PATH, WORKSPACE_ROOT } from 'admin';
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -479,7 +484,8 @@ export class PythonModelSyncService implements vscode.Disposable {
   // ── JSON -> PY (scaffold only) ──────────────────────────────────────
 
   private async syncFromJson(fileSet: PythonModelFileSet): Promise<void> {
-    const { config, pyPath, ipynbPath } = fileSet;
+    const config = await this.maybeMergeInferredUpstreamSources(fileSet);
+    const { pyPath, ipynbPath } = fileSet;
     this.logger.info('Syncing from JSON');
 
     // The .py is the source of truth for code. Only scaffold a fresh .py
@@ -512,6 +518,35 @@ export class PythonModelSyncService implements vscode.Disposable {
       );
       this.logger.info('Refreshed open notebook header from JSON metadata');
     }
+  }
+
+  private async maybeMergeInferredUpstreamSources(
+    fileSet: PythonModelFileSet,
+  ): Promise<PythonModelConfig> {
+    if (!fileSet.config.depends_on?.length) {
+      return fileSet.config;
+    }
+
+    const topicDir = path.dirname(fileSet.jsonPath);
+    const siblings = loadTopicPythonModelConfigs(topicDir);
+    const enriched = enrichPythonModelUpstreamSources(
+      fileSet.config,
+      siblings,
+      getPythonModelCatalogDefaultsForWorkspace(),
+    );
+    const before = JSON.stringify(fileSet.config.upstream_sources ?? null);
+    const after = JSON.stringify(enriched.upstream_sources ?? null);
+    if (before === after) {
+      return fileSet.config;
+    }
+
+    this.suppress(fileSet.jsonPath);
+    await vscode.workspace.fs.writeFile(
+      vscode.Uri.file(fileSet.jsonPath),
+      Buffer.from(JSON.stringify(enriched, null, '    ')),
+    );
+    this.logger.info('Merged inferred trino upstream_sources from depends_on');
+    return enriched;
   }
 
   // ── PY -> IPYNB ─────────────────────────────────────────────────────

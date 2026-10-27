@@ -78,7 +78,7 @@ Let's build on our jaffle shop store data. Assume we have a unified store model 
   "group": "sales",
   "topic": "stores",
   "name": "enhanced_locations",
-  "materialized": "ephemeral",
+  "materialization": "ephemeral",
   "from": {
     "model": "stg__sales__stores__all_locations"
   },
@@ -180,7 +180,7 @@ Let's create an enhanced order model that builds on our unified order data and a
   "group": "sales",
   "topic": "orders",
   "name": "enriched_orders",
-  "materialized": "incremental",
+  "materialization": "incremental",
   "from": {
     "model": "stg__sales__orders__unified_orders"
   },

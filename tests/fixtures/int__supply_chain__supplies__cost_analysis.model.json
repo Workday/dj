@@ -35,7 +35,18 @@
             "name": "supply_to_price_ratio",
             "expr": "{{ supply_to_price_ratio() }}",
             "type": "fct",
-            "description": "Supply cost as percentage of product price"
+            "description": "Supply cost as percentage of product price",
+            "lightdash": {
+                "metrics": [
+                    {
+                        "name": "metric_avg_cost_ratio",
+                        "type": "average",
+                        "group_label": "Profitability Metrics",
+                        "label": "Average Cost-to-Price Ratio",
+                        "ai_hint": "Use this to analyze profit margins and identify products with unfavorable cost structures"
+                    }
+                ]
+            }
         },
         {
             "name": "cost_tier",

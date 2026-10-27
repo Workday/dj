@@ -19,8 +19,8 @@ Run when the user wants **compile + data check + lineage** on changed models wit
 2. **`dbt.modified-models`** — `--file` with `{ "projectName": "…" }` if needed.
 3. **`model.sync`** — per changed model or full sync.
 4. **`dbt.parse`** — `--timeout 600000` on large projects.
-5. **`dbt.compile`** — `--file examples/dbt-compile.request.json` or `{ "select": "m1 m2" }` (not `modelNames` array).
-6. **`model.lineage`** — `--file examples/model-lineage.request.json` (CLI defaults to full upstream chain).
+5. **`dbt.compile`** — `--file .dj/examples/dbt-compile.request.json` or `{ "select": "m1 m2" }` (not `modelNames` array).
+6. **`model.lineage`** — `--file .dj/examples/model-lineage.request.json` (CLI defaults to full upstream chain).
 7. **Data check (read path):**
    - **`model.data-check`** → show returned SQL to the user.
    - Ask: **“Run this read-only query in dev? (Yes/No)”** — use **`AskQuestion`** when available; otherwise wait for an explicit answer.

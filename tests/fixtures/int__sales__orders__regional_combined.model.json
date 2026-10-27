@@ -3,6 +3,9 @@
     "group": "sales",
     "topic": "orders",
     "name": "regional_combined",
+    "tags": [
+        "lightdash-explore"
+    ],
     "from": {
         "model": "int__sales__orders__enriched",
         "union": {
@@ -21,8 +24,13 @@
             "name": "region",
             "expr": "CASE WHEN store_name IN ('Philadelphia', 'Brooklyn') THEN 'East Coast' WHEN store_name IN ('San Francisco', 'Los Angeles') THEN 'West Coast' ELSE 'Other' END",
             "type": "dim",
-            "description": "Geographic region classification"
+            "description": "Geographic region classification",
+            "lightdash": {
+                "dimension": {
+                    "type": "string"
+                }
+            }
         }
     ],
-    "description": "Union of orders with regional classification for consolidated reporting across all stores"
+    "description": "Unified orders data with geographic region classification for regional analysis"
 }

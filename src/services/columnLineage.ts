@@ -2300,7 +2300,7 @@ export class ColumnLineageService implements DJService {
    *   "source.project_name.source_name.table_name"
    *
    * And each source object has these properties:
-   *   - source_name (format: "database__schema" - example: "development__jaffle_shop_lightdash_dev_seeds")
+   *   - source_name (format: "database__schema" - example: "development__jaffle_shop_dev_seeds")
    *   - name (Table name)
    *   - schema
    *   - database

@@ -212,21 +212,3 @@ export function buildInjectedDagSource(dagCode: string): {
 
   return { next, style };
 }
-
-/**
- * Short preview snippet shown in the confirm modal before writing.
- */
-export function buildDagInjectionPreview(
-  dagFilePath: string,
-  dagId: string,
-): string {
-  return [
-    `File: ${dagFilePath}`,
-    '',
-    'Will add:',
-    '  from _ext_.etl_helper import register_python_model_tasks',
-    `  entry_tasks, exit_tasks = register_python_model_tasks("${dagId}", ...)`,
-    '',
-    'and wire those tasks into the existing DAG dependency chain.',
-  ].join('\n');
-}

@@ -31,11 +31,11 @@ DJ integrates with Lightdash CLI to provide instant BI previews.
 
 Opens an interactive UI for managing Lightdash preview servers.
 
-**Method 1: Command Palette**
+Method 1: Command Palette
 
 1. Run "DJ: Start Lightdash Preview" from Command Palette
 
-**Method 2: Actions Tree View**
+Method 2: Actions Tree View
 
 1. Open "Actions" view in left sidebar
 2. Click "Lightdash Preview" item
@@ -205,9 +205,9 @@ Define metrics for aggregations:
 - `average` - Average value
 - `min` / `max` - Min/max values
 
-**Example from jaffle_shop_lightdash:**
+**Example from jaffle_shop:**
 
-In [mart\_\_sales\_\_reporting\_\_profitability.model.json](../examples/jaffle_shop_lightdash/models/marts/sales/reporting/mart__sales__reporting__profitability.model.json):
+In [mart\_\_sales\_\_reporting\_\_profitability.model.json](../examples/jaffle_shop/models/marts/sales/reporting/mart__sales__reporting__profitability.model.json):
 
 ```json
 {

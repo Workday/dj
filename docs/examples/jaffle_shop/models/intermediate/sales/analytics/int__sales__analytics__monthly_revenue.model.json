@@ -3,6 +3,9 @@
     "group": "sales",
     "topic": "analytics",
     "name": "monthly_revenue",
+    "tags": [
+        "lightdash-explore"
+    ],
     "from": {
         "model": "int__sales__orders__enriched",
         "rollup": {

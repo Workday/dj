@@ -77,7 +77,7 @@ Let's create a unified view of store locations from different regional databases
   "group": "sales",
   "topic": "stores",
   "name": "all_locations",
-  "materialized": "ephemeral",
+  "materialization": "ephemeral",
   "from": {
     "source": "development__jaffle_shop_north.raw_stores",
     "union": {
@@ -151,7 +151,7 @@ A more complex scenario involves combining order data from different systems tha
   "group": "sales",
   "topic": "orders",
   "name": "unified_orders",
-  "materialized": "incremental",
+  "materialization": "incremental",
   "from": {
     "source": "development__jaffle_shop_current.raw_orders",
     "union": {

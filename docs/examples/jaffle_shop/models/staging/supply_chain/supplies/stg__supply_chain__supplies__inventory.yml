@@ -28,6 +28,19 @@ models:
           type: fct
           origin:
             id: model.jaffle_shop.stg__supply_chain__supplies__inventory
+          metrics:
+            metric_supply_cost_total:
+              ai_hint: Use this to calculate total supply chain costs and analyze cost of
+                goods sold (COGS)
+              type: sum
+              label: Total Supply Cost
+              group_label: Supply Chain Metrics
+            metric_supply_cost_average:
+              ai_hint: Use this to understand average cost per supply item for inventory
+                management
+              type: average
+              label: Average Supply Cost
+              group_label: Supply Chain Metrics
       - name: is_perishable
         data_type: varchar
         description: Boolean flag for perishable supplies

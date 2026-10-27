@@ -239,7 +239,7 @@ Let's clean up the raw customer data using the DJ (Data JSON) Framework extensio
      "group": "customers",
      "topic": "profiles",
      "name": "clean",
-     "materialized": "ephemeral",
+     "materialization": "ephemeral",
      "from": {
        "source": "development__jaffle_shop_dev_seeds.raw_customers"
      },

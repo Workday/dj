@@ -4,6 +4,7 @@
     "topic": "dashboard",
     "name": "analytics",
     "tags": [
+        "lightdash",
         "lightdash-explore"
     ],
     "from": {

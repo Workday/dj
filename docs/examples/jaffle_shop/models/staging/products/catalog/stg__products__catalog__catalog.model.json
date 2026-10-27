@@ -12,49 +12,109 @@
             "name": "product_sku",
             "expr": "sku",
             "type": "dim",
-            "description": "Product SKU identifier"
+            "description": "Product SKU identifier",
+            "lightdash": {
+                "dimension": {
+                    "group_label": "Product Fields",
+                    "label": "Product SKU"
+                }
+            }
         },
         {
             "name": "product_name",
             "expr": "TRIM(name)",
             "type": "dim",
-            "description": "Product name, trimmed"
+            "description": "Product name, trimmed",
+            "lightdash": {
+                "dimension": {
+                    "group_label": "Product Fields",
+                    "label": "Product Name"
+                }
+            }
         },
         {
             "name": "product_type",
             "expr": "TRIM(type)",
             "type": "dim",
-            "description": "Product category (jaffle, beverage)"
+            "description": "Product category (jaffle, beverage)",
+            "lightdash": {
+                "dimension": {
+                    "group_label": "Product Fields",
+                    "label": "Product Type"
+                }
+            }
         },
         {
             "name": "product_price_cents",
             "expr": "price",
             "type": "fct",
-            "description": "Product price in cents"
+            "description": "Product price in cents",
+            "lightdash": {
+                "metrics": [
+                    {
+                        "name": "metric_product_price_cents_sum",
+                        "type": "sum",
+                        "group_label": "Product Metrics",
+                        "label": "Product Price Sum (cents)",
+                        "ai_hint": "Use this for internal calculations or when cent precision is required"
+                    }
+                ]
+            }
         },
         {
             "name": "product_price_dollars",
             "expr": "CAST(price AS DECIMAL(10,2)) / 100.0",
             "type": "fct",
-            "description": "Product price in dollars"
+            "description": "Product price in dollars",
+            "lightdash": {
+                "metrics": [
+                    {
+                        "name": "metric_product_price_dollars_sum",
+                        "type": "sum",
+                        "group_label": "Product Metrics",
+                        "label": "Total Product Value",
+                        "ai_hint": "Use this metric to calculate total product catalog value or analyze average product pricing"
+                    }
+                ]
+            }
         },
         {
             "name": "description",
             "expr": "TRIM(description)",
             "type": "dim",
-            "description": "Product description"
+            "description": "Product description",
+            "lightdash": {
+                "dimension": {
+                    "group_label": "Product Fields",
+                    "label": "Product Description"
+                }
+            }
         },
         {
             "name": "is_jaffle",
             "expr": "LOWER(TRIM(type)) = 'jaffle'",
             "type": "dim",
-            "description": "Boolean flag for jaffle products"
+            "description": "Boolean flag for jaffle products",
+            "lightdash": {
+                "dimension": {
+                    "group_label": "Product Fields",
+                    "label": "Is Jaffle?",
+                    "type": "boolean"
+                }
+            }
         },
         {
             "name": "is_beverage",
             "expr": "LOWER(TRIM(type)) = 'beverage'",
             "type": "dim",
-            "description": "Boolean flag for beverage products"
+            "description": "Boolean flag for beverage products",
+            "lightdash": {
+                "dimension": {
+                    "group_label": "Product Fields",
+                    "label": "Is Beverage?",
+                    "type": "boolean"
+                }
+            }
         }
     ]
 }

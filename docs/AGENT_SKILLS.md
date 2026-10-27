@@ -44,9 +44,22 @@ DJ never overwrites `.agents/project/`. Starters live in the DJ repo at `templat
 
 - **Just ask.** Describe your task in natural language ("create a mart for daily orders", "why is this query slow?") and the assistant matches it to a skill via that skill's _Use when…_ description. You can also name a skill directly.
 - **Progressive disclosure.** A skill loads its `SKILL.md` first and pulls in `references/` or runs `scripts/` only when needed, keeping the assistant focused.
-- **Single source of truth.** Skills edit only the JSON sources of truth — `.model.json`, `.source.json`, `.python.json` — and never hand-edit the generated `.sql` / `.yml` / `.python.py`, which DJ regenerates via JSON Sync.
+- **Single source of truth.** For SQL models, skills edit the JSON sources of truth — `.model.json`, `.source.json` — and never hand-edit the generated `.sql` / `.yml`, which DJ regenerates via JSON Sync. For Python models, **`.python.py` is the code source of truth** (edit it directly); `.python.json` holds metadata plus a non-authoritative `cells` snapshot, and only `_trino_io.py` / `_config.py` / `_model_tasks.py` are generated.
 - **You stay in control of DJ commands.** Skills can't run VS Code commands themselves; they'll ask you to run things like **`DJ: Sync to SQL and YML`** or **`DJ: Refresh Projects`** at the right moment.
 - **Some skills are read-only.** `dj-review-python-model`, `dj-govern-model`, `dj-trino-analyzer`, and `dj-verify-pymodel-parity` produce reports and change nothing.
+
+## Project defaults (python-model skills)
+
+Downstream dbt projects can commit **project-owned defaults** that DJ python-model skills read in Step 0 — without forking the deployed `dj-*` skill files (which `DJ: Refresh Projects` overwrites).
+
+```text
+.agents/project/skills/
+  dj-create-python-model/project-defaults.md
+  dj-review-python-model/project-defaults.md
+  dj-migrate-notebook-to-pymodel/project-defaults.md
+```
+
+Optional sibling files (e.g. `trino-dialect-cheatsheet.md`) live in the same folder. Example templates ship in the DJ extension repo under `templates/_agents-project/skills/` for copy-paste into your project.
 
 ## The skills
 
@@ -89,9 +102,9 @@ Registers a raw Trino table as a DJ `.source.json` by introspecting its exact co
 
 #### `dj-create-python-model`
 
-Scaffolds a `.python.json` for a pre-dbt Python ETL pipeline that extracts data from external sources (APIs, databases, files) and loads it into Iceberg tables for downstream dbt models to consume. It favors Trino SQL for transforms, using pandas only for ingestion and Python-only logic.
+Scaffolds a Python Models data pipeline (`.python.json` metadata + a scaffolded `.python.py` you author) that extracts data from external sources (APIs, databases, files) and loads it into Iceberg tables for downstream dbt models to consume. It favors Trino SQL for transforms, using pandas only for ingestion and Python-only logic.
 
-- **Use when:** you want to create a Python model, ETL pipeline, data ingestion, API fetch, CSV import, or any pre-dbt Python data processing task.
+- **Use when:** you want to create a Python model, ETL pipeline, data ingestion, API fetch, CSV import, or any Python Models data pipeline task.
 - **Example prompt:** _"Create a Python model that fetches the Backstage API into an Iceberg table."_
 - **Bundled references:** `etl-patterns.md` (per-stage code templates), `worked-example.md` (a complete end-to-end pipeline).
 

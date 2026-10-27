@@ -21,6 +21,17 @@ models:
           type: dim
           origin:
             id: model.jaffle_shop.stg__sales__orders__standardized
+          dimension:
+            label: Customer ID
+            group_label: Customer Fields
+      - name: datetime
+        data_type: timestamp(6)
+        description: Event Datetime Column
+        meta:
+          type: dim
+          dimension:
+            type: timestamp
+            label: Datetime
       - name: order_date
         data_type: varchar
         description: Date when order was placed
@@ -28,6 +39,10 @@ models:
           type: dim
           origin:
             id: model.jaffle_shop.stg__sales__orders__standardized
+          dimension:
+            type: date
+            label: Order Date
+            group_label: Order Fields
       - name: order_id
         data_type: varchar
         description: Unique identifier for each order
@@ -35,6 +50,15 @@ models:
           type: dim
           origin:
             id: model.jaffle_shop.stg__sales__orders__standardized
+          dimension:
+            label: Order ID
+            group_label: Order Fields
+          metrics:
+            metric_order_count:
+              ai_hint: Use this to count total orders or analyze order volume trends over time
+              type: count_distinct
+              label: Number of Orders
+              group_label: Order Metrics
       - name: order_total_cents
         data_type: varchar
         description: Total order amount in cents
@@ -42,6 +66,23 @@ models:
           type: fct
           origin:
             id: model.jaffle_shop.stg__sales__orders__standardized
+          dimension:
+            type: number
+            label: Order Total (in cents)
+            group_label: Order Fields
+          metrics:
+            metric_order_total_sum:
+              ai_hint: Use this metric to calculate total revenue including tax. This is the
+                key metric for overall sales performance
+              type: sum
+              label: Total Revenue
+              group_label: Order Metrics
+            metric_order_total_average:
+              ai_hint: Use this to understand average order value (AOV) including tax, a key
+                e-commerce metric
+              type: average
+              label: Average Order Value (AOV)
+              group_label: Order Metrics
       - name: ordered_at
         data_type: varchar
         description: Timestamp when order was placed
@@ -49,6 +90,10 @@ models:
           type: dim
           origin:
             id: model.jaffle_shop.stg__sales__orders__standardized
+          dimension:
+            type: timestamp
+            label: Ordered At
+            group_label: Order Fields
       - name: portal_source_count
         data_type: bigint
         description: Portal Source Count
@@ -68,6 +113,9 @@ models:
           type: dim
           origin:
             id: model.jaffle_shop.stg__sales__orders__standardized
+          dimension:
+            label: Store ID
+            group_label: Store Fields
       - name: subtotal_cents
         data_type: varchar
         description: Order subtotal in cents
@@ -75,6 +123,21 @@ models:
           type: fct
           origin:
             id: model.jaffle_shop.stg__sales__orders__standardized
+          dimension:
+            type: number
+            label: Order Subtotal (in cents)
+            group_label: Order Fields
+          metrics:
+            metric_subtotal_total:
+              ai_hint: Use this to calculate total sales revenue before tax across all orders
+              type: sum
+              label: Total Order Subtotal
+              group_label: Order Metrics
+            metric_subtotal_average:
+              ai_hint: Use this to understand the typical order value before tax
+              type: average
+              label: Average Order Subtotal
+              group_label: Order Metrics
       - name: tax_paid_cents
         data_type: varchar
         description: Tax amount paid in cents
@@ -82,3 +145,35 @@ models:
           type: fct
           origin:
             id: model.jaffle_shop.stg__sales__orders__standardized
+          dimension:
+            type: number
+            label: Tax Paid (in cents)
+            group_label: Order Fields
+          metrics:
+            metric_tax_collected:
+              ai_hint: Use this to calculate total tax collected for compliance and reporting
+                purposes
+              type: sum
+              label: Total Tax Collected
+              group_label: Order Metrics
+      - name: portal_partition_monthly
+        data_type: date
+        description: Monthly Partition Column
+        meta:
+          type: dim
+          dimension:
+            label: Portal Partition Monthly
+      - name: portal_partition_daily
+        data_type: date
+        description: Daily Partition Column
+        meta:
+          type: dim
+          dimension:
+            label: Portal Partition Daily
+      - name: portal_partition_hourly
+        data_type: timestamp(6)
+        description: Hourly Partition Column
+        meta:
+          type: dim
+          dimension:
+            label: Portal Partition Hourly

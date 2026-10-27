@@ -4,6 +4,7 @@
     "topic": "reporting",
     "name": "menu_analytics",
     "tags": [
+        "lightdash",
         "lightdash-explore"
     ],
     "from": {

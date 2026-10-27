@@ -155,7 +155,7 @@ export type NormalizedDbtCompileRequest = {
 export function assertNonEmptyModelName(
   op: string,
   request: Record<string, unknown>,
-  example = 'examples/model-lineage.request.json',
+  example = '.dj/examples/model-lineage.request.json',
 ): void {
   const modelName = request.modelName;
   if (typeof modelName !== 'string' || modelName.trim() === '') {
@@ -170,13 +170,13 @@ export function assertQueryExecutePayload(
 ): void {
   if (!request || typeof request !== 'object') {
     throw new Error(
-      `query.execute: requires a JSON payload with "sql". Use --file examples/query-execute.request.json or --sql 'SELECT …'. ${PAYLOAD_DOC}`,
+      `query.execute: requires a JSON payload with "sql". Use --file .dj/examples/query-execute.request.json or --sql 'SELECT …'. ${PAYLOAD_DOC}`,
     );
   }
   const sql = request.sql;
   if (typeof sql !== 'string' || sql.trim() === '') {
     throw new Error(
-      `query.execute: requires non-empty "sql". Use --file examples/query-execute.request.json or --sql 'SELECT …'. ${PAYLOAD_DOC}`,
+      `query.execute: requires non-empty "sql". Use --file .dj/examples/query-execute.request.json or --sql 'SELECT …'. ${PAYLOAD_DOC}`,
     );
   }
 }

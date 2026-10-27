@@ -16,9 +16,13 @@ WITH
 			ordered_at,
 			sum(portal_source_count) AS portal_source_count,
 			store_id,
-			store_name
+			store_name,
+			-- partition columns
+			portal_partition_monthly
 		FROM
 			{{ ref('int__sales__orders__enriched') }}
+		WHERE
+			{{ _ext_event_date_filter("portal_partition_monthly", data_type="date", interval="month") }}
 		GROUP BY
 			customer_first_name,
 			customer_id,
@@ -28,7 +32,8 @@ WITH
 			order_id,
 			ordered_at,
 			store_id,
-			store_name
+			store_name,
+			portal_partition_monthly
 	)
 SELECT
 	*

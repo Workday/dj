@@ -11,7 +11,7 @@ Complete setup guides for the DJ (Data JSON) Framework extension.
 ### Integration Setup
 
 - **[Trino Local Setup](trino-local-setup.md)** - Run Trino locally with Docker
-- **[Lightdash Local Setup](lightdash-local-setup.md)** - Run Lightdash locally with Docker  
+- **[Lightdash Local Setup](lightdash-local-setup.md)** - Run Lightdash locally with Docker
 - **[Lightdash Configuration](lightdash-configuration.md)** - Advanced Lightdash configuration options
 
 ## Quick Links

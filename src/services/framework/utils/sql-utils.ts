@@ -2771,10 +2771,15 @@ export function frameworkModelProperties({
       const metrics = _.reduce(
         column.meta?.metrics ?? {},
         (m, metric, name) => {
+          const metricOut = { ...metric };
+          if (aiHintTags.length && metricOut?.ai_hint) {
+            metricOut.tags = [..._.union(metricOut.tags ?? [], aiHintTags)];
+          }
+          metricOut.tags?.sort();
           return {
             ...m,
             [name]: removeEmpty(
-              orderKeys(metric, [
+              orderKeys(metricOut, [
                 'ai_hint',
                 'tags',
                 'type',

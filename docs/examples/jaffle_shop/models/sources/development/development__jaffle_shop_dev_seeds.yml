@@ -24,6 +24,14 @@ sources:
             data_type: varchar
             description: ""
       - name: raw_orders
+        meta:
+          event_datetime:
+            expr: ordered_at
+          partition_date:
+            expr: ordered_at
+            data_type: timestamp
+            use_event_dates: true
+            use_range: true
         columns:
           - name: id
             data_type: varchar

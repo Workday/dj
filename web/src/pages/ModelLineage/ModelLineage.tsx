@@ -844,6 +844,7 @@ export default function ModelLineage({ onShowAdhocQuery }: ModelLineageProps) {
                 currentNode={lineageData.current}
                 upstreamNodes={lineageData.upstream}
                 downstreamNodes={lineageData.downstream}
+                pythonModelEdges={lineageData.pythonModelEdges}
                 lightdashDownstream={lineageData.lightdashDownstream}
                 projectName={activeModel.projectName}
                 selectedNodeForQuery={selectedNodeForQuery}

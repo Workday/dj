@@ -81,7 +81,7 @@ Run `.dj/bin/dj system.ping` before any other op.
 
 After **`system.ping`**, run **both** (even when you think you know the model name):
 
-1. **`dbt.models.search`** — e.g. `--file examples/dbt-models-search.request.json` with `pattern`, `topic`, `group`, or `fromModel`.
+1. **`dbt.models.search`** — e.g. `--file .dj/examples/dbt-models-search.request.json` with `pattern`, `topic`, `group`, or `fromModel`.
 2. **`lightdash.assets`** — e.g. `{ "query": "wpc" }` to avoid duplicate explore titles.
 
 Only if both return nothing useful (or bridge down) may you use a narrow `*.model.json` glob — not repo-wide `grep` / `**/*`.
@@ -101,7 +101,7 @@ Only if both return nothing useful (or bridge down) may you use a narrow `*.mode
 1. Build a **flat** draft model object (`type`, `group`, `topic`, `name`, …).
 2. **`model.preview --file <preview.json>`** — wrap the draft in `{ "modelJson": { … } }` or pass the same flat JSON as `model.create`; inspect SQL / YAML / columns and **`lightdash`** metric diagnostics; iterate. Validation errors fail the op (no placeholder SQL).
 3. Alternatively **`model.create`** with **`"validateOnly": true`** (same checks, no write).
-4. **`model.exists --file <exists.json>`** — identity-only wrap: `{ "modelJson": { "type", "group", "topic", "name" } }` (see `examples/model-exists.request.json`).
+4. **`model.exists --file <exists.json>`** — identity-only wrap: `{ "modelJson": { "type", "group", "topic", "name" } }` (see `.dj/examples/model-exists.request.json`).
 
 Example **flat** body for **`model.create`** (`create.json`):
 
@@ -131,7 +131,7 @@ Example **`model.exists`** envelope (`exists.json`):
 
 ### Phase 3 — Create (workflow step 6)
 
-**`model.create --file examples/model-create.request.json`** (flat body) — report path and `synced`. Large projects: **`--timeout 600000`**. For int + mart pairs prefer **`model.create-batch`** with `{ "models": [ … ] }` (one sync at the end; same timeout).
+**`model.create --file .dj/examples/model-create.request.json`** (flat body) — report path and `synced`. Large projects: **`--timeout 600000`**. For int + mart pairs prefer **`model.create-batch`** with `{ "models": [ … ] }` (one sync at the end; same timeout).
 
 ### Phase 4 — Post-create inspect (workflow step 7; recommended)
 
