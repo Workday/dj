@@ -117,7 +117,7 @@ Define dimensions on columns:
       "lightdash": {
         "dimension": {
           "type": "timestamp",
-          "timeIntervals": ["day", "week", "month", "year"]
+          "time_intervals": ["DAY", "WEEK", "MONTH", "YEAR"]
         }
       }
     }
@@ -131,6 +131,47 @@ Define dimensions on columns:
 - `number` - Numeric dimensions
 - `timestamp` - Date/time dimensions with intervals
 - `boolean` - True/false dimensions
+
+### Custom Time Granularities (`lightdash.config.yml`)
+
+DJ automatically discovers custom time granularities defined in `lightdash.config.yml` (or `lightdash.config.yaml`) at your dbt project root. Once defined, custom granularities are dynamically loaded into editor autocomplete and model JSON Schema validation:
+
+```yaml
+# lightdash.config.yml
+custom_granularities:
+  fiscal_quarter:
+    label: Fiscal Quarter
+    sql: "CONCAT('Q', CAST(QUARTER(DATE_ADD('month', 3, ${TABLE})) AS VARCHAR))"
+  fiscal_year:
+    label: Fiscal Year
+    sql: "CAST(YEAR(DATE_ADD('month', 3, ${TABLE})) AS VARCHAR)"
+```
+
+In `.model.json`, reference custom granularities directly alongside standard intervals:
+
+```json
+{
+  "name": "departed_at",
+  "type": "dim",
+  "lightdash": {
+    "dimension": {
+      "type": "timestamp",
+      "time_intervals": [
+        "HOUR",
+        "DAY",
+        "WEEK",
+        "MONTH",
+        "QUARTER",
+        "YEAR",
+        "fiscal_quarter"
+      ]
+    }
+  }
+}
+```
+
+**Standard Built-in Intervals:**
+DJ supports all standard Lightdash time intervals including `RAW`, `MILLISECOND`, `SECOND`, `MINUTE`, `HOUR`, `DAY`, `WEEK`, `MONTH`, `QUARTER`, `YEAR`, and formatted variants (`DAY_OF_WEEK_INDEX`, `DAY_OF_WEEK_NAME`, `DAY_OF_MONTH_NUM`, `DAY_OF_YEAR_NUM`, `MONTH_NAME`, `MONTH_NUM`, `QUARTER_NAME`, `QUARTER_NUM`, `WEEK_NUM`, `YEAR_NUM`).
 
 ### Metrics
 

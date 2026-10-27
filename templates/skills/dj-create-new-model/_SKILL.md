@@ -16,7 +16,7 @@ metadata:
 
 **Create** new **`.model.json`** files. **Never** hand-edit auto-generated **`.sql`** / **`.yml`** — only the JSON sources of truth. (Registering a raw table as a **`.source.json`** → **`dj-create-source`**; this skill reads sources but delegates their creation.)
 
-**Execution safety:** authoring is file-only — this skill does not run SQL or dbt. If you must inspect data to author a model, follow **Command & Query Execution Safety** in **`.agents/dj/AGENTS.md`**: read-only `SELECT` only, confirm the catalog/schema first, never touch production.
+**Execution safety:** authoring mutates **`.model.json` only** — never warehouse writes from this skill. **`dbt.run`** and destructive SQL are out of scope (use **`dj-run-dbt`** only when the user explicitly asks to run). Read-only inspection via DJ CLI is allowed when the bridge is up: `query.execute` (bounded `SELECT` on upstream sources), `model.query` (preview), `model.compiled-sql`, `model.lineage`, and **`dbt.compile`** (compile only). Follow **Command & Query Execution Safety** in **`.agents/dj/AGENTS.md`**: confirm catalog/schema, never target production.
 
 **Reading order:** **`.dj/schemas/`** (type schema + `$ref`s) for exact field shapes → **`.agents/dj/reference/model-types.md`**: the **Model Types** worked example for your type, then its **Advanced** map (CTEs, rollup, shorthands, subqueries, materialization, `"dims"`) → this skill's **Important Conventions** + **Gotchas** for the framework rules the schema can't express.
 
@@ -44,7 +44,7 @@ Author **SQL** `.model.json` files (staging / intermediate / mart) that read fro
 
 One clarifying question if source vs existing model is unclear.
 
-**BI / dashboard intent → mart.** When the user wants a model for BI, a Lightdash explore/dashboard, metrics, or "something to chart", default to a **mart** (`mart_select_model` for one upstream, `mart_join_models` for several) and follow [references/mart-lightdash-recipes.md](references/mart-lightdash-recipes.md). Marts are the layer that surfaces to Lightdash — don't expose staging/intermediate directly.
+**BI / dashboard intent → mart.** When the user wants a model for BI, a Lightdash explore/dashboard, metrics, or "something to chart", default to a **mart** (`mart_select_model` for one upstream, `mart_join_models` for several) and follow [references/mart-lightdash-recipes.md](references/mart-lightdash-recipes.md). Marts are the layer that surfaces to Lightdash — don't expose staging/intermediate directly. After create, **`model.lineage`** (DJ CLI) helps hand off to **`dj-create-lightdash-yaml`**.
 
 ## Inputs & placement
 
@@ -63,16 +63,93 @@ One clarifying question if source vs existing model is unclear.
 2. **Gather inputs** — `group`, `topic`, `name`, and type-specific fields.
 3. **Read the schema** at `.dj/schemas/model.type.<type>.schema.json` for required/optional fields, following `$ref`s. For CTEs / subqueries / `from.rollup` / hooks / `agg` / materialization also read `model.cte`, `model.subquery`, `model.from.rollup`, `model.sql_hooks`, `model.materialization`, `model.select.*.with.agg` as needed.
 4. **Read `.agents/dj/reference/model-types.md`** — the **Model Types** example for your `type`, plus its **Advanced** map if using CTEs / rollup / shorthands / subqueries.
-5. **Verify upstream columns** by reading each `from` reference's `.model.json` / `.source.json` (trace `ctes` too). If a reference doesn't exist yet, see **Missing upstream?** below — do not invent columns.
-6. **Write the `.model.json`** at the derived path in **JSONC** (comments and trailing commas allowed; preserve existing comments).
-7. **Verify** via the editor's bound schema and DJ's on-save regeneration/diagnostics (Problems tab) — do not assume standalone validators (`jsonschema`, `pyyaml`, `pip`) are installed (see [references/mart-lightdash-recipes.md](references/mart-lightdash-recipes.md) §4).
+5. **Verify upstream** (trace `ctes` too). When `.dj/bin/dj system.ping` succeeds, follow **DJ CLI → Phase 1** below first. If the bridge is down, read each `from` reference's `.model.json` / `.source.json`. If a reference doesn't exist yet, see **Missing upstream?** — do not invent columns.
+6. **Write the model** — **`model.create`** via DJ CLI when the bridge is up; otherwise write **`.model.json`** at the derived path in **JSONC** (comments and trailing commas allowed; preserve existing comments).
+7. **Verify** — DJ CLI **Phase 4** when available (`dbt.compile`, `model.compiled-sql`, `model.query`, `model.lineage`); otherwise the editor's bound schema and DJ on-save diagnostics (Problems tab). Do not assume standalone validators (`jsonschema`, `pyyaml`, `pip`) are installed (see [references/mart-lightdash-recipes.md](references/mart-lightdash-recipes.md) §4).
+
+## DJ CLI (preferred when DJ is running)
+
+Invocation patterns → **`dj-cli`**. Skill/op routing → **`dj-cli-registry`**. **`model.create`** uses a **flat** model body; **`model.preview`** and **`model.exists`** use a **wrapped** `{ "modelJson": { … } }` envelope (see **`dj-cli`**). Prefer `--file` for payloads. **`projectName`** is optional when the workspace has a single dbt project (inferred).
+
+**Fallback:** If `.dj/bin/dj` is absent or exits `3`, use workflow steps 5–7 with file reads/writes and run **`model.sync`** once the bridge is available (or ask the user to run **`DJ: Sync to SQL and YML`**).
+
+### Phase 0 — Bootstrap
+
+Run `.dj/bin/dj system.ping` before any other op.
+
+### Phase 1 — Discover (workflow step 5) — mandatory before grep
+
+After **`system.ping`**, run **both** (even when you think you know the model name):
+
+1. **`dbt.models.search`** — e.g. `--file examples/dbt-models-search.request.json` with `pattern`, `topic`, `group`, or `fromModel`.
+2. **`lightdash.assets`** — e.g. `{ "query": "wpc" }` to avoid duplicate explore titles.
+
+Only if both return nothing useful (or bridge down) may you use a narrow `*.model.json` glob — not repo-wide `grep` / `**/*`.
+
+- **`dbt.projects`** — target project (infer when only one exists).
+- **`dbt.sources`** / **`dbt.models`** — valid `from.source` / `from.model` names.
+- **`dbt.models.search`** — filter by `pattern`, `topic`, `group`, `tags`, `fromModel`, `requireLightdashExploreTag` (returns path, materialization, Lightdash label). Prefer over repo grep.
+- **`lightdash.assets`** — optional `{ "query": "wpc" }` to avoid duplicating explore titles.
+- **`model.get`** / **`model.columns`** / **`model.similar`** — read an existing model, upstream column list, or peers with the same `from.model`.
+- **`workflow.scaffold-explore`** — suggested int/mart names when adding a Lightdash explore from one upstream model.
+- **Raw table not registered?** Chain **`trino.catalogs`** → **`trino.schemas`** → **`trino.tables`** → **`trino.columns`**, then delegate to **`dj-create-source`** (`source.create`). After source creation, user **`DJ: Sync to SQL and YML`** and/or **`dbt.parse`** via **`dj-run-dbt`** before the source appears in manifest.
+- **Upstream is an existing model?** Prefer **`model.lineage`** (CLI defaults to full chain to sources) and **`model.compiled-sql`** over grepping generated `.sql`.
+- **Optional (raw data spot-check):** **`query.execute`** with a bounded `SELECT` on the upstream source table only — AGENTS.md read-only rules.
+
+### Phase 2 — Draft (before write)
+
+1. Build a **flat** draft model object (`type`, `group`, `topic`, `name`, …).
+2. **`model.preview --file <preview.json>`** — wrap the draft in `{ "modelJson": { … } }` or pass the same flat JSON as `model.create`; inspect SQL / YAML / columns and **`lightdash`** metric diagnostics; iterate. Validation errors fail the op (no placeholder SQL).
+3. Alternatively **`model.create`** with **`"validateOnly": true`** (same checks, no write).
+4. **`model.exists --file <exists.json>`** — identity-only wrap: `{ "modelJson": { "type", "group", "topic", "name" } }` (see `examples/model-exists.request.json`).
+
+Example **flat** body for **`model.create`** (`create.json`):
+
+```json
+{
+  "type": "stg_select_source",
+  "group": "core",
+  "topic": "sales",
+  "name": "customers",
+  "from": { "source": "raw__public.customers" },
+  "select": [{ "name": "id", "type": "dim" }, { "name": "name" }]
+}
+```
+
+Example **`model.exists`** envelope (`exists.json`):
+
+```json
+{
+  "modelJson": {
+    "type": "stg_select_source",
+    "group": "core",
+    "topic": "sales",
+    "name": "customers"
+  }
+}
+```
+
+### Phase 3 — Create (workflow step 6)
+
+**`model.create --file examples/model-create.request.json`** (flat body) — report path and `synced`. Large projects: **`--timeout 600000`**. For int + mart pairs prefer **`model.create-batch`** with `{ "models": [ … ] }` (one sync at the end; same timeout).
+
+### Phase 4 — Post-create inspect (workflow step 7; recommended)
+
+Use **`--file examples/…`** for each op. After sync (automatic on create, or **`model.sync`**):
+
+1. **`dbt.modified-models`** — scope compile/data checks to branch changes (see **`dj-pr-preflight`**).
+2. **`dbt.parse`** when the manifest must register a new node (large projects: `--timeout 600000`).
+3. **`model.compiled-sql`** or disk `.sql` under `models/` after **`model.sync`** — not from `dbt.compile` alone.
+4. **`dbt.compile`** with `{ "modelName": "…" }` or `{ "select": "mart__a int__b" }` — waits for dbt exit; populates `target/compiled` only.
+5. **`model.query`** runs **compiled SQL** via Trino (works for ephemeral/view); use **`schemaColumns`** to compare to manifest. For deployed table fleet checks use **`query.execute`** or **`model.data-check`** templates after **`dbt.run`**.
+6. **`model.lineage`** — CLI defaults to full upstream chain to sources; check `lightdashTableLabel` on the current node.
+
+Do **not** call **`dbt.run`** from this skill unless the user explicitly requests a warehouse run — use **`dj-run-dbt`**.
 
 ## Missing upstream? Build the chain first
 
-A mart reads from intermediate/staging models; those read from staging/sources. Before authoring, confirm every `from` reference already exists by reading its `.model.json` / `.source.json` (or checking the manifest).
-
-- **If an upstream layer is missing, do not invent its columns.** Offer to build the missing layers **upstream-first** — source → staging → intermediate → mart — and confirm scope with the user before creating anything. Build only the layers the requested model actually needs; skip a layer that adds no transformation (a mart can read a staging model directly when no intermediate logic is required). **A missing raw source (`.source.json`) is created via the `dj-create-source` skill** (or the `DJ: Create Source` webview) — it introspects the exact Trino data types with `SHOW COLUMNS`; never hand-author a source's `data_type`s.
-- **Refresh the manifest before building the downstream.** A newly created `.source.json` or upstream `.model.json` is not resolvable by a downstream model until the dbt manifest registers it. After creating an upstream, ask the user to run **`DJ: Sync to SQL and YML`** — it regenerates the `.sql` / `.yml` and reparses the manifest on demand (running `dbt parse` only when a synced model is missing or the manifest is stale) — then author the downstream against it. `DJ: Refresh Projects` only re-reads project config and reloads the on-disk manifest; it does not run `dbt parse`. The agent cannot run VS Code commands itself, so this is a user action.
+- **If an upstream layer is missing, do not invent its columns.** Offer to build the missing layers **upstream-first** — source → staging → intermediate → mart — and confirm scope with the user before creating anything. Build only the layers the requested model actually needs; skip a layer that adds no transformation (a mart can read a staging model directly when no intermediate logic is required). **A missing raw source (`.source.json`) is created via the `dj-create-source` skill** (or the `DJ: Create Source` webview / `source.create` on the CLI) — it introspects the exact Trino data types with `SHOW COLUMNS`; never hand-author a source's `data_type`s. After `source.create`, user **Sync** and optional **`dbt.parse`** (`dj-run-dbt`) before a downstream `from.source` resolves.
+- **Refresh the manifest before building the downstream.** A newly created `.source.json` or upstream `.model.json` is not resolvable by a downstream model until the dbt manifest registers it. After creating an upstream, run **`model.sync`** (or rely on auto-sync after **`model.create`**) so disk `.sql`/`.yml` exist, then **`dbt.parse`** when the manifest still lacks the node (`dj dbt.parse --timeout 600000` on large projects). `DJ: Refresh Projects` only re-reads project config and reloads the on-disk manifest; it does not run `dbt parse`.
 
 ## Important Conventions
 

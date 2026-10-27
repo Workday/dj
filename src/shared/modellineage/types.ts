@@ -15,6 +15,8 @@ export interface LineageNode {
   schema?: string;
   database?: string;
   materialized?: MaterializationType;
+  lightdashTableLabel?: string;
+  exploreTagPresent?: boolean;
   testCount?: number;
   // Whether this node has its own upstream/downstream models (for expand buttons)
   hasOwnUpstream?: boolean;
@@ -121,7 +123,10 @@ export interface LineageData {
   lightdashResolvedPath?: string;
   /** Echo of the toggle setting so the webview can drive its UI. */
   lightdashEnabled?: boolean;
-  /** Python model edges connecting python model nodes to source nodes */
+  /** When Lightdash lineage is off, explains why (setting vs missing content). */
+  lightdashDisabledReason?: string;
+  /** Depth requested for upstream traversal (-1 = to sources). */
+  upstreamDepthApplied?: number;
   pythonModelEdges?: { pythonModelNodeId: string; sourceNodeId: string }[];
 }
 
@@ -213,7 +218,12 @@ export type ModelLineageApi =
   | {
       type: 'data-explorer-get-model-lineage';
       service: 'model-lineage';
-      request: { modelName: string; projectName: string };
+      request: {
+        modelName: string;
+        projectName: string;
+        depth?: number;
+        maxNodes?: number;
+      };
       response: LineageData;
     }
   | {
@@ -225,7 +235,7 @@ export type ModelLineageApi =
        * The manual Refresh / re-scan action sets it so newly downloaded (or
        * removed) charts/dashboards are picked up within a session.
        */
-      request: { force?: boolean } | null;
+      request: { force?: boolean; query?: string } | null;
       response: LightdashAssetListResult;
     }
   | {
@@ -273,9 +283,19 @@ export type ModelLineageApi =
   | {
       type: 'data-explorer-execute-query';
       service: 'model-lineage';
-      request: { modelName: string; projectName: string; limit?: number };
+      request: {
+        modelName: string;
+        projectName: string;
+        limit?: number;
+        includeHiddenDims?: boolean;
+        aggregations?: {
+          groupBy: string[];
+          metrics: string[];
+        };
+      };
       response: {
         columns: string[];
+        schemaColumns?: string[];
         rows: unknown[][];
         rowCount: number;
         executionTime?: number;

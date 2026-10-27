@@ -1,3 +1,13 @@
+import {
+  DEPRECATED_MATERIALIZATION_TOP_LEVEL_KEYS,
+  deprecatedMaterializationNullSentinels,
+  normalizeMaterializationFromLegacyRequest,
+} from '@shared/framework/materialization';
+import type { SchemaModelMaterialization } from '@shared/schema/types/model.materialization.schema';
+import type { IncrementalStrategy } from '@shared/schema/types/model.materialization.schema';
+import type { SchemaModelMaterialized } from '@shared/schema/types/model.materialized.schema';
+import type { SchemaModelPartitionedBy } from '@shared/schema/types/model.partitioned_by.schema';
+
 // Check if form has any data to determine discard button state
 export const checkFormHasData = (values: Record<string, unknown>): boolean => {
   return Object.values(values).some(
@@ -49,31 +59,43 @@ export const getPreviousStep = (currentStep: number): number => {
   return Math.max(currentStep - 1, 0);
 };
 
+type TransformOptions = {
+  /** When true, emit null sentinels so edit merge deletes legacy top-level keys */
+  clearDeprecatedTopLevelFields?: boolean;
+  materializationExtras?: Record<string, unknown>;
+};
+
 /**
  * Transform form values to API format.
  * Removes UI-only fields like source, originalModelPath, projectName.
  * Converts select to array if it's not already.
- * Adds materialized if it's provided.
- *
- * @param values - Form values
- * @returns API request object
+ * Builds canonical `materialization` from wizard fields.
  */
-export const transformFormValuesToApi = (values: Record<string, unknown>) => {
+export const transformFormValuesToApi = (
+  values: Record<string, unknown>,
+  options: TransformOptions = {},
+) => {
   const {
     source: _source,
-    materialized,
+    materialization,
+    materialized: legacyMaterialized,
     projectName,
     type,
     originalModelPath: _originalModelPath,
+    incremental_strategy,
+    partitioned_by,
     ...rest
   } = values;
 
-  // Create the API request object excluding UI-only fields
+  for (const key of DEPRECATED_MATERIALIZATION_TOP_LEVEL_KEYS) {
+    delete rest[key];
+  }
+
   const selectValue = values.select;
   const apiRequest: Record<string, unknown> = {
     ...rest,
     type,
-    projectName, // Include projectName in API request
+    projectName,
   };
 
   if (type !== 'int_rollup_model') {
@@ -81,13 +103,21 @@ export const transformFormValuesToApi = (values: Record<string, unknown>) => {
       Array.isArray(selectValue) && selectValue.length > 0 ? selectValue : [];
   }
 
-  // Add materialized only if it's provided and not empty
-  if (
-    materialized &&
-    typeof materialized === 'string' &&
-    materialized.trim() !== ''
-  ) {
-    apiRequest.materialized = materialized;
+  const built = normalizeMaterializationFromLegacyRequest({
+    materialized: legacyMaterialized as SchemaModelMaterialized | undefined,
+    materialization: materialization as SchemaModelMaterialization | undefined,
+    incremental_strategy: incremental_strategy as
+      | IncrementalStrategy
+      | undefined,
+    partitioned_by: partitioned_by as SchemaModelPartitionedBy | undefined,
+    extras: options.materializationExtras ?? {},
+  });
+
+  if (built) {
+    apiRequest.materialization = built;
+    if (options.clearDeprecatedTopLevelFields) {
+      Object.assign(apiRequest, deprecatedMaterializationNullSentinels());
+    }
   }
 
   return apiRequest;

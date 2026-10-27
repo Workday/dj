@@ -18,7 +18,7 @@ export enum DataModelingGuideStep {
   GROUP = 'group',
   TOPIC = 'topic',
   MODEL_NAME = 'model-name',
-  MATERIALIZED = 'materialized',
+  MATERIALIZATION = 'materialization',
 
   // Canvas Overview
   DATA_MODELING_INTRO = 'data-modeling-intro',
@@ -66,7 +66,7 @@ export interface ModelState {
   type?: string;
   group?: string;
   topic?: string;
-  materialized?: string;
+  materialization?: string;
   fromModel?: string;
   fromSource?: string;
   hasJoins?: boolean;
@@ -211,10 +211,10 @@ const ASSIST_RULES: AssistRule[] = [
     requiresWizardAdvance: (state: ModelState) => state.source === 'staging',
   },
   {
-    id: DataModelingGuideStep.MATERIALIZED,
-    element: '[data-tutorial-id="materialized-select"]',
+    id: DataModelingGuideStep.MATERIALIZATION,
+    element: '[data-tutorial-id="materialization-select"]',
     when: (state) => state.source === 'intermediate',
-    isCompleted: (state) => !!state.materialized,
+    isCompleted: (state) => !!state.materialization,
     popover: {
       title: 'Choose Materialization ⚙️',
       description:

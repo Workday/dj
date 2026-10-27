@@ -39,13 +39,21 @@ export type DbtCompilationApi =
   | {
       type: 'dbt-compile-with-logs';
       service: 'dbt';
-      request: { modelName: string; projectName: string };
+      request: {
+        projectName: string;
+        modelName?: string;
+        select?: string;
+      };
       response: { success: boolean };
     }
   | {
       type: 'dbt-model-compile';
       service: 'dbt';
-      request: { modelName: string; projectName: string };
+      request: {
+        projectName: string;
+        modelName?: string;
+        select?: string;
+      };
       response: { success: boolean; message?: string };
     };
 

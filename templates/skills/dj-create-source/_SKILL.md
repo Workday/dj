@@ -30,6 +30,13 @@ or a sample value. Everything else in a source file is simple; this is the part 
 `column.type`) for the exact shape → an existing `*.source.json` in the project (best example of local
 conventions) → this skill.
 
+## DJ CLI (preferred when DJ is running)
+
+When `.dj/bin/dj system.ping` succeeds, use: `source.create`, `trino.columns`, `trino.tables` instead of manual `SHOW COLUMNS` / file authoring below.
+Invocation patterns and fallbacks → `dj-cli`. Full skill/CLI routing → `dj-cli-registry`.
+
+`source.create` introspects columns and writes the `.source.json` in one step — same result as the webview. Use `trino.catalogs` / `trino.schemas` / `trino.tables` for discovery when the table identity is unknown.
+
 ## Workflow
 
 1. **Resolve the raw table identity.** Determine the Trino **catalog**, **schema**, and **table** to
@@ -96,7 +103,7 @@ identical, so a model authored against it is safe either way.
 
 ```jsonc
 {
-  "database": "gsheets_opus", // Trino catalog (lowercase, matches folder + name prefix)
+  "database": "gsheets", // Trino catalog (lowercase, matches folder + name prefix)
   "schema": "default", // Trino schema
   // "freshness": null,          // optional — null disables dbt freshness checks
   "tables": [

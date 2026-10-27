@@ -159,7 +159,7 @@ execute_trino(f"""
     ALTER TABLE {OUTPUT_CONFIG.full_table_id}
     SET PROPERTIES extra_properties = MAP(
         ARRAY['python_model_upstream_sources'],
-        ARRAY['opus_python_source.raw_events,analytics.user_sessions']
+        ARRAY['<python_output_schema>.raw_events,analytics.user_sessions']
     )
 """)
 ```
@@ -175,7 +175,7 @@ with table.update_properties() as update:
 ```python
 OUTPUT_CONFIG = PythonModelConfig(
     ...,
-    upstream_sources=["opus_python_source.raw_events", "analytics.user_sessions"],
+    upstream_sources=["<python_output_schema>.raw_events", "analytics.user_sessions"],
 )
 # table_properties includes python_model_upstream_sources automatically
 ```
@@ -186,8 +186,8 @@ OUTPUT_CONFIG = PythonModelConfig(
 
 **Pass condition:** Each entry in `python_model_upstream_sources` is `schema.table` format.
 
-**Pass:** `opus_python_source.raw_events`, `analytics.user_sessions`
-**Fail:** `iceberg_catalog.opus_python_source.raw_events` (includes catalog — lineage parser splits on first dot only), `raw_events` (missing schema)
+**Pass:** `<python_output_schema>.raw_events`, `analytics.user_sessions`
+**Fail:** `iceberg_catalog.<python_output_schema>.raw_events` (includes catalog — lineage parser splits on first dot only), `raw_events` (missing schema)
 
 ### L4: Completeness — no missing upstream edges
 
@@ -213,8 +213,8 @@ OUTPUT_CONFIG = PythonModelConfig(
 
 **Example finding:**
 ```
-Tables in SQL: opus_python_source.raw_events, analytics.user_sessions, reference.countries
-Tables in upstream_sources: opus_python_source.raw_events, analytics.user_sessions
+Tables in SQL: <python_output_schema>.raw_events, analytics.user_sessions, reference.countries
+Tables in upstream_sources: <python_output_schema>.raw_events, analytics.user_sessions
 Missing from upstream_sources: reference.countries
 ```
 
@@ -224,9 +224,9 @@ Missing from upstream_sources: reference.countries
 
 **Example finding:**
 ```
-Tables in upstream_sources: opus_python_source.raw_events, opus_python_source.old_events
-Tables in SQL: opus_python_source.raw_events
-Stale in upstream_sources: opus_python_source.old_events
+Tables in upstream_sources: <python_output_schema>.raw_events, <python_output_schema>.old_events
+Tables in SQL: <python_output_schema>.raw_events
+Stale in upstream_sources: <python_output_schema>.old_events
 ```
 
 **Severity:** Warning (stale entries don't break lineage but create misleading edges in the graph).
@@ -275,7 +275,7 @@ Stale in upstream_sources: opus_python_source.old_events
 
 **Pass condition:** Output table uses the project-standard catalog and schema for Python model outputs.
 
-**Default convention:** `glue_development.opus_python_source.<table_name>`
+**Default convention:** `<dev_catalog>.<python_output_schema>.<table_name>`
 
 **When to flag:** Custom schema is acceptable but should be documented in `description` or `variables`. Flag if namespace doesn't match any known project convention.
 

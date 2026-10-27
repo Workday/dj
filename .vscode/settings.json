@@ -18,11 +18,8 @@
     {
       "fileMatch": ["*.source.json"],
       "url": ".dj/schemas/source.schema.json"
-    },
-    {
-      "fileMatch": ["*.python.json"],
-      "url": ".dj/schemas/python-model.schema.json"
     }
   ],
   "dj.dbtProjectNames": ["jaffle_shop"],
+  "dj.dataExplorer.autoRefresh": false
 }

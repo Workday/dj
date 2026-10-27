@@ -1,0 +1,15 @@
+{
+  "originalModelPath": "/absolute/path/to/models/staging/core/sales/stg__core__sales__customers.model.json",
+  "modelJson": {
+    "type": "stg_select_source",
+    "group": "core",
+    "topic": "sales",
+    "name": "customers",
+    "from": { "source": "raw__public.customers" },
+    "select": [
+      { "name": "id", "type": "dim" },
+      { "name": "name" },
+      { "name": "email" }
+    ]
+  }
+}

@@ -584,6 +584,30 @@ export type SchemaColumnDescription = string;
  */
 export type SchemaColumnExcludeFromGroupBy = boolean;
 /**
+ * Valid time interval for Lightdash dimension
+ */
+export type SchemaLightdashTimeInterval =
+  | 'DAY'
+  | 'DAY_OF_WEEK_INDEX'
+  | 'DAY_OF_WEEK_NAME'
+  | 'DAY_OF_MONTH_NUM'
+  | 'DAY_OF_YEAR_NUM'
+  | 'HOUR'
+  | 'MILLISECOND'
+  | 'MINUTE'
+  | 'MONTH'
+  | 'MONTH_NAME'
+  | 'MONTH_NUM'
+  | 'QUARTER'
+  | 'QUARTER_NAME'
+  | 'QUARTER_NUM'
+  | 'RAW'
+  | 'SECOND'
+  | 'WEEK'
+  | 'WEEK_NUM'
+  | 'YEAR'
+  | 'YEAR_NUM';
+/**
  * Validate column data_tests
  */
 export type SchemaColumnDataTests = (
@@ -1045,9 +1069,9 @@ export interface ModelSqlHooksSchemaJson {
    */
   post?: string | [string, ...string[]];
   /**
-   * Statement(s) to run before model
+   * Statement(s) to run before the model. Omit to use DJ's incremental session pre-hook. null disables that hook. A string or array replaces it.
    */
-  pre?: string | [string, ...string[]];
+  pre?: string | [string, ...string[]] | null;
 }
 /**
  * Defines an inline subquery for use in WHERE or HAVING conditions. Supports IN, NOT IN, EXISTS, NOT EXISTS, and scalar comparison operators.
@@ -1262,27 +1286,7 @@ export interface SchemaLightdashDimension {
   /**
    * The time intervals for the lightdash dimension
    */
-  time_intervals?:
-    | 'OFF'
-    | (
-        | 'DAY'
-        | 'DAY_OF_WEEK_INDEX'
-        | 'DAY_OF_WEEK_NAME'
-        | 'DAY_OF_MONTH_NUM'
-        | 'DAY_OF_YEAR_NUM'
-        | 'HOUR'
-        | 'MONTH'
-        | 'MONTH_NAME'
-        | 'MONTH_NUM'
-        | 'QUARTER'
-        | 'QUARTER_NAME'
-        | 'QUARTER_NUM'
-        | 'RAW'
-        | 'WEEK'
-        | 'WEEK_NUM'
-        | 'YEAR'
-        | 'YEAR_NUM'
-      )[];
+  time_intervals?: 'OFF' | SchemaLightdashTimeInterval[];
   type?: 'boolean' | 'date' | 'number' | 'string' | 'timestamp';
   /**
    * The URLs for the lightdash dimension

@@ -286,6 +286,8 @@ If yes, add to VS Code settings:
 }
 ```
 
+**Optional:** If the project uses python-model agent skills, offer to scaffold `.agents/project/skills/dj-create-python-model/project-defaults.md` from the DJ template `templates/_agents-project/skills/dj-create-python-model/project-defaults.example.md` (project-owned; DJ Refresh never overwrites `.agents/project/`).
+
 ---
 
 ### Step 11: Generate Manifest

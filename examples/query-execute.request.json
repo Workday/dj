@@ -1,0 +1,4 @@
+{
+  "sql": "SELECT 1 AS ok",
+  "limit": 10
+}

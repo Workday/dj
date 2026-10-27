@@ -63,6 +63,7 @@ export class Api {
       case 'dbt-fetch-projects':
       case 'dbt-fetch-sources':
       case 'dbt-fetch-available-models':
+      case 'dbt-search-models':
       case 'dbt-get-model-info':
       case 'dbt-parse-project':
       case 'dbt-run-model':
@@ -76,10 +77,16 @@ export class Api {
       case 'dbt-model-compile':
         return (await this.dbt.handleApi(payload as any)) as ApiResponse<T>;
       case 'framework-model-create':
+      case 'framework-model-create-batch':
       case 'framework-model-update':
+      case 'framework-model-sync':
       case 'framework-source-create':
       case 'framework-get-current-model-data':
       case 'framework-get-model-data':
+      case 'framework-model-columns':
+      case 'framework-model-similar':
+      case 'framework-workflow-scaffold-explore':
+      case 'framework-model-data-check':
       case 'framework-close-panel':
       case 'framework-show-message':
       case 'framework-open-external-url':

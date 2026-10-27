@@ -11,7 +11,7 @@ export const rollupModelDemoData: DemoData = {
   type: 'int_rollup_model',
   group: 'sales',
   topic: 'revenue',
-  materialized: 'incremental',
+  materialization: 'incremental',
 
   // Data Modeling
   from: {

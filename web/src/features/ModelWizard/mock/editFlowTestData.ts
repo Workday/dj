@@ -44,7 +44,7 @@ export const mockJoinModelData = {
     source: 'intermediate',
     description: 'this is a sample description',
     tags: ['lightdash'],
-    materialized: 'incremental',
+    materialization: 'incremental',
     from: {
       model: 'stg__demo__models__deployments',
       join: [
@@ -157,7 +157,7 @@ export const mockLookbackModelData = {
     group: 'analytics',
     topic: 'test',
     name: 'sample',
-    materialized: 'incremental',
+    materialization: 'incremental',
     description: 'this is a updated description',
     tags: ['lightdash-explore'],
     type: 'int_lookback_model',
@@ -239,7 +239,7 @@ export const mockUnionSourcesModelData = {
         include: ['test', 'test2'],
       },
     ],
-    materialized: 'ephemeral',
+    materialization: 'ephemeral',
   },
   editFormType: 'model-stg__demo__cloud__demo_union_sources',
   isEditMode: true,

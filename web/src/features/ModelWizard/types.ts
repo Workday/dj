@@ -7,6 +7,6 @@ import type { AdditionalFieldsSchema } from '@web/stores/useModelStore';
  */
 export type ModelWizardFormValues = Api<'framework-model-create'>['request'] & {
   source?: string;
-  materialized?: string;
+  materialization?: string;
   cloneModel?: string;
 } & AdditionalFieldsSchema;

@@ -11,6 +11,7 @@ import {
 import { BASE_AIRFLOW_PATH, BASE_SCHEMAS_PATH } from '@services/constants';
 import type { Dbt } from '@services/dbt';
 import type { DJLogger } from '@services/djLogger';
+import { MODEL_TYPE_SCHEMA_MAP } from '@services/modelValidation';
 import type { StateManager } from '@services/statemanager';
 import {
   buildOrderedResources,
@@ -30,6 +31,7 @@ import type { ApiEnabledService } from '@services/types';
 import { showOrOpenFile } from '@services/utils/fileNavigation';
 import { assertExhaustive, jsonParse } from '@shared';
 import type { ApiPayload, ApiResponse } from '@shared/api/types';
+import { apiResponse } from '@shared/api/utils';
 import type { DbtProject, DbtResourceType } from '@shared/dbt/types';
 import type {
   FrameworkDataType,
@@ -74,6 +76,7 @@ import {
   generateTrinoIoPy,
   workspaceHasPythonModels,
 } from './utils';
+import { resolveModelJsonPath } from './utils/resolve-model-json-path';
 
 /**
  * Dependencies required by the Framework service.
@@ -130,6 +133,7 @@ export class Framework implements ApiEnabledService<'framework'> {
   private columnLineageHandler: ColumnLineageHandler;
   private preferencesHandler: PreferencesHandler;
   private cteAnalysisHandlers: CteAnalysisHandlers;
+  private readonly schemaCache = new Map<string, unknown>();
 
   // Content hash cache for change detection - skips regenerating unchanged files
   private cacheManager = new CacheManager();
@@ -306,6 +310,72 @@ export class Framework implements ApiEnabledService<'framework'> {
     return this.syncQueue.isSyncing();
   }
 
+  waitForSyncIdle(timeoutMs = 120_000): Promise<SyncResult | undefined> {
+    return this.syncQueue.waitForIdle(timeoutMs);
+  }
+
+  /**
+   * JSON→SQL/YML sync for agents and CLI (`model.sync`). Does not run dbt compile.
+   */
+  async handleModelSync(
+    payload: Extract<ApiPayload<'framework'>, { type: 'framework-model-sync' }>,
+  ): Promise<ApiResponse> {
+    const { projectName, modelName } = payload.request;
+    const project = this.dbt.projects.get(projectName);
+    if (!project) {
+      throw new Error(`Project ${projectName} not found`);
+    }
+
+    if (!modelName) {
+      this.syncQueue.enqueueFullSync();
+      const result = await this.waitForSyncIdle();
+      const syncErrors =
+        result?.errors?.map((e) => e.message).filter(Boolean) ?? [];
+      return apiResponse<typeof payload.type>({
+        success: result?.success ?? true,
+        scope: 'full',
+        syncErrors: syncErrors.length ? syncErrors : undefined,
+      });
+    }
+
+    const modelPath = await resolveModelJsonPath({
+      modelName,
+      project,
+      dbt: this.dbt,
+    });
+    if (!modelPath) {
+      throw new Error(
+        `Model ${modelName} not found under project ${projectName}`,
+      );
+    }
+
+    const info = await this.coder.fetchFileInfoFromPath(modelPath);
+    if (!info || info.type !== 'framework-model') {
+      throw new Error(`Could not load framework model at ${modelPath}`);
+    }
+
+    const modelId = frameworkGetModelId({
+      modelJson: info.modelJson,
+      project,
+    });
+    if (!modelId) {
+      throw new Error(`Unable to determine model ID for ${modelName}`);
+    }
+
+    this.syncQueue.enqueue(modelId, modelPath);
+    const result = await this.waitForSyncIdle();
+    const syncErrors =
+      result?.errors?.map((e) => e.message).filter(Boolean) ?? [];
+
+    return apiResponse<typeof payload.type>({
+      success: result?.success ?? true,
+      scope: 'model',
+      modelName,
+      modelPath,
+      syncErrors: syncErrors.length ? syncErrors : undefined,
+    });
+  }
+
   /**
    * Main API handler for framework-related operations.
    * Routes requests to appropriate handlers based on payload type.
@@ -315,8 +385,14 @@ export class Framework implements ApiEnabledService<'framework'> {
       case 'framework-model-create':
         return await this.modelCrudHandlers.handleModelCreate(payload);
 
+      case 'framework-model-create-batch':
+        return await this.modelCrudHandlers.handleModelCreateBatch(payload);
+
       case 'framework-model-update':
         return await this.modelCrudHandlers.handleModelUpdate(payload);
+
+      case 'framework-model-sync':
+        return await this.handleModelSync(payload);
 
       case 'framework-model-preview':
         return this.modelCrudHandlers.handleModelPreview(payload);
@@ -481,6 +557,18 @@ export class Framework implements ApiEnabledService<'framework'> {
       case 'framework-get-model-data':
         return await this.modelDataHandlers.handleGetModelData(payload);
 
+      case 'framework-model-columns':
+        return this.modelDataHandlers.handleModelColumns(payload);
+
+      case 'framework-model-similar':
+        return this.modelDataHandlers.handleModelSimilar(payload);
+
+      case 'framework-workflow-scaffold-explore':
+        return this.modelDataHandlers.handleWorkflowScaffoldExplore(payload);
+
+      case 'framework-model-data-check':
+        return this.modelDataHandlers.handleModelDataCheck(payload);
+
       case 'framework-check-model-exists':
         return await this.modelDataHandlers.handleCheckModelExists(payload);
 
@@ -561,6 +649,7 @@ export class Framework implements ApiEnabledService<'framework'> {
               for (const { file, content } of fileContents) {
                 try {
                   const schema = JSON.parse(content);
+                  this.schemaCache.set(file, schema);
                   this.ajv.addSchema(schema, file);
                 } catch (parseErr) {
                   this.log.warn(`Failed to parse schema ${file}:`, parseErr);
@@ -616,6 +705,65 @@ export class Framework implements ApiEnabledService<'framework'> {
 
     // Check if .dj folder should be added to .gitignore
     void this.checkAndPromptForGitignore(context);
+  }
+
+  /**
+   * Refreshes the lightdash.time_interval.schema.json in .dj/schemas/ and
+   * re-registers it and dependent model schemas in AJV with the updated interval enum.
+   */
+  async refreshTimeIntervalsSchema(intervals: string[]): Promise<void> {
+    const timeIntervalSchema = {
+      $id: 'lightdash.time_interval.schema.json',
+      title: 'Schema Lightdash Time Interval',
+      description: 'Valid time interval for Lightdash dimension',
+      type: 'string',
+      enum: intervals,
+    };
+    this.schemaCache.set(
+      'lightdash.time_interval.schema.json',
+      timeIntervalSchema,
+    );
+
+    try {
+      await vscode.workspace.fs.writeFile(
+        vscode.Uri.file(
+          path.join(DJ_SCHEMAS_PATH, 'lightdash.time_interval.schema.json'),
+        ),
+        Buffer.from(JSON.stringify(timeIntervalSchema, null, 2)),
+      );
+    } catch (err: unknown) {
+      this.log.warn(
+        'Failed to write lightdash.time_interval.schema.json to disk:',
+        err,
+      );
+    }
+
+    try {
+      this.ajv.removeSchema('lightdash.time_interval.schema.json');
+      this.ajv.addSchema(
+        timeIntervalSchema,
+        'lightdash.time_interval.schema.json',
+      );
+
+      this.ajv.removeSchema('lightdash.dimension.schema.json');
+      const dimSchema = this.schemaCache.get('lightdash.dimension.schema.json');
+      if (dimSchema) {
+        this.ajv.addSchema(dimSchema, 'lightdash.dimension.schema.json');
+      }
+
+      for (const schemaFile of Object.values(MODEL_TYPE_SCHEMA_MAP)) {
+        this.ajv.removeSchema(schemaFile);
+        const cached = this.schemaCache.get(schemaFile);
+        if (cached) {
+          this.ajv.addSchema(cached, schemaFile);
+        }
+      }
+      this.log.info(
+        `Refreshed time_intervals schema in AJV with ${intervals.length} intervals`,
+      );
+    } catch (err: unknown) {
+      this.log.warn('Failed to refresh time intervals in AJV:', err);
+    }
   }
 
   /**
@@ -1269,7 +1417,7 @@ export class Framework implements ApiEnabledService<'framework'> {
     }
 
     // Enqueue sync via state-driven queue
-    this.syncQueue.enqueue(modelId);
+    this.syncQueue.enqueue(modelId, filePath);
   }
 
   /**

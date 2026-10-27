@@ -133,7 +133,16 @@ export function getDbtModelId({
   modelName: string;
   projectName: string;
 }): string {
-  const nameArray = modelName.split('.');
+  if (typeof modelName !== 'string') {
+    throw new Error(
+      'getDbtModelId: modelName must be a string (check CLI payload: --file examples/model-lineage.request.json or --modelName)',
+    );
+  }
+  const trimmed = modelName.trim();
+  if (trimmed === '') {
+    return `model.${projectName}.`;
+  }
+  const nameArray = trimmed.split('.');
   return nameArray.length === 1
     ? `model.${projectName}.${modelName}`
     : nameArray.length === 2
@@ -236,7 +245,9 @@ export function buildDbtRunCommand(config: DbtRunConfig): string {
   }
 
   let finalCommand = mainCommand;
-  if (selectClause) {
+  if (config.select && config.select.trim() !== '') {
+    finalCommand += ` --select "${config.select.trim()}"`;
+  } else if (selectClause) {
     finalCommand += ` --select "${selectClause}"`;
   }
 

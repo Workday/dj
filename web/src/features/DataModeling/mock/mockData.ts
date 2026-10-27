@@ -70,8 +70,8 @@ export const createMockProject = (): DbtProject =>
           },
         },
 
-        'model.data_platform.stg__ml__pharos__model_deployments': {
-          name: 'stg__ml__pharos__model_deployments',
+        'model.data_platform.stg__ml__metrics__model_deployments': {
+          name: 'stg__ml__metrics__model_deployments',
           group: 'ml',
           columns: {
             // Dimensions (7 columns)

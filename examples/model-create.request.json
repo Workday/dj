@@ -1,0 +1,15 @@
+{
+  "request": {
+    "type": "stg_select_source",
+    "projectName": "analytics",
+    "group": "core",
+    "topic": "sales",
+    "name": "customers",
+    "from": { "source": "raw__public.customers" },
+    "select": [
+      { "name": "id", "type": "dim" },
+      { "name": "name" },
+      { "name": "email" }
+    ]
+  }
+}

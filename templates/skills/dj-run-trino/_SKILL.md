@@ -21,4 +21,9 @@ Essentials:
 1. **Resolve the CLI.** `dj.trinoPath` (default `trino-cli` on `PATH`). If it doesn't resolve, ask the user to install it or set the path.
 2. **Confirm the connection.** The connection comes from `TRINO_HOST` / `TRINO_PORT` / `TRINO_USERNAME` / `TRINO_CATALOG` / `TRINO_SCHEMA` in the environment. If unset, ask for them and confirm the cluster is non-production before running.
 3. **Read-only only.** Run `SELECT` / `SHOW` / `DESCRIBE` / `EXPLAIN`, always with a `LIMIT` and partition constraint. Any DDL/DML needs explicit confirmation and must never hit production. See **Command & Query Execution Safety** in `.agents/dj/AGENTS.md`.
-4. **Prefer framework facilities.** Read `.source.json` / `.model.json` / `target/manifest.json` / `.dj/schemas/` before shelling out to the CLI.
+4. **DJ CLI bridge first.** When `.dj/bin/dj system.ping` succeeds, use `trino.catalogs`, `trino.schemas`, `trino.tables`, `trino.columns`, and `query.execute` instead of raw `trino-cli`. Fall back to reading `.source.json` / `.model.json` / manifest when the bridge is unavailable; raw `trino-cli` is last resort per `.agents/dj/reference/running-trino.md`.
+
+## DJ CLI (preferred when DJ is running)
+
+When `.dj/bin/dj system.ping` succeeds, use: `trino.*`, `query.execute` instead of raw `trino-cli` below.
+Invocation patterns and fallbacks → `dj-cli`. Full skill/CLI routing → `dj-cli-registry`.

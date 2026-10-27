@@ -28,7 +28,7 @@ interface BasicInformationProps {
   sourceOptions: Array<{ label: string; value: string }>;
   typeOptions: Array<{ label: string; value: string }>;
   groupOptions: Array<{ label: string; value: string }>;
-  materializedOptions: Array<{ label: string; value: string }>;
+  materializationOptions: Array<{ label: string; value: string }>;
   project: DbtProject | null;
   setProject: (project: DbtProject | null) => void;
   source: string;
@@ -49,7 +49,7 @@ export function BasicInformation({
   sourceOptions,
   typeOptions,
   groupOptions,
-  materializedOptions,
+  materializationOptions,
   project,
   setProject: _setProject, // Available for updating project state when needed
   source,
@@ -126,7 +126,7 @@ export function BasicInformation({
         // Clear the name so user can provide a new one
         name: '',
         topic: '',
-        materialized: undefined,
+        materialization: undefined,
         // Flag to indicate this is a clone operation
         isCloningModel: true,
         // Store the source model name for display
@@ -294,11 +294,11 @@ export function BasicInformation({
                   // Reset type when source changes as the available types will change
                   setValue('type', ''); // Reset to empty so user has to select again
                   setBasicField('type', '');
-                  // Clear materialized field if switching to marts or staging (where it's hidden)
+                  // Clear materialization field if switching to marts or staging (where it's hidden)
                   if (newVal === 'marts' || newVal === 'staging') {
-                    setValue('materialized', undefined);
-                    setBasicField('materialized', '');
-                    void handleFieldChange('materialized', '');
+                    setValue('materialization', undefined);
+                    setBasicField('materialization', '');
+                    void handleFieldChange('materialization', '');
                   }
                   // Clear modeling state when source changes
                   clearModelingState();
@@ -467,26 +467,26 @@ export function BasicInformation({
       {/* File Name Preview */}
       {source && <FileNamePreview mode={mode} />}
 
-      {/* 7. Materialized - dropdown - Hidden for marts and staging, optional for intermediate sources */}
+      {/* 7. Materialization - dropdown - Hidden for marts and staging, optional for intermediate sources */}
       {source === 'intermediate' && (
         <Controller
           control={control}
-          name="materialized"
+          name="materialization"
           rules={{ required: false }}
           render={({ field }) => (
-            <div data-tutorial-id="materialized-select">
+            <div data-tutorial-id="materialization-select">
               <FieldSelectSingle
                 {...field}
-                error={errors.materialized}
+                error={errors.materialization}
                 label="Select Materialization"
-                options={materializedOptions}
+                options={materializationOptions}
                 disabled={isLoading}
                 tooltipText="Incremental builds only new/changed records. Ephemeral creates a CTE (temporary)."
                 onChange={(val) => {
                   field.onChange(val);
-                  setValue('materialized', val);
-                  setBasicField('materialized', val as string);
-                  void handleFieldChange('materialized', val as string);
+                  setValue('materialization', val);
+                  setBasicField('materialization', val as string);
+                  void handleFieldChange('materialization', val as string);
                 }}
               />
             </div>

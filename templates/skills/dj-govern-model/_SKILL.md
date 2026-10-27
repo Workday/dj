@@ -26,6 +26,11 @@ skills when the user asks to act.
 Environment Resolution**) → `.agents/dj/reference/meta-and-governance.md`
 (**Custom Meta**, **Governance metadata conventions**) → this skill's checks below.
 
+## DJ CLI (preferred when DJ is running)
+
+When `.dj/bin/dj system.ping` succeeds, use: `dbt.models`, `dbt.sources` for project discovery instead of grepping files.
+Invocation patterns and fallbacks → `dj-cli`. Full skill/CLI routing → `dj-cli-registry`.
+
 ## When this skill applies
 
 - The user mentions reviewing governance, data ownership, owners, stewardship,

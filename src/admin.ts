@@ -11,6 +11,8 @@ export const WORKSPACE_ROOT =
 export const DJ_SCHEMAS_PATH = path.join(WORKSPACE_ROOT, `.dj/schemas`);
 export const DJ_STATE_PATH = path.join(WORKSPACE_ROOT, `.dj/state`);
 export const DJ_SQL_PATH = path.join(WORKSPACE_ROOT, `.dj/sql`);
+export const DJ_BIN_PATH = path.join(WORKSPACE_ROOT, `.dj/bin`);
+export const DJ_CLI_ENDPOINTS_PATH = path.join(DJ_STATE_PATH, 'cli-endpoints');
 export const DJ_PYTHON_TEMP_PATH = path.join(
   WORKSPACE_ROOT,
   '.dj',

@@ -19,6 +19,20 @@ metadata:
 
 **Reading order:** `.agents/dj/reference/model-types.md` (Advanced), `.agents/dj/reference/materialization.md`, `.agents/dj/reference/meta-and-governance.md`, `.agents/dj/reference/lightdash-tags-tests.md` → `.dj/schemas/` (`model.materialization.schema.json`, `model.from.rollup.schema.json`, `model.subquery.schema.json`, `model.cte.schema.json`, `lightdash.*.schema.json`) → this skill's `references/refactor-catalog.md` once the apply phase begins.
 
+## DJ CLI (preferred when DJ is running)
+
+When `.dj/bin/dj system.ping` succeeds, use: `model.preview`, `model.update`, `model.cte-analysis` instead of manual file edits where applicable.
+Invocation patterns and fallbacks → `dj-cli`. Full skill/CLI routing → `dj-cli-registry`.
+
+### Applying changes via `model.update`
+
+Do **not** pass a raw `.model.json` file or top-level `modelName` to the CLI. Build an update envelope:
+
+1. Read the target `.model.json` from disk (absolute path).
+2. Apply approved edits to the parsed object (omit `modelName` — it is not part of the model schema).
+3. **`model.preview --file`** with `{ "modelJson": <full updated object> }` to validate SQL/YAML before write.
+4. **`model.update --file`** with `{ "originalModelPath": "<same absolute path>", "modelJson": <full updated object> }` (see `examples/model-update.request.json`).
+
 ## When this skill applies
 
 - The user mentions reviewing, auditing, modernizing, refactoring, cleaning up, or upgrading `.model.json` files.
