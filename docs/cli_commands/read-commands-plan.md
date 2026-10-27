@@ -1,8 +1,9 @@
 # DJ CLI — Read Commands Implementation Plan (+ Authoring-support APIs)
 
 Two plans:
-- **Part 1** — implement the **Read** command tier now (introspection), including *pull available
-  models* so an agent can populate `from` when creating a model.
+
+- **Part 1** — implement the **Read** command tier now (introspection), including _pull available
+  models_ so an agent can populate `from` when creating a model.
 - **Part 2** — analysis of which other DJ APIs should become CLI commands next to help agents author
   models and run related operations.
 
@@ -15,7 +16,7 @@ are flat (no `request` wrapper); the CLI wraps internally.
 
 ## Why
 
-An agent authoring a model needs to *discover* what it can reference — catalogs/schemas/tables/columns
+An agent authoring a model needs to _discover_ what it can reference — catalogs/schemas/tables/columns
 in Trino, and the dbt project's models and sources. In the visual editor, `SelectNode.tsx` builds the
 `from` dropdown by reading `project.manifest.nodes` (models) and `project.manifest.sources` (sources)
 from `dbt-fetch-projects`; the dedicated list API is `dbt-fetch-available-models`. Exposing these as
@@ -23,7 +24,7 @@ read commands lets an agent ground its `from` / `select` choices instead of gues
 
 ## Prerequisite refactor (shared, small)
 
-The registry's `readRequest` currently *requires* a `request` object and hardcodes a model.create
+The registry's `readRequest` currently _requires_ a `request` object and hardcodes a model.create
 message. Generalize it so read ops can take a flat payload, an explicit `{ request }` envelope, or
 nothing (nullable ops such as `trino.catalogs`).
 
@@ -47,8 +48,10 @@ function readRequest(
   const obj = input as Record<string, unknown>;
   if ('request' in obj) {
     const r = obj.request; // explicit envelope wins (back-compat escape hatch)
-    if (r == null) return opts.nullable ? null : throwErr("'request' may not be null");
-    if (typeof r !== 'object' || Array.isArray(r)) throw new Error("'request' must be an object");
+    if (r == null)
+      return opts.nullable ? null : throwErr("'request' may not be null");
+    if (typeof r !== 'object' || Array.isArray(r))
+      throw new Error("'request' must be an object");
     return { ...(r as Record<string, unknown>) };
   }
   return { ...obj }; // flat payload: the object itself is the request
@@ -78,32 +81,72 @@ const registerRead = (
 
 ## Read ops to register
 
-| CLI op | API type | request | resolve projectName | notes |
-|---|---|---|---|---|
-| `dbt.projects` | `dbt-fetch-projects` | `null` | — | includes `manifest` (source of truth for models/sources) |
-| `dbt.models` | `dbt-fetch-available-models` | `{ projectName? }` | yes | **pull available models for `from.model`** |
-| `dbt.sources` | `dbt-fetch-sources` | `null` | — | source names for `from.source` |
-| `dbt.modified-models` | `dbt-fetch-modified-models` | `null` | — | build/run scope (optional) |
-| `dbt.compiled-status` | `dbt-check-compiled-status` | `{ modelName, projectName? }` | yes | |
-| `dbt.model-outdated` | `dbt-check-model-outdated` | `{ modelName, projectName? }` | yes | |
-| `trino.catalogs` | `trino-fetch-catalogs` | `null` | — | |
-| `trino.schemas` | `trino-fetch-schemas` | `{ catalog }` | — | |
-| `trino.tables` | `trino-fetch-tables` | `{ catalog, schema }` | — | |
-| `trino.columns` | `trino-fetch-columns` | `{ catalog, schema, table }` | — | columns for `from.source` authoring |
+| CLI op                | API type                     | request                       | resolve projectName | notes                                                    |
+| --------------------- | ---------------------------- | ----------------------------- | ------------------- | -------------------------------------------------------- |
+| `dbt.projects`        | `dbt-fetch-projects`         | `null`                        | —                   | includes `manifest` (source of truth for models/sources) |
+| `dbt.models`          | `dbt-fetch-available-models` | `{ projectName? }`            | yes                 | **pull available models for `from.model`**               |
+| `dbt.sources`         | `dbt-fetch-sources`          | `null`                        | —                   | source names for `from.source`                           |
+| `dbt.modified-models` | `dbt-fetch-modified-models`  | `null`                        | —                   | build/run scope (optional)                               |
+| `dbt.compiled-status` | `dbt-check-compiled-status`  | `{ modelName, projectName? }` | yes                 |                                                          |
+| `dbt.model-outdated`  | `dbt-check-model-outdated`   | `{ modelName, projectName? }` | yes                 |                                                          |
+| `trino.catalogs`      | `trino-fetch-catalogs`       | `null`                        | —                   |                                                          |
+| `trino.schemas`       | `trino-fetch-schemas`        | `{ catalog }`                 | —                   |                                                          |
+| `trino.tables`        | `trino-fetch-tables`         | `{ catalog, schema }`         | —                   |                                                          |
+| `trino.columns`       | `trino-fetch-columns`        | `{ catalog, schema, table }`  | —                   | columns for `from.source` authoring                      |
 
 Registration (all read ops become one line each):
 
 ```ts
-registerRead('dbt.projects',        'dbt-fetch-projects',          'List dbt projects (incl. manifest).', { nullable: true });
-registerRead('dbt.models',          'dbt-fetch-available-models',  'List available models in a project (for `from`).', { project: true });
-registerRead('dbt.sources',         'dbt-fetch-sources',           'List declared dbt sources (for `from`).', { nullable: true });
-registerRead('dbt.modified-models', 'dbt-fetch-modified-models',   'List models changed vs. the base ref.', { nullable: true });
-registerRead('dbt.compiled-status', 'dbt-check-compiled-status',   'Whether a model is compiled (+ path/time).', { project: true });
-registerRead('dbt.model-outdated',  'dbt-check-model-outdated',    'Whether a model’s compiled output is stale.', { project: true });
-registerRead('trino.catalogs',      'trino-fetch-catalogs',        'List Trino catalogs.', { nullable: true });
-registerRead('trino.schemas',       'trino-fetch-schemas',         'List schemas in a catalog.');
-registerRead('trino.tables',        'trino-fetch-tables',          'List tables in a schema.');
-registerRead('trino.columns',       'trino-fetch-columns',         'List a table’s columns (SHOW COLUMNS).');
+registerRead(
+  'dbt.projects',
+  'dbt-fetch-projects',
+  'List dbt projects (incl. manifest).',
+  { nullable: true },
+);
+registerRead(
+  'dbt.models',
+  'dbt-fetch-available-models',
+  'List available models in a project (for `from`).',
+  { project: true },
+);
+registerRead(
+  'dbt.sources',
+  'dbt-fetch-sources',
+  'List declared dbt sources (for `from`).',
+  { nullable: true },
+);
+registerRead(
+  'dbt.modified-models',
+  'dbt-fetch-modified-models',
+  'List models changed vs. the base ref.',
+  { nullable: true },
+);
+registerRead(
+  'dbt.compiled-status',
+  'dbt-check-compiled-status',
+  'Whether a model is compiled (+ path/time).',
+  { project: true },
+);
+registerRead(
+  'dbt.model-outdated',
+  'dbt-check-model-outdated',
+  'Whether a model’s compiled output is stale.',
+  { project: true },
+);
+registerRead('trino.catalogs', 'trino-fetch-catalogs', 'List Trino catalogs.', {
+  nullable: true,
+});
+registerRead(
+  'trino.schemas',
+  'trino-fetch-schemas',
+  'List schemas in a catalog.',
+);
+registerRead('trino.tables', 'trino-fetch-tables', 'List tables in a schema.');
+registerRead(
+  'trino.columns',
+  'trino-fetch-columns',
+  'List a table’s columns (SHOW COLUMNS).',
+);
 ```
 
 `system.capabilities` reflects them automatically (it enumerates the registry).
@@ -146,7 +189,7 @@ run adjacent operations, ranked by value.
 `from` lists come from Part 1 (`dbt.models` / `dbt.sources`). The missing piece is **columns of the
 chosen upstream**:
 
-- **Source columns** → `framework-column-lineage` exposes *data* actions in
+- **Source columns** → `framework-column-lineage` exposes _data_ actions in
   `column-lineage-handler.ts`: `get-source-columns`, `get-source-tables`, `get-seed-columns`,
   `compute-source-lineage`, `export-source-lineage`, `validate`. Expose these via an
   **action-allowlisted** CLI op (e.g. `columns.source`, `columns.seed`), mapping the CLI op to a fixed
@@ -160,36 +203,36 @@ chosen upstream**:
 
 ## B. Read an existing model (template / update)
 
-| CLI op | API type | side effect | use |
-|---|---|---|---|
-| `model.get` | `framework-get-model-data` | read | read an existing model’s JSON as a starting point |
-| `model.original-files` | `framework-get-original-model-files` | read | inputs the update flow needs (`originalModelPath`) |
-| `model.settings.get` | `framework-get-model-settings` | read | model settings |
+| CLI op                 | API type                             | side effect | use                                                |
+| ---------------------- | ------------------------------------ | ----------- | -------------------------------------------------- |
+| `model.get`            | `framework-get-model-data`           | read        | read an existing model’s JSON as a starting point  |
+| `model.original-files` | `framework-get-original-model-files` | read        | inputs the update flow needs (`originalModelPath`) |
+| `model.settings.get`   | `framework-get-model-settings`       | read        | model settings                                     |
 
 (Excluded: `framework-get-current-model-data` — active-editor bound.)
 
 ## C. Validate SQL before authoring/running
 
-| CLI op | API type | side effect | use |
-|---|---|---|---|
-| `query.analyze` | `trino-analyze-query` | read | validate/EXPLAIN SQL without executing it |
+| CLI op          | API type              | side effect | use                                       |
+| --------------- | --------------------- | ----------- | ----------------------------------------- |
+| `query.analyze` | `trino-analyze-query` | read        | validate/EXPLAIN SQL without executing it |
 
 (Plus the already-planned `model.preview`, `model.exists`, `model.cte-analysis`.)
 
 ## D. Model tests (a distinct “other operations” surface)
 
-| CLI op | API type | side effect | use |
-|---|---|---|---|
-| `tests.list` | `dbt-fetch-models-with-tests` | read | which models have tests |
-| `tests.add` | `dbt-add-model-tests` | mutate | add data tests to a model |
-| `tests.remove` | `dbt-remove-model-tests` | mutate | remove tests |
-| `tests.run` | `dbt-run-test` | mutate | run a model’s tests |
+| CLI op         | API type                      | side effect | use                       |
+| -------------- | ----------------------------- | ----------- | ------------------------- |
+| `tests.list`   | `dbt-fetch-models-with-tests` | read        | which models have tests   |
+| `tests.add`    | `dbt-add-model-tests`         | mutate      | add data tests to a model |
+| `tests.remove` | `dbt-remove-model-tests`      | mutate      | remove tests              |
+| `tests.run`    | `dbt-run-test`                | mutate      | run a model’s tests       |
 
 ## E. Project context
 
-| CLI op | API type | side effect | use |
-|---|---|---|---|
-| `project.overview` | `data-explorer-get-project-overview` | read | a map of the project for the agent |
+| CLI op             | API type                             | side effect | use                                |
+| ------------------ | ------------------------------------ | ----------- | ---------------------------------- |
+| `project.overview` | `data-explorer-get-project-overview` | read        | a map of the project for the agent |
 
 ## Excluded (unchanged rationale)
 

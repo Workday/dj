@@ -97,13 +97,13 @@ result JSON and exits `0`.
 
 ## Exit codes
 
-| Code | Meaning                                             |
-| ---- | --------------------------------------------------- |
-| `0`  | success                                             |
-| `1`  | operation error (e.g. "Model … already exists")     |
-| `2`  | usage / malformed input JSON                        |
-| `3`  | no live DJ endpoint (VS Code not running / DJ off)  |
-| `4`  | timed out waiting for a reply                       |
+| Code | Meaning                                            |
+| ---- | -------------------------------------------------- |
+| `0`  | success                                            |
+| `1`  | operation error (e.g. "Model … already exists")    |
+| `2`  | usage / malformed input JSON                       |
+| `3`  | no live DJ endpoint (VS Code not running / DJ off) |
+| `4`  | timed out waiting for a reply                      |
 
 ## Constraints & notes
 

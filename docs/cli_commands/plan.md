@@ -12,15 +12,15 @@ Phase 1 extends the CLI's **operation allowlist** to cover every `handleApi` ope
 meaningful without an interactive UI, so an agent can introspect the warehouse, author models and
 sources, compile/parse, and read data — all from the command line.
 
-**Inclusion rule.** An operation qualifies when it is *payload-driven* and *returns a value or writes
-a file*, with **no dependence on an active editor, an open webview panel, or interactive UI.**
+**Inclusion rule.** An operation qualifies when it is _payload-driven_ and _returns a value or writes
+a file_, with **no dependence on an active editor, an open webview panel, or interactive UI.**
 Excluded: panel/open/ready messages, form-state persistence, active-editor-bound reads
 (`dbt-get-model-info`, `data-explorer-detect-active-model`), and credential/profile mutations
 (deferred on security grounds).
 
 ## Design principles
 
-- **Thin passthrough.** Each op handler calls *only* `ctx.api.handleApi(...)` — never sockets, never
+- **Thin passthrough.** Each op handler calls _only_ `ctx.api.handleApi(...)` — never sockets, never
   raw `dj.command.*`. Business logic, validation, and file placement stay in the extension.
 - **Flat payloads (no `request` wrapper).** The user passes the entity definition directly
   (e.g. the model fields). The CLI wraps it into `{ request: <payload> }` internally before calling
@@ -42,44 +42,48 @@ Full command list with descriptions and examples lives in **`command-reference.m
 category:
 
 ### Authoring
-| CLI op | API | Side effect |
-|---|---|---|
-| `model.create` | `framework-model-create` | mutate |
-| `source.create` | `framework-source-create` | mutate |
-| `model.update` | `framework-model-update` | mutate |
-| `model.preview` | `framework-model-preview` | read (dry-run) |
-| `model.exists` | `framework-check-model-exists` | read |
-| `model.cte-analysis` | `framework-model-cte-analysis` | read |
+
+| CLI op               | API                            | Side effect    |
+| -------------------- | ------------------------------ | -------------- |
+| `model.create`       | `framework-model-create`       | mutate         |
+| `source.create`      | `framework-source-create`      | mutate         |
+| `model.update`       | `framework-model-update`       | mutate         |
+| `model.preview`      | `framework-model-preview`      | read (dry-run) |
+| `model.exists`       | `framework-check-model-exists` | read           |
+| `model.cte-analysis` | `framework-model-cte-analysis` | read           |
 
 ### Read
-| CLI op | API | Side effect |
-|---|---|---|
-| `trino.catalogs` | `trino-fetch-catalogs` | read |
-| `trino.schemas` | `trino-fetch-schemas` | read |
-| `trino.tables` | `trino-fetch-tables` | read |
-| `trino.columns` | `trino-fetch-columns` | read |
-| `dbt.projects` | `dbt-fetch-projects` | read |
-| `dbt.sources` | `dbt-fetch-sources` | read |
-| `dbt.models` | `dbt-fetch-available-models` | read |
-| `dbt.compiled-status` | `dbt-check-compiled-status` | read |
-| `dbt.model-outdated` | `dbt-check-model-outdated` | read |
+
+| CLI op                | API                          | Side effect |
+| --------------------- | ---------------------------- | ----------- |
+| `trino.catalogs`      | `trino-fetch-catalogs`       | read        |
+| `trino.schemas`       | `trino-fetch-schemas`        | read        |
+| `trino.tables`        | `trino-fetch-tables`         | read        |
+| `trino.columns`       | `trino-fetch-columns`        | read        |
+| `dbt.projects`        | `dbt-fetch-projects`         | read        |
+| `dbt.sources`         | `dbt-fetch-sources`          | read        |
+| `dbt.models`          | `dbt-fetch-available-models` | read        |
+| `dbt.compiled-status` | `dbt-check-compiled-status`  | read        |
+| `dbt.model-outdated`  | `dbt-check-model-outdated`   | read        |
 
 ### Mutate
-| CLI op | API | Side effect |
-|---|---|---|
-| `dbt.compile` | `dbt-model-compile` | mutate |
-| `dbt.compile-logs` | `dbt-compile-with-logs` | mutate |
-| `dbt.parse` | `dbt-parse-project` | mutate |
-| `dbt.run` | `dbt-run-model` | mutate |
+
+| CLI op             | API                     | Side effect |
+| ------------------ | ----------------------- | ----------- |
+| `dbt.compile`      | `dbt-model-compile`     | mutate      |
+| `dbt.compile-logs` | `dbt-compile-with-logs` | mutate      |
+| `dbt.parse`        | `dbt-parse-project`     | mutate      |
+| `dbt.run`          | `dbt-run-model`         | mutate      |
 
 ### Query & data read
-| CLI op | API | Side effect |
-|---|---|---|
-| `model.compiled-sql` | `data-explorer-get-compiled-sql` | read |
-| `model.query` | `data-explorer-execute-query` | read |
-| `query.execute` | `query-draft-execute` | read (`SELECT` only) |
-| `model.lineage` | `data-explorer-get-model-lineage` | read |
-| `model.reverse-lineage` | `data-explorer-get-reverse-lineage` | read |
+
+| CLI op                  | API                                 | Side effect          |
+| ----------------------- | ----------------------------------- | -------------------- |
+| `model.compiled-sql`    | `data-explorer-get-compiled-sql`    | read                 |
+| `model.query`           | `data-explorer-execute-query`       | read                 |
+| `query.execute`         | `query-draft-execute`               | read (`SELECT` only) |
+| `model.lineage`         | `data-explorer-get-model-lineage`   | read                 |
+| `model.reverse-lineage` | `data-explorer-get-reverse-lineage` | read                 |
 
 ## Cross-cutting adaptations (do once, reuse across ops)
 

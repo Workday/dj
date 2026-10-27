@@ -12,8 +12,8 @@ cover the rest of `handleApi` that is meaningful without an interactive UI, so a
 introspect a warehouse, author models **and sources**, dry-run, compile, and read data — all from
 the terminal.
 
-**Inclusion test:** an API is CLI-able when it is *payload-driven* and *returns a value or writes a
-file* — with **no dependency on an active editor, an open webview panel, or interactive UI**.
+**Inclusion test:** an API is CLI-able when it is _payload-driven_ and _returns a value or writes a
+file_ — with **no dependency on an active editor, an open webview panel, or interactive UI**.
 Excluded: `*-close-panel`, `*-open-*`, `*-ready`, `state-*` form-persistence, `dbt-get-model-info`
 and `data-explorer-detect-active-model` (active-editor bound), and `trino-set-credentials` /
 `trino-*-profile` (credential mutation — deferred on security grounds).
@@ -36,46 +36,46 @@ CLI input is always `{ "request": { … } }` on `--file` / `--json` / stdin, mir
 
 ### Tier A — Authoring (mutate / dry-run)
 
-| CLI op | API type | request | response | notes |
-|---|---|---|---|---|
-| `source.create` | `framework-source-create` | `{ projectName?, trinoCatalog, trinoSchema, trinoTable }` | `string` | **Self-sufficient** — the handler calls `trino-fetch-columns` internally (`SHOW COLUMNS`) and writes the `.source.json`; caller supplies only catalog/schema/table. Same safe write pattern as `model.create`. |
-| `model.update` | `framework-model-update` | `{ projectName?, modelJson, originalModelPath }` | `string` | Merges with existing JSON, validates, relocates on name/topic/group change, triggers sync. Needs `originalModelPath`. |
-| `model.preview` | `framework-model-preview` | `{ projectName?, modelJson }` | `{ json, sql, yaml, columns[] }` | **Read / dry-run** — generate SQL+YAML+columns without writing. The "show me before I create" op. |
-| `model.exists` | `framework-check-model-exists` | `{ projectName?, modelJson: {group,name,topic,type} }` | `{ exists, fileName, filePath }` | Cheap pre-flight guard. |
-| `model.cte-analysis` | `framework-model-cte-analysis` | `{ projectName?, modelJson }` | `{ columns{}, diagnostics[] }` | Per-CTE inferred columns + diagnostics; validates CTE authoring headlessly. |
+| CLI op               | API type                       | request                                                   | response                         | notes                                                                                                                                                                                                          |
+| -------------------- | ------------------------------ | --------------------------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `source.create`      | `framework-source-create`      | `{ projectName?, trinoCatalog, trinoSchema, trinoTable }` | `string`                         | **Self-sufficient** — the handler calls `trino-fetch-columns` internally (`SHOW COLUMNS`) and writes the `.source.json`; caller supplies only catalog/schema/table. Same safe write pattern as `model.create`. |
+| `model.update`       | `framework-model-update`       | `{ projectName?, modelJson, originalModelPath }`          | `string`                         | Merges with existing JSON, validates, relocates on name/topic/group change, triggers sync. Needs `originalModelPath`.                                                                                          |
+| `model.preview`      | `framework-model-preview`      | `{ projectName?, modelJson }`                             | `{ json, sql, yaml, columns[] }` | **Read / dry-run** — generate SQL+YAML+columns without writing. The "show me before I create" op.                                                                                                              |
+| `model.exists`       | `framework-check-model-exists` | `{ projectName?, modelJson: {group,name,topic,type} }`    | `{ exists, fileName, filePath }` | Cheap pre-flight guard.                                                                                                                                                                                        |
+| `model.cte-analysis` | `framework-model-cte-analysis` | `{ projectName?, modelJson }`                             | `{ columns{}, diagnostics[] }`   | Per-CTE inferred columns + diagnostics; validates CTE authoring headlessly.                                                                                                                                    |
 
 ### Tier B — Introspection (read)
 
-| CLI op | API type | request | response |
-|---|---|---|---|
-| `trino.catalogs` | `trino-fetch-catalogs` | `null` | `string[]` |
-| `trino.schemas` | `trino-fetch-schemas` | `{ catalog }` | `string[]` |
-| `trino.tables` | `trino-fetch-tables` | `{ catalog, schema }` | `string[]` |
-| `trino.columns` | `trino-fetch-columns` | `{ catalog, schema, table }` | `TrinoTableColumn[]` (the `SHOW COLUMNS` an agent needs before `source.create`) |
-| `dbt.projects` | `dbt-fetch-projects` | `null` | `DbtProject[]` |
-| `dbt.sources` | `dbt-fetch-sources` | `null` | `string[]` (runs `dbt list --resource-type source` — slower) |
-| `dbt.models` | `dbt-fetch-available-models` | `{ projectName }` | `string[]` |
-| `dbt.compiled-status` | `dbt-check-compiled-status` | `{ modelName, projectName }` | `{ isCompiled, compiledPath?, lastCompiled? }` |
-| `dbt.model-outdated` | `dbt-check-model-outdated` | `{ modelName, projectName }` | `{ isOutdated, hasCompiledFile, reason? }` |
+| CLI op                | API type                     | request                      | response                                                                        |
+| --------------------- | ---------------------------- | ---------------------------- | ------------------------------------------------------------------------------- |
+| `trino.catalogs`      | `trino-fetch-catalogs`       | `null`                       | `string[]`                                                                      |
+| `trino.schemas`       | `trino-fetch-schemas`        | `{ catalog }`                | `string[]`                                                                      |
+| `trino.tables`        | `trino-fetch-tables`         | `{ catalog, schema }`        | `string[]`                                                                      |
+| `trino.columns`       | `trino-fetch-columns`        | `{ catalog, schema, table }` | `TrinoTableColumn[]` (the `SHOW COLUMNS` an agent needs before `source.create`) |
+| `dbt.projects`        | `dbt-fetch-projects`         | `null`                       | `DbtProject[]`                                                                  |
+| `dbt.sources`         | `dbt-fetch-sources`          | `null`                       | `string[]` (runs `dbt list --resource-type source` — slower)                    |
+| `dbt.models`          | `dbt-fetch-available-models` | `{ projectName }`            | `string[]`                                                                      |
+| `dbt.compiled-status` | `dbt-check-compiled-status`  | `{ modelName, projectName }` | `{ isCompiled, compiledPath?, lastCompiled? }`                                  |
+| `dbt.model-outdated`  | `dbt-check-model-outdated`   | `{ modelName, projectName }` | `{ isOutdated, hasCompiledFile, reason? }`                                      |
 
 ### Tier C — dbt build (mutate; runs dbt in the container)
 
-| CLI op | API type | request | response | notes |
-|---|---|---|---|---|
-| `dbt.compile` | `dbt-model-compile` | `{ modelName, projectName }` | `{ success, message? }` | Clean success/fail. |
-| `dbt.compile-logs` | `dbt-compile-with-logs` | `{ modelName, projectName }` | `{ success }` | Same, log-emitting variant. |
-| `dbt.parse` | `dbt-parse-project` | `{ project, logger? }` | `DbtProjectManifest` | **Adaptation needed** — request wants a full `DbtProject` object and a `logger` with function callbacks (not JSON-serializable). CLI wrapper should accept `{ projectName }`, resolve the `DbtProject` from `ctx`, and drop/replace `logger` with a server-side logger. |
-| `dbt.run` | `dbt-run-model` | `{ config: DbtRunConfig }` | `null` | ⚠️ **Output-capture caveat** — runs via `executeDbtCommand` → output goes to a VS Code terminal, not stdout; returns `null`. Ship as fire-and-forget, or defer until output is redirectable. |
+| CLI op             | API type                | request                      | response                | notes                                                                                                                                                                                                                                                                   |
+| ------------------ | ----------------------- | ---------------------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dbt.compile`      | `dbt-model-compile`     | `{ modelName, projectName }` | `{ success, message? }` | Clean success/fail.                                                                                                                                                                                                                                                     |
+| `dbt.compile-logs` | `dbt-compile-with-logs` | `{ modelName, projectName }` | `{ success }`           | Same, log-emitting variant.                                                                                                                                                                                                                                             |
+| `dbt.parse`        | `dbt-parse-project`     | `{ project, logger? }`       | `DbtProjectManifest`    | **Adaptation needed** — request wants a full `DbtProject` object and a `logger` with function callbacks (not JSON-serializable). CLI wrapper should accept `{ projectName }`, resolve the `DbtProject` from `ctx`, and drop/replace `logger` with a server-side logger. |
+| `dbt.run`          | `dbt-run-model`         | `{ config: DbtRunConfig }`   | `null`                  | ⚠️ **Output-capture caveat** — runs via `executeDbtCommand` → output goes to a VS Code terminal, not stdout; returns `null`. Ship as fire-and-forget, or defer until output is redirectable.                                                                            |
 
 ### Tier D — Query & data (read; read-only SELECT policy)
 
-| CLI op | API type | request | response | notes |
-|---|---|---|---|---|
-| `model.compiled-sql` | `data-explorer-get-compiled-sql` | `{ modelName, projectName }` | `{ sql \| null, … }` | Read the compiled SQL for a model. |
-| `model.query` | `data-explorer-execute-query` | `{ modelName, projectName, limit? }` | `{ columns, rows, rowCount, executionTime? }` | Runs the **model's** compiled query (data preview). |
-| `query.execute` | `query-draft-execute` | `{ sql, limit? }` | `{ columns, rows }` | **Arbitrary SQL** — must be gated by the read-only SELECT policy in `.agents/dj/AGENTS.md` (confirm catalog/schema, never production). |
-| `model.lineage` | `data-explorer-get-model-lineage` | `{ modelName, projectName }` | `LineageData` | |
-| `model.reverse-lineage` | `data-explorer-get-reverse-lineage` | `{ kind: 'dashboard'\|'chart', slug }` | `ReverseLineageData` | |
+| CLI op                  | API type                            | request                                | response                                      | notes                                                                                                                                  |
+| ----------------------- | ----------------------------------- | -------------------------------------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `model.compiled-sql`    | `data-explorer-get-compiled-sql`    | `{ modelName, projectName }`           | `{ sql \| null, … }`                          | Read the compiled SQL for a model.                                                                                                     |
+| `model.query`           | `data-explorer-execute-query`       | `{ modelName, projectName, limit? }`   | `{ columns, rows, rowCount, executionTime? }` | Runs the **model's** compiled query (data preview).                                                                                    |
+| `query.execute`         | `query-draft-execute`               | `{ sql, limit? }`                      | `{ columns, rows }`                           | **Arbitrary SQL** — must be gated by the read-only SELECT policy in `.agents/dj/AGENTS.md` (confirm catalog/schema, never production). |
+| `model.lineage`         | `data-explorer-get-model-lineage`   | `{ modelName, projectName }`           | `LineageData`                                 |                                                                                                                                        |
+| `model.reverse-lineage` | `data-explorer-get-reverse-lineage` | `{ kind: 'dashboard'\|'chart', slug }` | `ReverseLineageData`                          |                                                                                                                                        |
 
 ### Stretch (needs an action-allowlist, not a plain passthrough)
 
@@ -101,24 +101,49 @@ CLI input is always `{ "request": { … } }` on `--file` / `--json` / stdin, mir
 
 ```ts
 // operationRegistry.ts — add alongside the existing three
-register({ name: 'source.create', sideEffect: 'mutate',
+register({
+  name: 'source.create',
+  sideEffect: 'mutate',
   handler: async (input, ctx) => {
-    const request = readRequest(input); resolveProjectName(request, ctx);
-    return { ok: true, response: await ctx.api.handleApi({ type:'framework-source-create', request }) };
-  }});
-register({ name: 'model.preview', sideEffect: 'read',
+    const request = readRequest(input);
+    resolveProjectName(request, ctx);
+    return {
+      ok: true,
+      response: await ctx.api.handleApi({
+        type: 'framework-source-create',
+        request,
+      }),
+    };
+  },
+});
+register({
+  name: 'model.preview',
+  sideEffect: 'read',
   handler: async (input, ctx) => {
-    const request = readRequest(input); resolveProjectName(request, ctx);
-    return await ctx.api.handleApi({ type:'framework-model-preview', request });
-  }});
-register({ name: 'trino.columns', sideEffect: 'read',
-  handler: (input, ctx) => ctx.api.handleApi({ type:'trino-fetch-columns', request: readRequest(input) }) });
+    const request = readRequest(input);
+    resolveProjectName(request, ctx);
+    return await ctx.api.handleApi({
+      type: 'framework-model-preview',
+      request,
+    });
+  },
+});
+register({
+  name: 'trino.columns',
+  sideEffect: 'read',
+  handler: (input, ctx) =>
+    ctx.api.handleApi({
+      type: 'trino-fetch-columns',
+      request: readRequest(input),
+    }),
+});
 // …one entry per row above. Reads that take `null` request pass `request: null`.
 ```
 
 ## Testing (extends the shipped smoke suite)
 
 Run against the live `my_project` workspace (`projectName: "my_project"`):
+
 - `.dj/bin/dj system.capabilities` lists every new op with the right `sideEffect`.
 - **Read round-trips:** `trino.catalogs`, `trino.schemas --json '{"request":{"catalog":"…"}}'`,
   `trino.columns` for a known table, `dbt.projects`, `dbt.models`, `dbt.compiled-status`.
