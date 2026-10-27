@@ -43,23 +43,6 @@
 
 - **Dependency upgrades for Snyk findings.** Bumps `fast-uri` and `brace-expansion` to patched versions that address reported URI-parsing, ReDoS, and uncontrolled-recursion vulnerabilities.
 
-### Python models
-
-- **Project defaults for python-model skills.** Commit `.agents/project/skills/<skill-name>/project-defaults.md` in your dbt project so `dj-create-python-model`, `dj-review-python-model`, and `dj-migrate-notebook-to-pymodel` pick up your catalog, schema, authoring mode, and migration rules in Step 0 — without forking DJ skill files. Example templates live in the DJ repo under `templates/_agents-project/skills/` (not deployed). DJ never overwrites `.agents/project/`.
-- **Declare upstream lineage in `.python.json`.** Add `"upstream_sources": [{ "type": "trino"|"external", "value": "..." }]` on any Python model; DJ auto-suggests trino entries from `depends_on` on JSON sync when omitted. After each successful Airflow or KPO run, DJ writes `python_model_name` and the structured `python_model_upstream_sources` property to the output Iceberg table — no manual `ALTER TABLE` in your `.python.py`.
-- **Model Lineage walks the full Python chain.** When a downstream dbt model sources a Python output table, Data Explorer recursively reads each upstream table's Iceberg properties until it reaches roots (external sources or tables with no further upstream), so a chain like D → C → B, A renders in one view.
-- **Cleaner lineage for Python models.** Python models now show their real upstream sources in the lineage graph, without the extra placeholder node that used to appear.
-- **Model Lineage distinguishes external vs Trino upstream nodes.** External sources (`s3::`, API, Jenkins) and Trino table refs render with distinct badges in the lineage graph.
-- **One Airflow task per KPO Python model.** Models with `compute: kpo` appear as a single task named after the model (e.g. `kpo_infra`), not separate gate/KPO steps — DJ runs gating and the pod inside that task.
-- **KPO runs write Iceberg lineage properties.** Post-run `python_model_*` table properties (including `python_model_upstream_sources`) are applied after successful KPO tasks, not only MWAA worker runs.
-- **`_trino_io` pandas helpers for python-path models.** Use `read_partition_to_dataframe` and `overwrite_partition_from_dataframe` when you choose a pandas orchestrator; existing SQL helpers are unchanged.
-
-### Create Python Model
-
-- **Group options match your project.** The Create Python Model form now lists the groups from the project you've selected, and refreshes when you switch projects.
-- **Fix: creating a Python model works reliably.** Creating a Python model and loading its DAG and group options now work as expected.
-- **Faster, clearer DAG selection.** Select DAG shows a loading state while options load; **`source_etl`** is omitted from the list because DJ manages that DAG via its generated template; creating a model no longer prompts to modify the selected DAG — task wiring is applied automatically.
-
 ## 2.3.0
 
 ### Framework
@@ -75,10 +58,6 @@
 ### UX improvements
 
 - **Fix: Model Lineage opens the correct view on first use.** Opening Model Lineage from a model `.sql`, `.model.json`, or `.yml` file (context menu, editor title, or `Cmd+Shift+L`) now shows the model lineage graph in Data Explorer instead of Column Lineage the first time the panel opens.
-
-### Python models
-
-- **KPO compute is the default for new Python models.** Create Python Model lets you pick **Compute** (`kpo` or legacy `airflow` worker) and, for KPO, a **Pod size** (`small` through `xlarge`) with vCPU, memory, and workload guidance from `dags/_ext_/kpo_sizes.yml`. DJ ships `kpo_factory.py` and that YAML alongside `etl_helper.py`; set Airflow Variables `airflow_runner_cfg` (image/cluster) and `python_models_s3_bucket` (KPO S3 sync). Scaffolded `.python.py` files include `if __name__ == "__main__"`; Airflow and KPO both execute the script as `__main__` (not a fixed `run_etl` import). Until your KPO pipeline is ready, set `"compute": "airflow"` on existing models.
 
 ### Agent skills
 
