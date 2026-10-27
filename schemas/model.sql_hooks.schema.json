@@ -20,7 +20,7 @@
       ]
     },
     "pre": {
-      "description": "Statement(s) to run before model",
+      "description": "Statement(s) to run before the model. Omit to use DJ's incremental session pre-hook. null disables that hook. A string or array replaces it.",
       "anyOf": [
         {
           "type": "string"
@@ -31,6 +31,9 @@
           "items": {
             "type": "string"
           }
+        },
+        {
+          "type": "null"
         }
       ]
     }

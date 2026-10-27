@@ -54,26 +54,7 @@
         {
           "type": "array",
           "items": {
-            "enum": [
-              "DAY",
-              "DAY_OF_WEEK_INDEX",
-              "DAY_OF_WEEK_NAME",
-              "DAY_OF_MONTH_NUM",
-              "DAY_OF_YEAR_NUM",
-              "HOUR",
-              "MONTH",
-              "MONTH_NAME",
-              "MONTH_NUM",
-              "QUARTER",
-              "QUARTER_NAME",
-              "QUARTER_NUM",
-              "RAW",
-              "WEEK",
-              "WEEK_NUM",
-              "YEAR",
-              "YEAR_NUM"
-            ],
-            "type": "string"
+            "$ref": "lightdash.time_interval.schema.json"
           }
         }
       ]

@@ -20,7 +20,12 @@ describe('requestShape', () => {
   it('assertModelExistsPayload requires identity fields on modelJson', () => {
     expect(() =>
       assertModelExistsPayload({
-        modelJson: { type: 'stg_select_source', group: 'g', topic: 't', name: 'n' },
+        modelJson: {
+          type: 'stg_select_source',
+          group: 'g',
+          topic: 't',
+          name: 'n',
+        },
       }),
     ).not.toThrow();
     expect(() =>

@@ -34,7 +34,7 @@ export type DbtApi =
       request: null;
       response: string[];
     }
-    | {
+  | {
       type: 'dbt-fetch-available-models';
       service: 'dbt';
       request: {

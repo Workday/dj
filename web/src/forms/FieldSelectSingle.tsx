@@ -7,6 +7,7 @@ export type FieldSelectSingleProps = ControllerRenderProps & {
   label?: string;
   options: { label: string; value: string }[];
   tooltipText?: string;
+  placeholder?: string;
   className?: string;
   inputClassName?: string;
   labelClass?: string;

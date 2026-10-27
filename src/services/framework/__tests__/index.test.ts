@@ -618,6 +618,49 @@ describe('materialization shorthand', () => {
 
     expect(config.materialized).toBe('incremental');
     expect(config.incremental_strategy).toBe('delete+insert');
+    expect(config.pre_hook).toContain('iterative_optimizer_timeout');
+  });
+
+  test('sql_hooks.pre null omits the incremental session pre-hook', () => {
+    const modelJson: FrameworkModel = {
+      type: 'int_select_model',
+      group: 'sales',
+      topic: 'orders',
+      name: 'enriched',
+      materialization: 'incremental',
+      sql_hooks: { pre: null },
+      select: [{ model: 'model_a', columns: ['dim_a'] }],
+      from: { model: 'model_a' },
+    } as unknown as FrameworkModel;
+
+    const { config } = frameworkGenerateModelOutput({
+      dj: { config: {} },
+      modelJson,
+      project,
+    });
+
+    expect(config.pre_hook).toBeUndefined();
+  });
+
+  test('an authored sql_hooks.pre replaces the session pre-hook', () => {
+    const modelJson: FrameworkModel = {
+      type: 'int_select_model',
+      group: 'sales',
+      topic: 'orders',
+      name: 'enriched',
+      materialization: 'incremental',
+      sql_hooks: { pre: 'select 1' },
+      select: [{ model: 'model_a', columns: ['dim_a'] }],
+      from: { model: 'model_a' },
+    } as unknown as FrameworkModel;
+
+    const { config } = frameworkGenerateModelOutput({
+      dj: { config: {} },
+      modelJson,
+      project,
+    });
+
+    expect(config.pre_hook).toBe('select 1');
   });
 
   test('"materialization": "incremental" respects config override to merge', () => {

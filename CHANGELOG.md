@@ -6,6 +6,14 @@
 
 - **MWAA worker is the default compute.** New `.python.json` files omit `compute` (Create Python Model defaults to Airflow worker). Set `"compute": "kpo"` and optional `kpo_size` to run on Kubernetes; pod presets remain in `dags/_ext_/kpo_sizes.yml`.
 
+### Model Wizard
+
+- **Create and edit models with `materialization` instead of deprecated top-level fields.** The wizard writes `materialization` (string or nested strategy/partitions) rather than `materialized`, `incremental_strategy`, and `partitioned_by`. Saving an edit removes those legacy keys from the file. jaffle_shop examples use the new shape.
+
+### Framework
+
+- **Dynamic Lightdash custom granularities and expanded time intervals.** Custom time granularities defined in `lightdash.config.yml` (under `custom_granularities`) are dynamically discovered and loaded into model schemas and editor autocomplete. Built-in time intervals also now include `MINUTE`, `SECOND`, and `MILLISECOND`.
+
 ## 2.4.0
 
 ### Agent / CLI

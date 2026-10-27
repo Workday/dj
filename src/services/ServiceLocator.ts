@@ -153,6 +153,7 @@ export const SERVICE_NAMES = {
   ColumnLineage: 'columnLineage',
   QueryDraft: 'queryDraft',
   QueryPreview: 'queryPreview',
+  ModelingFramework: 'modelingFramework',
 
   // API Layer
   Api: 'api',

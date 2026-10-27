@@ -28,7 +28,9 @@ LIMIT ${limit}`,
     }
     case 'utilization_band': {
       const relation =
-        typeof params.relation === 'string' ? params.relation : 'compiled_model_subquery';
+        typeof params.relation === 'string'
+          ? params.relation
+          : 'compiled_model_subquery';
       const limit = Number(params.limit ?? 100);
       return {
         description: 'Utilization percentage band check (0–100%).',
@@ -41,7 +43,9 @@ LIMIT ${limit}`,
     }
     case 'recent_partition_window': {
       const relation =
-        typeof params.relation === 'string' ? params.relation : 'compiled_model_subquery';
+        typeof params.relation === 'string'
+          ? params.relation
+          : 'compiled_model_subquery';
       const days = Number(params.days ?? 7);
       const limit = Number(params.limit ?? 500);
       return {

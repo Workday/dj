@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, jest, test } from '@jest/globals';
+import {
+  DEFAULT_INCREMENTAL_PRE_HOOK,
+  DEFAULT_INCREMENTAL_STRATEGY,
+} from '@shared/framework/constants';
 
 jest.mock('../../utils/stateSync', () => ({
   stateSync: {
@@ -131,6 +135,145 @@ describe('useModelStore round-trip (loadInitialData -> buildModelJson)', () => {
       type: 'dims_from_model',
       model: 'stg__capeng__swh__oms_task_stats',
       include: ['region', 'status'],
+    });
+  });
+
+  test('emits materialization instead of deprecated materialized', () => {
+    useModelStore.getState().loadInitialData({
+      name: 'oms_task_stats',
+      group: 'capeng',
+      topic: 'swh',
+      projectName: 'capeng',
+      type: 'int_select_model',
+      materialization: 'ephemeral',
+      from: { model: 'stg__capeng__swh__oms_task_stats' },
+    } as never);
+
+    const out = useModelStore.getState().buildModelJson() as Record<
+      string,
+      unknown
+    >;
+    expect(out.materialization).toBe('ephemeral');
+    expect(out).not.toHaveProperty('materialized');
+  });
+
+  test('legacy incremental without a strategy does not gain defaults', () => {
+    useModelStore.getState().setMode('edit');
+    useModelStore.getState().loadInitialData({
+      name: 'oms_task_stats',
+      group: 'capeng',
+      topic: 'swh',
+      projectName: 'capeng',
+      type: 'int_select_model',
+      materialized: 'incremental',
+      from: { model: 'stg__capeng__swh__oms_task_stats' },
+    } as never);
+
+    const out = useModelStore.getState().buildModelJson() as Record<
+      string,
+      unknown
+    >;
+    expect(out.materialization).toBe('incremental');
+    expect(out).not.toHaveProperty('sql_hooks');
+    expect(out).not.toHaveProperty('incremental_strategy');
+  });
+
+  test('omits the generated session pre-hook and keeps an explicit opt-out', () => {
+    useModelStore.getState().loadInitialData({
+      name: 'oms_task_stats',
+      group: 'capeng',
+      topic: 'swh',
+      projectName: 'capeng',
+      type: 'int_select_model',
+      materialization: 'incremental',
+      sql_hooks: { pre: DEFAULT_INCREMENTAL_PRE_HOOK },
+      from: { model: 'stg__capeng__swh__oms_task_stats' },
+    } as never);
+
+    const withDefault = useModelStore.getState().buildModelJson() as Record<
+      string,
+      unknown
+    >;
+    expect(withDefault).not.toHaveProperty('sql_hooks');
+
+    useModelStore.getState().setAdditionalField('sql_hooks', { pre: null });
+    const optedOut = useModelStore.getState().buildModelJson() as Record<
+      string,
+      unknown
+    >;
+    expect(optedOut.sql_hooks).toEqual({ pre: null });
+  });
+
+  test('create mode preselects the default incremental strategy', () => {
+    useModelStore.getState().setMode('create');
+    useModelStore.getState().setBasicField('materialization', 'incremental');
+    expect(
+      useModelStore.getState().additionalFields.incremental_strategy,
+    ).toEqual({ type: DEFAULT_INCREMENTAL_STRATEGY });
+  });
+
+  test('edit mode does not preselect a strategy when materialization changes', () => {
+    useModelStore.getState().setMode('edit');
+    useModelStore.getState().setBasicField('materialization', 'incremental');
+    expect(
+      useModelStore.getState().additionalFields.incremental_strategy,
+    ).toBeUndefined();
+    expect(useModelStore.getState().additionalFields.sql_hooks).toBeUndefined();
+  });
+
+  test('migrates legacy flat fields into materialization object', () => {
+    useModelStore.getState().loadInitialData({
+      name: 'oms_task_stats',
+      group: 'capeng',
+      topic: 'swh',
+      projectName: 'capeng',
+      type: 'int_select_model',
+      materialized: 'incremental',
+      incremental_strategy: { type: 'delete+insert' },
+      partitioned_by: ['portal_partition_daily'],
+      from: { model: 'stg__capeng__swh__oms_task_stats' },
+    } as never);
+
+    const out = useModelStore.getState().buildModelJson() as Record<
+      string,
+      unknown
+    >;
+    expect(out.materialization).toEqual({
+      type: 'incremental',
+      strategy: { type: 'delete+insert' },
+      partitions: ['portal_partition_daily'],
+    });
+    expect(out).not.toHaveProperty('incremental_strategy');
+    expect(out).not.toHaveProperty('partitioned_by');
+  });
+
+  test('preserves materialization extras when rebuilding', () => {
+    useModelStore.getState().loadInitialData({
+      name: 'oms_task_stats',
+      group: 'capeng',
+      topic: 'swh',
+      projectName: 'capeng',
+      type: 'int_select_model',
+      materialization: {
+        type: 'incremental',
+        format: 'iceberg',
+        strategy: { type: 'append' },
+      },
+      from: { model: 'stg__capeng__swh__oms_task_stats' },
+    } as never);
+
+    useModelStore.getState().setAdditionalField('incremental_strategy', {
+      type: 'delete+insert',
+    });
+
+    const out = useModelStore.getState().buildModelJson() as Record<
+      string,
+      unknown
+    >;
+    expect(out.materialization).toMatchObject({
+      type: 'incremental',
+      format: 'iceberg',
+      strategy: { type: 'delete+insert' },
     });
   });
 

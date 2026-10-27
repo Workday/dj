@@ -11,7 +11,7 @@ export const joinModelDemoData: DemoData = {
   type: 'int_join_models',
   group: 'sales',
   topic: 'orders',
-  materialized: 'incremental' as const,
+  materialization: 'incremental' as const,
 
   // Data Modeling - from with join
   from: {

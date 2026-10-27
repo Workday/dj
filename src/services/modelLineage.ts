@@ -40,12 +40,7 @@ export class ModelLineage {
       switch (payload.type) {
         case 'data-explorer-get-model-lineage': {
           try {
-            const {
-              modelName,
-              projectName,
-              depth,
-              maxNodes,
-            } = payload.request;
+            const { modelName, projectName, depth, maxNodes } = payload.request;
             this.coder.log.info(
               `Fetching lineage for model: ${modelName} in project: ${projectName}`,
             );
@@ -1011,7 +1006,11 @@ export class ModelLineage {
       `[executeModelQuery] Using compiled SQL from: ${compiledPath}`,
     );
 
-    const schemaColumns = this.getSchemaColumnNames(project, modelName, projectName);
+    const schemaColumns = this.getSchemaColumnNames(
+      project,
+      modelName,
+      projectName,
+    );
 
     let queryWithLimit = compiledSql.trim();
     if (opts.aggregations) {
@@ -1044,7 +1043,7 @@ export class ModelLineage {
       };
     }
 
-    let columns = Object.keys(rawResults[0]);
+    const columns = Object.keys(rawResults[0]);
     const rows = rawResults.map((row) => columns.map((col) => row[col]));
     return { columns, schemaColumns, rows, rowCount: rows.length };
   }

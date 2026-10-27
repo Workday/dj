@@ -42,6 +42,10 @@ import { getHtml } from '@services/webview/utils';
 import { assertExhaustive, jsonParse } from '@shared';
 import type { ApiPayload, ApiResponse } from '@shared/api/types';
 import { apiResponse } from '@shared/api/utils';
+import {
+  buildModelSummariesForProject,
+  matchesModelSearchFilters,
+} from '@shared/dbt/modelCatalogSearch';
 import type {
   DbtModel,
   DbtProject,
@@ -55,10 +59,6 @@ import {
   getDbtModelId,
   getDbtProjectProperties,
 } from '@shared/dbt/utils';
-import {
-  buildModelSummariesForProject,
-  matchesModelSearchFilters,
-} from '@shared/dbt/modelCatalogSearch';
 import { PARTITION_DAILY } from '@shared/framework/constants';
 import type { FrameworkSchemaBase } from '@shared/framework/types';
 import type { TreeData, TreeItem } from 'admin';
@@ -1709,6 +1709,20 @@ ${macro.macro_sql}`;
 
     this.log.info('SETTING PROJECT');
     this.projects.set(project.name, project);
+
+    // Load modeling framework config (e.g. Lightdash custom granularities)
+    if (this.coder?.modelingFramework) {
+      try {
+        await this.coder.modelingFramework.loadProjectConfig(pathSystem, 'dbt');
+        await this.coder.modelingFramework.applyTimeIntervalsSchema(
+          DJ_SCHEMAS_PATH,
+          (intervals) =>
+            this.coder.framework?.refreshTimeIntervalsSchema(intervals),
+        );
+      } catch (err: unknown) {
+        this.log.warn('Failed to load modeling framework config:', err);
+      }
+    }
 
     // Write the dags contributed by the extension so they'll be available for airflow
     await this.writeAirflowDags();

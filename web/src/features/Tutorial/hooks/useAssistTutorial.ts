@@ -82,7 +82,7 @@ export function useAssistTutorial({
     modelState.source,
     modelState.type,
     modelState.group,
-    modelState.materialized,
+    modelState.materialization,
     modelState.fromModel,
     modelState.fromSource,
     modelState.hasJoins,

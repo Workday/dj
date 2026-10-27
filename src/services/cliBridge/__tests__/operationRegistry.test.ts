@@ -63,9 +63,7 @@ describe('operationRegistry — read tier', () => {
     const { ctx, calls } = makeCtx();
     const input = { catalog: 'c', schema: 's', table: 't' };
     await dispatch(reg, 'trino.columns', input, ctx);
-    expect(calls).toEqual([
-      { type: 'trino-fetch-columns', request: input },
-    ]);
+    expect(calls).toEqual([{ type: 'trino-fetch-columns', request: input }]);
   });
 
   it('accepts an explicit { request } envelope as an escape hatch', async () => {
@@ -82,14 +80,22 @@ describe('operationRegistry — read tier', () => {
     const { ctx, calls } = makeCtx(['analytics']);
     await dispatch(reg, 'dbt.models', null, ctx);
     expect(calls).toEqual([
-      { type: 'dbt-fetch-available-models', request: { projectName: 'analytics' } },
+      {
+        type: 'dbt-fetch-available-models',
+        request: { projectName: 'analytics' },
+      },
     ]);
   });
 
   it('honors an explicit projectName when provided', async () => {
     const reg = createOperationRegistry();
     const { ctx, calls } = makeCtx(['a', 'b']);
-    await dispatch(reg, 'dbt.compiled-status', { modelName: 'm', projectName: 'b' }, ctx);
+    await dispatch(
+      reg,
+      'dbt.compiled-status',
+      { modelName: 'm', projectName: 'b' },
+      ctx,
+    );
     expect(calls).toEqual([
       {
         type: 'dbt-check-compiled-status',
@@ -139,7 +145,9 @@ describe('operationRegistry — dispatch + capabilities', () => {
       operations: Array<{ name: string; sideEffect: string }>;
     };
     const names = result.operations.map((o) => o.name);
-    expect(names).toEqual(expect.arrayContaining(['dbt.models', 'trino.columns', 'model.create']));
+    expect(names).toEqual(
+      expect.arrayContaining(['dbt.models', 'trino.columns', 'model.create']),
+    );
     expect(result.operations.length).toBe(Object.keys(reg).length);
   });
 
@@ -178,7 +186,9 @@ describe('operationRegistry — dispatch + capabilities', () => {
     )) as { ok: boolean };
     expect(res.ok).toBe(true);
     expect(calls[0].type).toBe('framework-model-create');
-    expect((calls[0].request as { projectName: string }).projectName).toBe('analytics');
+    expect((calls[0].request as { projectName: string }).projectName).toBe(
+      'analytics',
+    );
   });
 });
 
@@ -192,7 +202,11 @@ describe('operationRegistry — authoring tier', () => {
 
   it('registers authoring read ops with sideEffect read', () => {
     const reg = createOperationRegistry();
-    for (const name of ['model.preview', 'model.exists', 'model.cte-analysis']) {
+    for (const name of [
+      'model.preview',
+      'model.exists',
+      'model.cte-analysis',
+    ]) {
       expect(reg[name].sideEffect).toBe('read');
     }
   });
@@ -236,9 +250,9 @@ describe('operationRegistry — authoring tier', () => {
       ctx,
     );
     expect(calls[0].type).toBe('framework-model-preview');
-    expect((calls[0].request as { modelJson: { name: string } }).modelJson.name).toBe(
-      'customers',
-    );
+    expect(
+      (calls[0].request as { modelJson: { name: string } }).modelJson.name,
+    ).toBe('customers');
   });
 
   it('model.preview auto-wraps flat create-style payload', async () => {
@@ -265,12 +279,17 @@ describe('operationRegistry — authoring tier', () => {
     const reg = createOperationRegistry();
     const { ctx } = makeCtx(['analytics']);
     await expect(
-      dispatch(reg, 'model.exists', {
-        type: 'int_select_model',
-        group: 'ibp',
-        topic: 'savings_tracker',
-        name: 'program_savings_monthly',
-      }, ctx),
+      dispatch(
+        reg,
+        'model.exists',
+        {
+          type: 'int_select_model',
+          group: 'ibp',
+          topic: 'savings_tracker',
+          name: 'program_savings_monthly',
+        },
+        ctx,
+      ),
     ).rejects.toThrow(/modelJson/);
   });
 
@@ -300,15 +319,20 @@ describe('operationRegistry — authoring tier', () => {
     const reg = createOperationRegistry();
     const { ctx } = makeCtx(['analytics']);
     await expect(
-      dispatch(reg, 'model.update', {
-        type: 'int_select_model',
-        group: 'ibp',
-        topic: 'savings_tracker',
-        name: 'tenant_cost_monthly_review',
-        modelName: 'int__ibp__savings_tracker__tenant_cost_monthly_review',
-        from: { model: 'stg__x' },
-        select: ['id'],
-      }, ctx),
+      dispatch(
+        reg,
+        'model.update',
+        {
+          type: 'int_select_model',
+          group: 'ibp',
+          topic: 'savings_tracker',
+          name: 'tenant_cost_monthly_review',
+          modelName: 'int__ibp__savings_tracker__tenant_cost_monthly_review',
+          from: { model: 'stg__x' },
+          select: ['id'],
+        },
+        ctx,
+      ),
     ).rejects.toThrow(/originalModelPath/);
   });
 
@@ -325,7 +349,8 @@ describe('operationRegistry — authoring tier', () => {
       reg,
       'model.update',
       {
-        originalModelPath: '/tmp/int__ibp__savings_tracker__tenant_cost_monthly_review.model.json',
+        originalModelPath:
+          '/tmp/int__ibp__savings_tracker__tenant_cost_monthly_review.model.json',
         modelJson,
       },
       ctx,
@@ -343,7 +368,12 @@ describe('operationRegistry — authoring tier', () => {
 describe('operationRegistry — mutate tier', () => {
   it('registers dbt mutate ops as mutate', () => {
     const reg = createOperationRegistry();
-    for (const name of ['dbt.compile', 'dbt.compile-logs', 'dbt.parse', 'dbt.run']) {
+    for (const name of [
+      'dbt.compile',
+      'dbt.compile-logs',
+      'dbt.parse',
+      'dbt.run',
+    ]) {
       expect(reg[name].sideEffect).toBe('mutate');
     }
   });
@@ -422,7 +452,12 @@ describe('operationRegistry — query & data read tier', () => {
   it('model.reverse-lineage forwards the flat { kind, slug } payload', async () => {
     const reg = createOperationRegistry();
     const { ctx, calls } = makeCtx();
-    await dispatch(reg, 'model.reverse-lineage', { kind: 'chart', slug: 's' }, ctx);
+    await dispatch(
+      reg,
+      'model.reverse-lineage',
+      { kind: 'chart', slug: 's' },
+      ctx,
+    );
     expect(calls).toEqual([
       {
         type: 'data-explorer-get-reverse-lineage',
@@ -446,7 +481,12 @@ describe('operationRegistry — query & data read tier', () => {
   it('query.execute allows WITH / SHOW / a leading comment', async () => {
     const reg = createOperationRegistry();
     const { ctx, calls } = makeCtx();
-    await dispatch(reg, 'query.execute', { sql: 'with t as (select 1) select * from t' }, ctx);
+    await dispatch(
+      reg,
+      'query.execute',
+      { sql: 'with t as (select 1) select * from t' },
+      ctx,
+    );
     await dispatch(reg, 'query.execute', { sql: 'SHOW TABLES' }, ctx);
     await dispatch(reg, 'query.execute', { sql: '-- note\nselect 1' }, ctx);
     expect(calls).toHaveLength(3);
@@ -480,7 +520,12 @@ describe('operationRegistry — query & data read tier', () => {
     const reg = createOperationRegistry();
     const { ctx } = makeCtx();
     await expect(
-      dispatch(reg, 'query.execute', { sql: '/* select */ delete from t' }, ctx),
+      dispatch(
+        reg,
+        'query.execute',
+        { sql: '/* select */ delete from t' },
+        ctx,
+      ),
     ).rejects.toThrow(/read-only SELECT/);
   });
 });
