@@ -2,7 +2,6 @@ import type { DJ } from '@shared';
 import type { DbtProject } from '@shared/dbt/types';
 
 export const mockConfig: any = {
-  aiHintTag: 'ai',
   airflowGenerateDags: false,
   dbtMacroPath: '_ext_',
   airflowDagsPath: 'dags/_ext_',
