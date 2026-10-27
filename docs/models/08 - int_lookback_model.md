@@ -79,7 +79,7 @@ Let's create a model that analyzes store performance over rolling 7-day windows 
   "group": "sales",
   "topic": "stores",
   "name": "store_7day_performance",
-  "materialized": "incremental",
+  "materialization": "incremental",
   "from": {
     "model": "stg__sales__orders__enriched_orders",
     "lookback": {
@@ -193,7 +193,7 @@ Let's create a more complex example that analyzes customer behavior patterns ove
   "group": "customers",
   "topic": "behavior",
   "name": "customer_30day_insights",
-  "materialized": "incremental",
+  "materialization": "incremental",
   "from": {
     "model": "int__customers__profiles__summary",
     "lookback": {

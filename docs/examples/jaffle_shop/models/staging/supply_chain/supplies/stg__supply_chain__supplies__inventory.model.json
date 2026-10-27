@@ -30,7 +30,25 @@
             "name": "cost_dollars",
             "expr": "CAST(cost AS DECIMAL(10,2)) / 100.0",
             "type": "fct",
-            "description": "Supply cost in dollars"
+            "description": "Supply cost in dollars",
+            "lightdash": {
+                "metrics": [
+                    {
+                        "name": "metric_supply_cost_total",
+                        "type": "sum",
+                        "group_label": "Supply Chain Metrics",
+                        "label": "Total Supply Cost",
+                        "ai_hint": "Use this to calculate total supply chain costs and analyze cost of goods sold (COGS)"
+                    },
+                    {
+                        "name": "metric_supply_cost_average",
+                        "type": "average",
+                        "group_label": "Supply Chain Metrics",
+                        "label": "Average Supply Cost",
+                        "ai_hint": "Use this to understand average cost per supply item for inventory management"
+                    }
+                ]
+            }
         },
         {
             "name": "is_perishable",

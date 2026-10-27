@@ -6,13 +6,13 @@ Project-specific values live in a **project-owned layer** that DJ never overwrit
 
 ## What lives where
 
-| Layer | Location | DJ Refresh |
-| ----- | -------- | ---------- |
-| Generic workflows | `templates/skills/dj-*` → `.agents/skills/dj-*` | Overwrites |
-| Framework hub | `templates/_agents-dj` → `.agents/dj/` | Overwrites |
-| **Project defaults** | `.agents/project/skills/<skill-name>/project-defaults.md` | **Never touched** |
-| Copy-paste starters (DJ repo only) | `templates/_agents-project/skills/*/project-defaults.example.md` | Not deployed |
-| CLI binary | `.dj/bin/dj` | Redeployed on activation |
+| Layer                              | Location                                                         | DJ Refresh               |
+| ---------------------------------- | ---------------------------------------------------------------- | ------------------------ |
+| Generic workflows                  | `templates/skills/dj-*` → `.agents/skills/dj-*`                  | Overwrites               |
+| Framework hub                      | `templates/_agents-dj` → `.agents/dj/`                           | Overwrites               |
+| **Project defaults**               | `.agents/project/skills/<skill-name>/project-defaults.md`        | **Never touched**        |
+| Copy-paste starters (DJ repo only) | `templates/_agents-project/skills/*/project-defaults.example.md` | Not deployed             |
+| CLI binary                         | `.dj/bin/dj`                                                     | Redeployed on activation |
 
 Some repos also commit **project-only** skills (for example custom `dbt-*` skills) under `.agents/skills/` — those are unrelated to DJ's `dj-*` templates.
 

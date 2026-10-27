@@ -995,6 +995,7 @@
     "lint:fix:all": "npm run lint:fix && npm run lint:fix:web",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,md}\" \"web/src/**/*.{ts,tsx,js,jsx,json,css}\" \"schemas/*.json\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,json,md}\" \"web/src/**/*.{ts,tsx,js,jsx,json,css}\" \"schemas/*.json\"",
+    "format:docs": "prettier --write \"docs/**/*.{json,md,mdx}\"",
     "fixtures:update": "npx tsx tests/update-fixtures.ts",
     "package": "vsce package",
     "schema": "npx rimraf src/shared/schema/types && cd schemas && npx json2ts -i '*.schema.json' -o ../src/shared/schema/types --strictIndexSignatures && cd ../ && npm run format",

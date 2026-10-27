@@ -79,7 +79,7 @@ Let's create a realistic example where order items are stored as JSON objects an
   "group": "sales",
   "topic": "orders",
   "name": "order_items_detailed",
-  "materialized": "ephemeral",
+  "materialization": "ephemeral",
   "from": {
     "model": "stg__sales__orders__enriched_orders",
     "join": {
@@ -185,7 +185,7 @@ Let's create a more complex example where customer preferences are stored as nes
   "group": "customers",
   "topic": "preferences",
   "name": "dietary_preferences_unnested",
-  "materialized": "ephemeral",
+  "materialization": "ephemeral",
   "from": {
     "model": "int__customers__profiles__summary",
     "join": {

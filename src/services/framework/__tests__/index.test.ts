@@ -55,6 +55,90 @@ describe('framework fixtures', () => {
   });
 });
 
+describe('dj.aiHintTag', () => {
+  const pathRelative = '../../../../tests/fixtures';
+  const pathSystem = path.join(__dirname, pathRelative);
+  const projectManifest = jsonParse(
+    fs.readFileSync(path.join(pathSystem, 'manifest.json'), 'utf8'),
+  );
+
+  const project: DbtProject = {
+    macroPaths: ['macros'],
+    manifest: projectManifest,
+    modelPaths: ['models'],
+    name: projectManifest.metadata.project_name,
+    pathRelative,
+    pathSystem,
+    properties: { vars: { event_dates: '2024-01-01' } },
+    targetPath: 'target',
+  };
+
+  const supplyInventoryModel = jsonParse(
+    fs.readFileSync(
+      path.join(
+        pathSystem,
+        'stg__supply_chain__supplies__inventory.model.json',
+      ),
+      'utf8',
+    ),
+  ) as FrameworkModel;
+
+  const revenueMartModel = jsonParse(
+    fs.readFileSync(
+      path.join(pathSystem, 'mart__sales__reporting__revenue.model.json'),
+      'utf8',
+    ),
+  ) as FrameworkModel;
+
+  function metricTags(
+    properties: ReturnType<typeof frameworkGenerateModelOutput>['properties'],
+    columnName: string,
+    metricName: string,
+  ): string[] | undefined {
+    const column = properties.columns?.find((c) => c.name === columnName);
+    const metrics = column?.meta?.metrics as
+      | Record<string, { tags?: string[] }>
+      | undefined;
+    return metrics?.[metricName]?.tags;
+  }
+
+  test('does not add metric tags when dj.aiHintTag is unset', () => {
+    const { properties } = frameworkGenerateModelOutput({
+      dj: { config: {} },
+      modelJson: supplyInventoryModel,
+      project,
+    });
+
+    expect(
+      metricTags(properties, 'cost_dollars', 'metric_supply_cost_total'),
+    ).toBeUndefined();
+  });
+
+  test('adds metric tags on authored column metrics when dj.aiHintTag is set', () => {
+    const { properties } = frameworkGenerateModelOutput({
+      dj: { config: { aiHintTag: 'ai' } },
+      modelJson: supplyInventoryModel,
+      project,
+    });
+
+    expect(
+      metricTags(properties, 'cost_dollars', 'metric_supply_cost_total'),
+    ).toEqual(['ai']);
+  });
+
+  test('adds metric tags on inherited column metrics when dj.aiHintTag is set', () => {
+    const { properties } = frameworkGenerateModelOutput({
+      dj: { config: { aiHintTag: 'ai' } },
+      modelJson: revenueMartModel,
+      project,
+    });
+
+    expect(metricTags(properties, 'order_id', 'metric_order_count')).toEqual([
+      'ai',
+    ]);
+  });
+});
+
 describe('framework unit tests', () => {
   const project: DbtProject = {
     name: 'project',

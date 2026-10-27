@@ -50,7 +50,7 @@ When you create a source, DJ connects to Trino to browse catalogs and retrieve t
 - ✅ Automatic validation that table exists
 - ✅ Complete source definition in seconds
 
-**Example:** `DJ: Create Source` → Project: `jaffle_shop_lightdash` → Catalog: `memory` → Schema: `default` → Table: `raw_orders` → Columns auto-populate → Configure source naming → Creates [raw_orders.source.json](../examples/jaffle_shop/models/sources/raw_orders.source.json) with all columns and types.
+**Example:** `DJ: Create Source` → Project: `jaffle_shop` → Catalog: `memory` → Schema: `default` → Table: `raw_orders` → Columns auto-populate → Configure source naming → Creates [development\_\_jaffle_shop_dev_seeds.source.json](../examples/jaffle_shop/models/sources/development/development__jaffle_shop_dev_seeds.source.json) with all columns and types.
 
 ## Query Engine Monitoring
 
@@ -145,7 +145,7 @@ DJ uses Trino at multiple points in the development workflow:
 
 **Example Flow:**
 
-`DJ: Create Source` (Trino introspects `memory.default.raw_orders`) → Columns auto-load → Create [raw_orders.source.json](../examples/jaffle_shop/models/sources/raw_orders.source.json) → Build [stg\_\_sales\_\_orders\_\_standardized.model.json](../examples/jaffle_shop/models/staging/sales/orders/stg__sales__orders__standardized.model.json) → `dbt run` (Trino executes) → Data Explorer: Run & Query (Trino returns results) → Build [int\_\_sales\_\_orders\_\_enriched.model.json](../examples/jaffle_shop/models/intermediate/sales/orders/int__sales__orders__enriched.model.json)
+`DJ: Create Source` (Trino introspects `memory.default.raw_orders`) → Columns auto-load → Create [development\_\_jaffle_shop_dev_seeds.source.json](../examples/jaffle_shop/models/sources/development/development__jaffle_shop_dev_seeds.source.json) → Build [stg\_\_sales\_\_orders\_\_standardized.model.json](../examples/jaffle_shop/models/staging/sales/orders/stg__sales__orders__standardized.model.json) → `dbt run` (Trino executes) → Data Explorer: Run & Query (Trino returns results) → Build [int\_\_sales\_\_orders\_\_enriched.model.json](../examples/jaffle_shop/models/intermediate/sales/orders/int__sales__orders__enriched.model.json)
 
 ## Troubleshooting
 

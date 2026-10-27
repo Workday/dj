@@ -1,5 +1,0 @@
-{
-  "catalog": "my_catalog",
-  "schema": "my_schema",
-  "table": "node_cpu_hourly_cost_view"
-}

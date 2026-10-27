@@ -12,49 +12,152 @@
             "name": "order_id",
             "expr": "id",
             "type": "dim",
-            "description": "Unique identifier for each order"
+            "description": "Unique identifier for each order",
+            "lightdash": {
+                "dimension": {
+                    "group_label": "Order Fields",
+                    "label": "Order ID"
+                },
+                "metrics": [
+                    {
+                        "name": "metric_order_count",
+                        "type": "count_distinct",
+                        "group_label": "Order Metrics",
+                        "label": "Number of Orders",
+                        "ai_hint": "Use this to count total orders or analyze order volume trends over time"
+                    }
+                ]
+            }
         },
         {
             "name": "customer_id",
             "expr": "customer",
             "type": "dim",
-            "description": "Foreign key to customer"
+            "description": "Foreign key to customer",
+            "lightdash": {
+                "dimension": {
+                    "group_label": "Customer Fields",
+                    "label": "Customer ID"
+                }
+            }
         },
         {
             "name": "store_id",
             "expr": "store_id",
             "type": "dim",
-            "description": "Foreign key to store"
+            "description": "Foreign key to store",
+            "lightdash": {
+                "dimension": {
+                    "group_label": "Store Fields",
+                    "label": "Store ID"
+                }
+            }
         },
         {
             "name": "ordered_at",
             "expr": "CAST(ordered_at AS TIMESTAMP)",
             "type": "dim",
-            "description": "Timestamp when order was placed"
+            "description": "Timestamp when order was placed",
+            "lightdash": {
+                "dimension": {
+                    "group_label": "Order Fields",
+                    "label": "Ordered At",
+                    "type": "timestamp"
+                }
+            }
         },
         {
             "name": "order_date",
             "expr": "DATE(CAST(ordered_at AS TIMESTAMP))",
             "type": "dim",
-            "description": "Date when order was placed"
+            "description": "Date when order was placed",
+            "lightdash": {
+                "dimension": {
+                    "group_label": "Order Fields",
+                    "label": "Order Date",
+                    "type": "date"
+                }
+            }
         },
         {
             "name": "subtotal_cents",
             "expr": "subtotal",
             "type": "fct",
-            "description": "Order subtotal in cents"
+            "description": "Order subtotal in cents",
+            "lightdash": {
+                "dimension": {
+                    "group_label": "Order Fields",
+                    "label": "Order Subtotal (in cents)",
+                    "type": "number"
+                },
+                "metrics": [
+                    {
+                        "name": "metric_subtotal_total",
+                        "type": "sum",
+                        "group_label": "Order Metrics",
+                        "label": "Total Order Subtotal",
+                        "ai_hint": "Use this to calculate total sales revenue before tax across all orders"
+                    },
+                    {
+                        "name": "metric_subtotal_average",
+                        "type": "average",
+                        "group_label": "Order Metrics",
+                        "label": "Average Order Subtotal",
+                        "ai_hint": "Use this to understand the typical order value before tax"
+                    }
+                ]
+            }
         },
         {
             "name": "tax_paid_cents",
             "expr": "tax_paid",
             "type": "fct",
-            "description": "Tax amount paid in cents"
+            "description": "Tax amount paid in cents",
+            "lightdash": {
+                "dimension": {
+                    "group_label": "Order Fields",
+                    "label": "Tax Paid (in cents)",
+                    "type": "number"
+                },
+                "metrics": [
+                    {
+                        "name": "metric_tax_collected",
+                        "type": "sum",
+                        "group_label": "Order Metrics",
+                        "label": "Total Tax Collected",
+                        "ai_hint": "Use this to calculate total tax collected for compliance and reporting purposes"
+                    }
+                ]
+            }
         },
         {
             "name": "order_total_cents",
             "expr": "order_total",
             "type": "fct",
-            "description": "Total order amount in cents"
+            "description": "Total order amount in cents",
+            "lightdash": {
+                "dimension": {
+                    "group_label": "Order Fields",
+                    "label": "Order Total (in cents)",
+                    "type": "number"
+                },
+                "metrics": [
+                    {
+                        "name": "metric_order_total_sum",
+                        "type": "sum",
+                        "group_label": "Order Metrics",
+                        "label": "Total Revenue",
+                        "ai_hint": "Use this metric to calculate total revenue including tax. This is the key metric for overall sales performance"
+                    },
+                    {
+                        "name": "metric_order_total_average",
+                        "type": "average",
+                        "group_label": "Order Metrics",
+                        "label": "Average Order Value (AOV)",
+                        "ai_hint": "Use this to understand average order value (AOV) including tax, a key e-commerce metric"
+                    }
+                ]
+            }
         }
     ]
 }

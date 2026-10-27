@@ -12,37 +12,75 @@
             "name": "item_id",
             "expr": "id",
             "type": "dim",
-            "description": "Unique identifier for each order item"
+            "description": "Unique identifier for each order item",
+            "lightdash": {
+                "dimension": {
+                    "group_label": "Product Fields",
+                    "label": "Order ID"
+                }
+            }
         },
         {
             "name": "order_id",
             "expr": "order_id",
             "type": "dim",
-            "description": "Foreign key to orders table"
+            "description": "Foreign key to orders table",
+            "lightdash": {
+                "dimension": {
+                    "group_label": "Product Fields",
+                    "label": "Order ID"
+                }
+            }
         },
         {
             "name": "product_sku",
             "expr": "sku",
             "type": "dim",
-            "description": "Product SKU identifier"
+            "description": "Product SKU identifier",
+            "lightdash": {
+                "dimension": {
+                    "group_label": "Product Fields",
+                    "label": "Product SKU"
+                }
+            }
         },
         {
             "name": "product_type",
             "expr": "CASE WHEN sku LIKE 'JAF-%' THEN 'jaffle' WHEN sku LIKE 'BEV-%' THEN 'beverage' ELSE 'unknown' END",
             "type": "dim",
-            "description": "Product type derived from SKU pattern"
+            "description": "Product type derived from SKU pattern",
+            "lightdash": {
+                "dimension": {
+                    "group_label": "Product Fields",
+                    "label": "Product Type"
+                }
+            }
         },
         {
             "name": "is_jaffle_item",
             "expr": "sku LIKE 'JAF-%'",
             "type": "dim",
-            "description": "Boolean flag for jaffle items"
+            "description": "Boolean flag for jaffle items",
+            "lightdash": {
+                "dimension": {
+                    "group_label": "Product Fields",
+                    "label": "Is Jaffle?",
+                    "type": "boolean"
+                }
+            }
         },
         {
             "name": "is_beverage_item",
             "expr": "sku LIKE 'BEV-%'",
             "type": "dim",
-            "description": "Boolean flag for beverage items"
+            "description": "Boolean flag for beverage items",
+            "lightdash": {
+                "dimension": {
+                    "group_label": "Product Fields",
+                    "label": "Is Beverage?",
+                    "type": "boolean"
+                }
+            }
         }
     ]
 }

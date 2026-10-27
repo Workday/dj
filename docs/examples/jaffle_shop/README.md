@@ -4,7 +4,7 @@ Welcome to the DJ example project! This is a complete dbt implementation using t
 
 ## Ready to Learn?
 
-**[Start the Tutorial](../TUTORIAL.md)** - Build your first models step-by-step with this project
+**[Start the Tutorial](../../TUTORIAL.md)** - Build your first models step-by-step with this project
 
 ## What This Example Demonstrates
 
@@ -19,17 +19,17 @@ This project showcases a complete analytics pipeline with:
 ## Project Structure
 
 ```text
-docs/examples/jaffle_shop/      # You are here!
-├── ../TUTORIAL.md              # Step-by-step learning guide
-├── dbt_project.yml             # dbt project configuration
-├── profiles.yml                # Trino connection settings
-├── models/                     # All dbt models (16 total)
-│   ├── groups.yml              # Business group definitions
-│   ├── sources/development/    # Raw data source definitions
-│   ├── staging/                # Clean & standardize (6 models)
-│   ├── intermediate/           # Business logic (4 models)
-│   └── marts/                  # Analytics ready (6 models)
-└── seeds/                      # Sample CSV data (6 files)
+docs/examples/jaffle_shop/    # You are here!
+├── ../../TUTORIAL.md                   # Step-by-step learning guide
+├── dbt_project.yml                     # dbt project configuration
+├── profiles.yml                        # Trino connection settings
+├── models/                             # All dbt models (16 total)
+│   ├── groups.yml                      # Business group definitions
+│   ├── sources/development/            # Raw data source definitions
+│   ├── staging/                        # Clean & standardize (6 models)
+│   ├── intermediate/                   # Business logic (4 models)
+│   └── marts/                          # Analytics ready (6 models)
+└── seeds/                              # Sample CSV data (6 files)
     ├── raw_customers.csv
     ├── raw_orders.csv
     ├── raw_items.csv
@@ -162,7 +162,7 @@ dbt parse                         # Validate models
 ### **New to DJ?**
 
 **[Setup Guide](../../setup/setup.md)** - Install the extension and configure Trino
-**[Start the Tutorial](../TUTORIAL.md)** - Learn by building models with this project
+**[Start the Tutorial](../../TUTORIAL.md)** - Learn by building models with this project
 
 ### **Want to Understand Model Types?**
 
@@ -174,4 +174,4 @@ Use this example as a template and adapt the patterns to your own data and busin
 
 ---
 
-**Let's build something amazing!** → [Start Tutorial](../TUTORIAL.md) | **Questions?** → [Model Reference](../models/README.md)
+**Let's build something amazing!** → [Start Tutorial](../../TUTORIAL.md) | **Questions?** → [Model Reference](../models/README.md)

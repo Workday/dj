@@ -3,6 +3,9 @@
     "group": "sales",
     "topic": "analytics",
     "name": "rolling_30day",
+    "tags": [
+        "lightdash-explore"
+    ],
     "from": {
         "model": "int__sales__orders__enriched",
         "lookback": {
@@ -16,16 +19,56 @@
         {
             "model": "int__sales__orders__enriched",
             "name": "order_total_dollars",
-            "aggs": ["sum", "min", "max"],
+            "aggs": [
+                "sum",
+                "min",
+                "max"
+            ],
             "type": "fct",
-            "description": "Revenue metrics for the last 30 days (sum, min, max)"
+            "description": "Revenue metrics for the last 30 days (sum, min, max)",
+            "lightdash": {
+                "metrics": [
+                    {
+                        "name": "metric_rolling_revenue_sum",
+                        "type": "sum",
+                        "group_label": "Rolling Window Metrics",
+                        "label": "30-Day Revenue (Sum)",
+                        "ai_hint": "Use this to analyze rolling 30-day revenue trends by store"
+                    },
+                    {
+                        "name": "metric_rolling_revenue_min",
+                        "type": "min",
+                        "group_label": "Rolling Window Metrics",
+                        "label": "30-Day Revenue (Min)",
+                        "ai_hint": "Use this to identify lowest revenue days within 30-day windows"
+                    },
+                    {
+                        "name": "metric_rolling_revenue_max",
+                        "type": "max",
+                        "group_label": "Rolling Window Metrics",
+                        "label": "30-Day Revenue (Max)",
+                        "ai_hint": "Use this to identify peak revenue days within 30-day windows"
+                    }
+                ]
+            }
         },
         {
             "model": "int__sales__orders__enriched",
             "name": "order_id",
             "agg": "count",
             "type": "fct",
-            "description": "Number of orders in the last 30 days"
+            "description": "Number of orders in the last 30 days",
+            "lightdash": {
+                "metrics": [
+                    {
+                        "name": "metric_rolling_order_count",
+                        "type": "count",
+                        "group_label": "Rolling Window Metrics",
+                        "label": "30-Day Order Count",
+                        "ai_hint": "Use this to track order volume trends over 30-day rolling windows"
+                    }
+                ]
+            }
         }
     ],
     "group_by": [

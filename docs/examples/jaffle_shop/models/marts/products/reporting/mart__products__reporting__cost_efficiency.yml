@@ -12,6 +12,7 @@ models:
     config:
       tags:
         - json
+        - lightdash
         - lightdash-explore
         - mart
     columns:
@@ -79,6 +80,7 @@ models:
           dimension:
             type: string
             label: Product Name
+            group_label: Product Fields
       - name: product_price_dollars
         data_type: varchar
         description: Product price in dollars
@@ -90,6 +92,13 @@ models:
             type: string
             label: Product Price Dollars
             hidden: true
+          metrics:
+            metric_product_price_dollars_sum:
+              ai_hint: Use this metric to calculate total product catalog value or analyze
+                average product pricing
+              type: sum
+              label: Total Product Value
+              group_label: Product Metrics
       - name: product_sku
         data_type: varchar
         description: Associated product SKU
@@ -110,6 +119,7 @@ models:
           dimension:
             type: string
             label: Product Type
+            group_label: Product Fields
       - name: supply_cost_dollars
         data_type: varchar
         description: Individual supply cost in dollars
