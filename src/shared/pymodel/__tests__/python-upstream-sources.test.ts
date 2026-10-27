@@ -1,5 +1,4 @@
 import { describe, expect, test } from '@jest/globals';
-
 import {
   normalizeUpstreamSources,
   parseTrinoUpstreamValue,
@@ -113,10 +112,7 @@ describe('parseUpstreamSourcesProperty', () => {
 describe('parseTrinoUpstreamValue', () => {
   test('parses 3-part catalog.schema.table', () => {
     expect(
-      parseTrinoUpstreamValue(
-        'glue.python_source.model_c',
-        'glue',
-      ),
+      parseTrinoUpstreamValue('glue.python_source.model_c', 'glue'),
     ).toEqual({
       catalog: 'glue',
       schema: 'python_source',
@@ -125,12 +121,10 @@ describe('parseTrinoUpstreamValue', () => {
   });
 
   test('parses 2-part schema.table with fallback catalog', () => {
-    expect(parseTrinoUpstreamValue('python_source.model_c', 'glue')).toEqual(
-      {
-        catalog: 'glue',
-        schema: 'python_source',
-        table: 'model_c',
-      },
-    );
+    expect(parseTrinoUpstreamValue('python_source.model_c', 'glue')).toEqual({
+      catalog: 'glue',
+      schema: 'python_source',
+      table: 'model_c',
+    });
   });
 });

@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, test } from '@jest/globals';
-
 import {
   PYTHON_MODEL_CATALOG_ENV,
   PYTHON_MODEL_CATALOG_FALLBACK,

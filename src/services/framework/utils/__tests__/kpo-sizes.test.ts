@@ -1,5 +1,4 @@
 import { describe, expect, test } from '@jest/globals';
-
 import { readKpoSizesTemplate } from '@services/framework/utils/kpo-sizes';
 
 describe('readKpoSizesTemplate', () => {

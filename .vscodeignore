@@ -15,6 +15,7 @@ assets/
 # Development files
 .dj/
 .github/
+.githooks/
 AGENTS.md
 docs/
 fixtures/
@@ -24,6 +25,7 @@ tests/
 web/
 
 # Development configs
+.npmrc
 .eslintrc.json
 .eslintcache
 .gitignore

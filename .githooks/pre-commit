@@ -1,0 +1,10 @@
+#!/bin/sh
+# Rewrite private-registry tarball URLs when package-lock.json is part of the commit.
+
+if ! git diff --cached --name-only --diff-filter=ACMR | grep -qx 'package-lock.json'; then
+  exit 0
+fi
+
+npm run lockfile:normalize --silent || exit 1
+git add -- package-lock.json
+node scripts/check-lockfile-registry.js

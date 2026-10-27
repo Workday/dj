@@ -1,10 +1,9 @@
 import { describe, expect, test } from '@jest/globals';
-
+import type { LineageNode } from '@shared/modellineage/types';
 import {
   buildPythonUpstreamGraph,
   parsePythonModelProperties,
 } from '@shared/pymodel/python-model-lineage';
-import type { LineageNode } from '@shared/modellineage/types';
 
 describe('parsePythonModelProperties', () => {
   test('returns null when python_model_name is missing', () => {
@@ -117,13 +116,11 @@ describe('buildPythonUpstreamGraph', () => {
     const propsByTable: Record<string, Record<string, string>> = {
       'glue.s.t1': {
         python_model_name: 'm1',
-        python_model_upstream_sources:
-          '[{"type":"trino","value":"s.t2"}]',
+        python_model_upstream_sources: '[{"type":"trino","value":"s.t2"}]',
       },
       'glue.s.t2': {
         python_model_name: 'm2',
-        python_model_upstream_sources:
-          '[{"type":"trino","value":"s.t1"}]',
+        python_model_upstream_sources: '[{"type":"trino","value":"s.t1"}]',
       },
     };
 

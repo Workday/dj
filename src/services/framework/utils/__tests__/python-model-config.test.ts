@@ -1,6 +1,8 @@
 import { describe, expect, test } from '@jest/globals';
-
-import { generatePythonModelConfigPy, generateTrinoIoPy } from '@services/framework/utils/python-model-utils';
+import {
+  generatePythonModelConfigPy,
+  generateTrinoIoPy,
+} from '@services/framework/utils/python-model-utils';
 
 describe('generatePythonModelConfigPy', () => {
   test('includes build_context_from_env for __main__ script execution', () => {
@@ -40,9 +42,9 @@ describe('generateTrinoIoPy', () => {
 
   test('exports stable public _trino_io API surface', () => {
     const py = generateTrinoIoPy();
-    const publicDefs = [
-      ...py.matchAll(/^def ([a-z][a-z0-9_]*)\(/gm),
-    ].map((m) => m[1]);
+    const publicDefs = [...py.matchAll(/^def ([a-z][a-z0-9_]*)\(/gm)].map(
+      (m) => m[1],
+    );
 
     expect(publicDefs).toEqual([
       'get_trino_connection',

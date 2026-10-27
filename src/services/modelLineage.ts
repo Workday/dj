@@ -21,8 +21,8 @@ import type {
   ProjectOverviewItem,
   ReverseLineageData,
 } from '@shared/modellineage/types';
-import { quoteTrinoIdentifier } from '@shared/sql/identifier';
 import { buildPythonUpstreamGraph } from '@shared/pymodel/python-model-lineage';
+import { quoteTrinoIdentifier } from '@shared/sql/identifier';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';

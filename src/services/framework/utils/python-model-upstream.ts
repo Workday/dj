@@ -3,8 +3,8 @@ import type { PythonModelConfig } from '@shared/framework/types';
 import {
   DEFAULT_PYTHON_MODEL_CATALOG_DEFAULTS,
   enrichPythonModelUpstreamSources,
-  resolvePythonModelCatalogDefaults,
   type PythonModelCatalogDefaults,
+  resolvePythonModelCatalogDefaults,
 } from '@shared/pymodel/python-upstream-inference';
 import * as fs from 'fs';
 import * as path from 'path';

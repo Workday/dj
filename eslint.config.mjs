@@ -31,6 +31,10 @@ export default tseslint.config(
       sourceType: 'commonjs',
       globals: globals.node,
     },
+    rules: {
+      // These files are CommonJS. `require` is the import form.
+      '@typescript-eslint/no-require-imports': 'off',
+    },
   },
   {
     files: ['**/*.ts', '**/*.tsx'],
@@ -133,7 +137,13 @@ export default tseslint.config(
   },
   // Test files
   {
-    files: ['**/*.test.ts', '**/*.spec.ts', '**/__tests__/**/*.ts'],
+    files: [
+      '**/*.test.ts',
+      '**/*.spec.ts',
+      '**/__tests__/**/*.ts',
+      '**/*.test.js',
+      '**/*.spec.js',
+    ],
     languageOptions: {
       globals: {
         ...globals.jest,
