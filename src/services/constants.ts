@@ -13,6 +13,8 @@ export const BASE_SCHEMAS_PATH = path.join(__dirname, '../../schemas');
 // The standalone CLI bundle (dist/cli/dj.js), a sibling of dist/extension.
 // __dirname resolves to dist/extension at runtime, so the CLI is ../cli/dj.js.
 export const BASE_CLI_DJ_PATH = path.join(__dirname, '../cli/dj.js');
+// CLI request examples, copied into the VSIX by esbuild.mjs next to dj.js.
+export const BASE_CLI_EXAMPLES_PATH = path.join(__dirname, '../cli/examples');
 export const BASE_SKILLS_PATH = path.join(__dirname, '../../templates/skills');
 export const BASE_AGENTS_DJ_PATH = path.join(
   __dirname,

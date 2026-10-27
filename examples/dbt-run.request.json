@@ -1,6 +1,0 @@
-{
-  "projectName": "analytics",
-  "select": "+int__core__metrics__utilization+",
-  "startDate": "2025-01-01",
-  "endDate": "2025-01-31"
-}

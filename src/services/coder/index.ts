@@ -1,5 +1,6 @@
 import { Api } from '@services/api';
 import { CliBridgeServer } from '@services/cliBridge/CliBridgeServer';
+import { deployCliExamples } from '@services/cliBridge/deployExamples';
 import { classifyWatchedPath } from '@services/coder/classifyWatchedPath';
 import type { CoderFileInfo } from '@services/coder/types';
 import { ColumnLineageService } from '@services/columnLineage';
@@ -7,7 +8,12 @@ import {
   getDbtProjectExcludePaths,
   registerConfigurationChangeHandler,
 } from '@services/config';
-import { BASE_CLI_DJ_PATH, COMMAND_ID, VIEW_ID } from '@services/constants';
+import {
+  BASE_CLI_DJ_PATH,
+  BASE_CLI_EXAMPLES_PATH,
+  COMMAND_ID,
+  VIEW_ID,
+} from '@services/constants';
 import { DataExplorer } from '@services/dataExplorer';
 import { Dbt } from '@services/dbt';
 import { DJLogger } from '@services/djLogger';
@@ -37,6 +43,7 @@ import type { WebviewMessage } from '@shared/webview/types';
 import {
   DJ_BIN_PATH,
   DJ_CLI_ENDPOINTS_PATH,
+  DJ_EXAMPLES_PATH,
   DJ_SCHEMAS_PATH,
   WORKSPACE_ROOT,
 } from 'admin';
@@ -1931,6 +1938,25 @@ export class Coder {
       this.log.info(`[dj-bridge] deployed CLI to ${dest}`);
     } catch (error: unknown) {
       this.log.warn('[dj-bridge] failed to deploy CLI:', error);
+    }
+    this.deployCliExamples();
+  }
+
+  /** Copy the bundled CLI request examples to `.dj/examples/` for agents and users. */
+  private deployCliExamples(): void {
+    try {
+      if (!fs.existsSync(BASE_CLI_EXAMPLES_PATH)) {
+        this.log.warn(
+          `[dj-bridge] CLI examples not found at ${BASE_CLI_EXAMPLES_PATH}; skipping deploy`,
+        );
+        return;
+      }
+      const count = deployCliExamples(BASE_CLI_EXAMPLES_PATH, DJ_EXAMPLES_PATH);
+      this.log.info(
+        `[dj-bridge] deployed ${count} CLI examples to ${DJ_EXAMPLES_PATH}`,
+      );
+    } catch (error: unknown) {
+      this.log.warn('[dj-bridge] failed to deploy CLI examples:', error);
     }
   }
 

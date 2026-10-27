@@ -27,4 +27,4 @@ Fast routing — **which skill** + **which CLI ops** — without loading full sk
 
 - Full skill ↔ CLI table: [references/skills-index.md](references/skills-index.md)
 - CLI invocation: `dj-cli` → [references/command-catalog.md](../dj-cli/references/command-catalog.md)
-- Extended CLI reference (repo): `docs/cli_commands/command-reference.md`
+- Extended CLI reference (repo): `docs/cli/command-reference.md`

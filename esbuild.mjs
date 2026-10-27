@@ -1,5 +1,27 @@
 import esbuild from 'esbuild';
+import fs from 'fs';
+import path from 'path';
 import process from 'process';
+
+/**
+ * CLI request examples ship beside the bundled CLI so the extension can deploy
+ * them into each workspace at `.dj/examples/`. The VSIX excludes `docs/`.
+ */
+const CLI_EXAMPLES_SRC = 'docs/cli/examples';
+const CLI_EXAMPLES_DEST = 'dist/cli/examples';
+
+function copyCliExamples() {
+  fs.rmSync(CLI_EXAMPLES_DEST, { recursive: true, force: true });
+  fs.mkdirSync(CLI_EXAMPLES_DEST, { recursive: true });
+  for (const file of fs.readdirSync(CLI_EXAMPLES_SRC)) {
+    if (file.endsWith('.request.json')) {
+      fs.copyFileSync(
+        path.join(CLI_EXAMPLES_SRC, file),
+        path.join(CLI_EXAMPLES_DEST, file),
+      );
+    }
+  }
+}
 
 const production = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
@@ -65,6 +87,7 @@ async function main() {
   const contexts = await Promise.all(
     builds.map((options) => esbuild.context(options)),
   );
+  copyCliExamples();
   if (watch) {
     await Promise.all(contexts.map((ctx) => ctx.watch()));
   } else {

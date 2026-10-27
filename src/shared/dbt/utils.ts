@@ -135,7 +135,7 @@ export function getDbtModelId({
 }): string {
   if (typeof modelName !== 'string') {
     throw new Error(
-      'getDbtModelId: modelName must be a string (check CLI payload: --file examples/model-lineage.request.json or --modelName)',
+      'getDbtModelId: modelName must be a string (check CLI payload: --file .dj/examples/model-lineage.request.json or --modelName)',
     );
   }
   const trimmed = modelName.trim();

@@ -75,7 +75,10 @@ describe('dj.aiHintTag', () => {
 
   const supplyInventoryModel = jsonParse(
     fs.readFileSync(
-      path.join(pathSystem, 'stg__supply_chain__supplies__inventory.model.json'),
+      path.join(
+        pathSystem,
+        'stg__supply_chain__supplies__inventory.model.json',
+      ),
       'utf8',
     ),
   ) as FrameworkModel;

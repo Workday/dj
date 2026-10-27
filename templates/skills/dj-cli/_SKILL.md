@@ -36,11 +36,11 @@ Prefer `.dj/bin/dj <op>` over hand-authoring JSON, loading `.dj/schemas/`, or ra
 ```bash
 .dj/bin/dj system.ping
 .dj/bin/dj model.lineage --help
-.dj/bin/dj model.lineage --file examples/model-lineage.request.json
-.dj/bin/dj model.columns --modelName mart__g__t__name --file examples/model-columns.request.json
-.dj/bin/dj query.execute --file examples/query-execute.request.json
-.dj/bin/dj dbt.compile --file examples/dbt-compile.request.json
-.dj/bin/dj model.create --file examples/model-create.request.json --timeout 600000
+.dj/bin/dj model.lineage --file .dj/examples/model-lineage.request.json
+.dj/bin/dj model.columns --modelName mart__g__t__name --file .dj/examples/model-columns.request.json
+.dj/bin/dj query.execute --file .dj/examples/query-execute.request.json
+.dj/bin/dj dbt.compile --file .dj/examples/dbt-compile.request.json
+.dj/bin/dj model.create --file .dj/examples/model-create.request.json --timeout 600000
 ```
 
 | Flag | Purpose |
@@ -68,7 +68,7 @@ Two patterns — pick the one that matches the operation (see [references/comman
 - **`model.preview`**, **`model.exists`**, **`model.cte-analysis`** — `{ "modelJson": { … } }` (+ optional `projectName`).
 - **`model.update`** — `{ "originalModelPath": "<absolute path to the .model.json on disk>", "modelJson": { …full model… } }` (+ optional `projectName`). Top-level **`modelName` is not valid** for this op.
 
-Repo examples: `examples/model-create.request.json`, `examples/model-preview.request.json`, `examples/source-create.request.json`, `examples/model-columns.request.json`, `examples/model-lineage.request.json`, `examples/model-query.request.json`, `examples/query-execute.request.json`, `examples/dbt-compile.request.json`, `examples/dbt-models-search.request.json`, `examples/dbt-project.request.json`, `examples/trino-*.request.json`.
+Repo examples: `.dj/examples/model-create.request.json`, `.dj/examples/model-preview.request.json`, `.dj/examples/source-create.request.json`, `.dj/examples/model-columns.request.json`, `.dj/examples/model-lineage.request.json`, `.dj/examples/model-query.request.json`, `.dj/examples/query-execute.request.json`, `.dj/examples/dbt-compile.request.json`, `.dj/examples/dbt-models-search.request.json`, `.dj/examples/dbt-project.request.json`, `examples/trino-*.request.json`.
 
 Common rules:
 
@@ -126,4 +126,4 @@ Follow **Command & Query Execution Safety** in `.agents/dj/AGENTS.md`:
 
 - Full operation catalog: [references/command-catalog.md](references/command-catalog.md)
 - Skill ↔ CLI routing: `dj-cli-registry` → [references/skills-index.md](../dj-cli-registry/references/skills-index.md)
-- Extended reference (repo): `docs/cli_commands/command-reference.md`
+- Extended reference (repo): `docs/cli/command-reference.md`

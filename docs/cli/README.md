@@ -11,11 +11,8 @@ the CLI — it is a second transport into the extension.
 
 ## Documentation
 
-- [`command-reference.md`](command-reference.md) — the full command scope, request
-  shapes, and token/accuracy rationale.
-- [`agent-verification-prompts.md`](agent-verification-prompts.md) — copy-paste
-  prompts to verify **every** command with an AI agent directly.
-- [`phase-1-plan.md`](phase-1-plan.md) — the operation plan and what remains deferred.
+- [`command-reference.md`](command-reference.md) — the full command list, request
+  shapes, and usage examples.
 
 ## How it works
 

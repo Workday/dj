@@ -1,15 +1,10 @@
-# DJ CLI — Command Scope & Reference
+# DJ CLI — Command Reference
 
 The DJ CLI (`.dj/bin/dj`) lets a terminal or an AI agent invoke DJ features by forwarding to the
 extension's existing `Api.handleApi(...)` — the **same entry point the visual editor uses**. No
 business logic is reimplemented; each command is a thin passthrough to a `handleApi` operation.
 
-This document lists the full scope of operations that can be exposed as CLI commands, grouped by
-purpose, with example usage.
-
-**Inclusion rule.** An API qualifies as a CLI command when it is _payload-driven_ and _returns a
-value or writes a file_, with **no dependence on an active editor, an open webview panel, or
-interactive UI**.
+This document lists the CLI operations, grouped by purpose, with example usage.
 
 **Payload envelopes.** `model.create` and `source.create` take **flat** field objects (the same
 shape the Create Model / Create Source forms post). `model.preview`, `model.exists`,
@@ -52,21 +47,7 @@ Empty RPC results exit non-zero (no blank stdout on success).
 
 ---
 
-## Categories at a glance
-
-| Category              | Side effect                         | Impact for an agent                                                                  |
-| --------------------- | ----------------------------------- | ------------------------------------------------------------------------------------ |
-| **Authoring**         | writes / reads model & source files | Create and refine DJ models and sources end-to-end from the terminal                 |
-| **Read**              | read-only                           | Discover the warehouse and project structure to ground decisions instead of guessing |
-| **Mutate**            | runs dbt in the container           | Compile, parse, and run to validate authored models                                  |
-| **Query & data read** | read-only (`SELECT`)                | Inspect compiled SQL, preview data, and trace lineage                                |
-
----
-
 ## Authoring
-
-_Impact: an agent can author a model or source, dry-run it, and guard against duplicates — the same
-flow as the visual editor, driven by JSON._
 
 | CLI op               | API                            | What it does                                                                                      | Agent example                                                                                      |
 | -------------------- | ------------------------------ | ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
@@ -80,9 +61,6 @@ flow as the visual editor, driven by JSON._
 | `model.cte-analysis` | `framework-model-cte-analysis` | Return per-CTE inferred columns + diagnostics                                                     | `.dj/bin/dj model.cte-analysis --file examples/model-preview.request.json`                         |
 
 ## Read
-
-_Impact: an agent discovers real catalogs, tables, columns, and models before authoring — no
-hallucinated names._
 
 | CLI op                      | API                                   | What it does                                                          | Agent example                                                                                 |
 | --------------------------- | ------------------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
@@ -105,9 +83,6 @@ hallucinated names._
 
 ## Mutate
 
-_Impact: an agent validates authored models by compiling/parsing and can run them — real feedback,
-not just static checks._
-
 | CLI op               | API                     | What it does                                                 | Agent example                                                                      |
 | -------------------- | ----------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------- |
 | `dbt.compile`        | `dbt-model-compile`     | Compile via `modelName` or `select` (unknown keys rejected)  | `.dj/bin/dj dbt.compile --file examples/dbt-compile.request.json`                  |
@@ -117,9 +92,6 @@ not just static checks._
 | `dbt.run`            | `dbt-run-model`         | Run a model via dbt (output streams to the VS Code terminal) | `.dj/bin/dj dbt.run --file examples/dbt-run.request.json`                          |
 
 ## Query & data read
-
-_Impact: an agent reads compiled SQL, previews data, and traces lineage to reason about impact —
-all read-only._
 
 | CLI op                  | API                                 | What it does                                                                                                                                                                                                                                                                                       | Agent example                                                                     |
 | ----------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
@@ -235,85 +207,6 @@ passes the JSON verbatim with **no shell quoting**:
 **Recommendation:** an AI agent should write payloads to **`examples/`** (or a temp copy) and pass **`--file`**. Reserve inline **`--json '…'`** for quick **manual** one-liners only. **Exceptions:** **`model.create`**, **`model.preview`**, and **`source.create`** always use **`--file`** with the full flat or envelope JSON — not flag shortcuts.
 
 ---
-
-## Token & accuracy benefits (for AI agents)
-
-For anything beyond a trivial model, invoking these commands uses **meaningfully fewer tokens** and
-produces **more accurate** results than asking an agent to hand-author `model.json` against the
-schema. The savings compound with model complexity and with every validation loop avoided.
-
-### The two token flows
-
-**Manual, schema-based authoring** pushes three kinds of tokens through the model:
-
-- **Schema into context.** DJ ships **109 schema files (~55,000 tokens total)**. Authoring correctly
-  needs the base `model.schema` plus the type schema and sub-schemas — e.g.
-  `model.incremental_strategy` (~2,200 tok), `model.from.join.models` (~1,300 tok),
-  `int_lookback_model` (~770), `select.col` / `select.expr` (~350 / 375). Realistically **3k–8k input
-  tokens** per session, or ~55k if the whole `schemas/` dir is loaded defensively.
-- **Generating the full artifact** (output) — the entire file, plus the SQL/YAML the agent tries to
-  anticipate.
-- **Validate → fail → regenerate loops** — no authoritative validator in context, so the agent
-  compiles, reads errors back, regenerates, repeats; columns for `select` / `from` are guessed unless
-  files are grep'd (hallucination risk).
-
-**CLI commands** remove most of that:
-
-- **No schema in context to author** — the extension owns the schema, templating, and validation;
-  `system.capabilities` is pulled on demand, not carried in the prompt.
-- **The agent generates only the input payload**, not the derived SQL/YAML/columns.
-- **Authoritative, compact feedback** — `model.preview` (real SQL/YAML/columns), `model.exists`
-  (dedup), `model.cte-analysis` (diagnostics), `trino.columns` (ground-truth columns) keep the
-  correction loop short and grounded.
-
-### Where the savings come from
-
-- **No front-loading of definitions (progressive disclosure).** Anthropic's _Code execution with MCP_
-  reports an illustrative **150,000 → 2,000 token (98.7%)** drop from executing tool calls and
-  filtering results instead of loading all definitions and shuttling intermediate results through the
-  model. Our schema surface (up to ~55k tokens) is exactly that kind of front-loaded cost the CLI keeps
-  server-side.
-- **Deterministic work offloaded to the tool.** _Writing effective tools for agents_ — "offload
-  agentic computation from the agent's context back into the tool calls," and return **high-signal,
-  concise results**. Templating, validation, SQL/YAML generation, dedup, and file placement move out of
-  the model.
-- **Fewer iterations.** Each avoided validate/regenerate loop saves a full round-trip of
-  (schema + error input) + (regenerated file output) — where most real-world savings land.
-
-### Accuracy & API exposure
-
-For actions that must be exact, a curated command is **authoritative** where the LLM is only
-**probabilistic**: `trino.columns` → real columns (no hallucination), `model.exists` → deterministic
-dedup, file placement / CTE column inference → done by the code that owns the contract. The op set is
-small and namespaced (`model.*`, `trino.*`, `dbt.*`), and being a **CLI** (run a command) avoids the
-per-turn context tax of many always-loaded tool schemas.
-
-### Caveats
-
-- The agent still writes the input payload — for a trivial, well-known model the delta is small.
-- The command result still enters context (kept compact by design).
-- One-time cost to learn the command surface; the extension must be running.
-
-### Rough estimate (one realistic model — estimates, not a benchmark)
-
-| Phase                   | Manual (schema-based)            | CLI commands                 |
-| ----------------------- | -------------------------------- | ---------------------------- |
-| Schema in context       | ~3k–8k (up to ~55k if whole dir) | ~0 (server-side)             |
-| Column discovery        | ~1k–3k (greps / guesses)         | ~0.2k–0.6k (`trino.columns`) |
-| Generate payload / file | ~0.4k–0.9k                       | ~0.3k–0.7k                   |
-| Validate / fix loops    | ~2k–5k (1–3 loops)               | ~0.3k–0.8k (0–1, grounded)   |
-| **Ballpark total**      | **~7k–20k+**                     | **~1.5k–3.5k**               |
-
-→ roughly a **3–6x reduction** in a typical case, larger for complex models and iterative authoring.
-
-> **Benchmarking (planned).** These figures are analytical estimates. A follow-up will measure real
-> token usage on representative models (simple staging vs. incremental / join marts), comparing manual
-> schema-based authoring against the CLI flow, to replace these ranges with measured numbers.
-
-**Sources**
-
-- Anthropic — _Code execution with MCP_ — https://www.anthropic.com/engineering/code-execution-with-mcp
-- Anthropic — _Writing effective tools for agents_ — https://www.anthropic.com/engineering/writing-tools-for-agents
 
 ## Constraints
 
