@@ -13,7 +13,6 @@ export type FieldSelectSingleProps = ControllerRenderProps & {
   labelClass?: string;
   helpIcon?: React.ReactNode; // Help icon for Assist Me
   disabled?: boolean;
-  placeholder?: string;
   /**
    * Virtualize the options list. Enable for large option sets (hundreds+),
    * e.g. Trino tables, so the dropdown doesn't render every row into the DOM
