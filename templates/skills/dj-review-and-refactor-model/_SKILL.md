@@ -31,7 +31,7 @@ Do **not** pass a raw `.model.json` file or top-level `modelName` to the CLI. Bu
 1. Read the target `.model.json` from disk (absolute path).
 2. Apply approved edits to the parsed object (omit `modelName` — it is not part of the model schema).
 3. **`model.preview --file`** with `{ "modelJson": <full updated object> }` to validate SQL/YAML before write.
-4. **`model.update --file`** with `{ "originalModelPath": "<same absolute path>", "modelJson": <full updated object> }` (see `examples/model-update.request.json`).
+4. **`model.update --file`** with `{ "originalModelPath": "<same absolute path>", "modelJson": <full updated object> }` (see `.dj/examples/model-update.request.json`).
 
 ## When this skill applies
 

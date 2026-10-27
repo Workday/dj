@@ -18,7 +18,9 @@ The extension provides a rich visual UI built with React, including interactive 
 
 ## Common Commands
 
-Run `npm install` first. The live source of truth for every script is `package.json`; the ones below cover day-to-day work.
+Run `npm ci` first. The live source of truth for every script is `package.json`; the ones below cover day-to-day work.
+
+`package-lock.json` tarball URLs stay on `https://registry.npmjs.org`. `npm install` rewrites a private-registry lockfile back to that host when it finishes, and the pre-commit hook does it again when the lockfile is staged. See [Development Setup](DEVELOPMENT_SETUP.md#private-npm-registry).
 
 | Command                                     | Purpose                                                                 |
 | ------------------------------------------- | ----------------------------------------------------------------------- |

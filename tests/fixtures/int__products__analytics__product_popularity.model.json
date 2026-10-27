@@ -20,13 +20,42 @@
             "name": "total_orders",
             "expr": "COUNT(DISTINCT order_id)",
             "type": "fct",
-            "description": "Number of unique orders containing this product"
+            "description": "Number of unique orders containing this product",
+            "lightdash": {
+                "metrics": [
+                    {
+                        "name": "metric_product_order_count",
+                        "type": "sum",
+                        "group_label": "Product Popularity",
+                        "label": "Orders Containing Product",
+                        "ai_hint": "Use this to understand product popularity and which items are frequently purchased together"
+                    }
+                ]
+            }
         },
         {
             "name": "total_items_sold",
             "expr": "COUNT(*)",
             "type": "fct",
-            "description": "Total quantity of this product sold"
+            "description": "Total quantity of this product sold",
+            "lightdash": {
+                "metrics": [
+                    {
+                        "name": "metric_total_items_sold",
+                        "type": "sum",
+                        "group_label": "Product Popularity",
+                        "label": "Total Items Sold",
+                        "ai_hint": "Use this to analyze product sales volume and inventory demand for best-selling items"
+                    },
+                    {
+                        "name": "metric_avg_items_per_order",
+                        "type": "average",
+                        "group_label": "Product Popularity",
+                        "label": "Average Items Per Order",
+                        "ai_hint": "Use this to understand typical order quantities for inventory and fulfillment planning"
+                    }
+                ]
+            }
         }
     ]
 }

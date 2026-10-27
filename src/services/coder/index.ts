@@ -1,5 +1,6 @@
 import { Api } from '@services/api';
 import { CliBridgeServer } from '@services/cliBridge/CliBridgeServer';
+import { deployCliExamples } from '@services/cliBridge/deployExamples';
 import { classifyWatchedPath } from '@services/coder/classifyWatchedPath';
 import type { CoderFileInfo } from '@services/coder/types';
 import { ColumnLineageService } from '@services/columnLineage';
@@ -7,7 +8,12 @@ import {
   getDbtProjectExcludePaths,
   registerConfigurationChangeHandler,
 } from '@services/config';
-import { BASE_CLI_DJ_PATH, COMMAND_ID, VIEW_ID } from '@services/constants';
+import {
+  BASE_CLI_DJ_PATH,
+  BASE_CLI_EXAMPLES_PATH,
+  COMMAND_ID,
+  VIEW_ID,
+} from '@services/constants';
 import { DataExplorer } from '@services/dataExplorer';
 import { Dbt } from '@services/dbt';
 import { DJLogger } from '@services/djLogger';
@@ -21,6 +27,7 @@ import {
 } from '@services/framework/utils';
 import { Lightdash } from '@services/lightdash';
 import { LightdashContent } from '@services/lightdash/content';
+import { ModelingFrameworkService } from '@services/modeling';
 import { QueryDraftService } from '@services/queryDraft';
 import { QueryPreview } from '@services/queryPreview';
 import { SERVICE_NAMES, ServiceLocator } from '@services/ServiceLocator';
@@ -36,6 +43,8 @@ import type { WebviewMessage } from '@shared/webview/types';
 import {
   DJ_BIN_PATH,
   DJ_CLI_ENDPOINTS_PATH,
+  DJ_EXAMPLES_PATH,
+  DJ_SCHEMAS_PATH,
   WORKSPACE_ROOT,
 } from 'admin';
 import * as fs from 'fs';
@@ -61,6 +70,7 @@ export class Coder {
   lightdash: Lightdash;
   lightdashContent: LightdashContent;
   log: DJLogger;
+  modelingFramework: ModelingFrameworkService;
   queryDraft: QueryDraftService;
   queryPreview: QueryPreview;
   stateManager: StateManager;
@@ -70,6 +80,7 @@ export class Coder {
   // Watchers for dynamic project/manifest detection
   private projectWatcher?: vscode.FileSystemWatcher;
   private manifestWatcher?: vscode.FileSystemWatcher;
+  private lightdashConfigWatcher?: vscode.FileSystemWatcher;
   // Track if full services have been activated (for late initialization)
   private servicesActivated: boolean = false;
   private cliBridge?: CliBridgeServer;
@@ -96,6 +107,14 @@ export class Coder {
 
       // Register services with lazy factories
       this.locator.register(SERVICE_NAMES.Logger, () => new DJLogger());
+
+      this.locator.register(
+        SERVICE_NAMES.ModelingFramework,
+        () =>
+          new ModelingFrameworkService({
+            logger: this.locator.get(SERVICE_NAMES.Logger),
+          }),
+      );
 
       this.locator.register(
         SERVICE_NAMES.StateManager,
@@ -237,6 +256,10 @@ export class Coder {
       this.log.info('QueryPreview resolved');
       this.lightdashContent = this.locator.get(SERVICE_NAMES.LightdashContent);
       this.log.info('LightdashContent resolved');
+      this.modelingFramework = this.locator.get(
+        SERVICE_NAMES.ModelingFramework,
+      );
+      this.log.info('ModelingFramework resolved');
     } catch (error: unknown) {
       console.error('[DJ] FATAL ERROR in Coder constructor:', error);
       throw error;
@@ -365,6 +388,7 @@ export class Coder {
       // Only proceed with framework activation if dbt projects exist
       trackProgress('Activating framework');
       await this.framework.activate(this.context);
+      await this.applyModelingFrameworkSchemas();
 
       trackProgress('Processing target folders');
       await this.framework.processTargetFolders();
@@ -1334,6 +1358,14 @@ export class Coder {
       false, // ignoreChangeEvents = false (manifest updates are also relevant)
       true, // ignoreDeleteEvents = true
     );
+
+    // Watch for lightdash.config.yml / lightdash.config.yaml changes
+    this.lightdashConfigWatcher = vscode.workspace.createFileSystemWatcher(
+      '**/{lightdash.config.yml,lightdash.config.yaml}',
+      false, // detect create
+      false, // detect change
+      false, // detect delete
+    );
   }
 
   /**
@@ -1341,7 +1373,11 @@ export class Coder {
    * Should be called after schemas are created to avoid race conditions.
    */
   private activateDiscoveryWatchers(): void {
-    if (!this.projectWatcher || !this.manifestWatcher) {
+    if (
+      !this.projectWatcher ||
+      !this.manifestWatcher ||
+      !this.lightdashConfigWatcher
+    ) {
       this.initProjectWatchers();
     }
 
@@ -1362,6 +1398,21 @@ export class Coder {
       void this.handleManifestCreated(uri);
     });
     this.context.subscriptions.push(this.manifestWatcher!);
+
+    // Attach handlers to lightdash config watcher
+    this.lightdashConfigWatcher!.onDidCreate((uri) => {
+      this.log.info(`New Lightdash config detected: ${uri.fsPath}`);
+      void this.handleLightdashConfigChanged(uri);
+    });
+    this.lightdashConfigWatcher!.onDidChange((uri) => {
+      this.log.info(`Lightdash config changed: ${uri.fsPath}`);
+      void this.handleLightdashConfigChanged(uri);
+    });
+    this.lightdashConfigWatcher!.onDidDelete((uri) => {
+      this.log.info(`Lightdash config deleted: ${uri.fsPath}`);
+      void this.handleLightdashConfigDeleted(uri);
+    });
+    this.context.subscriptions.push(this.lightdashConfigWatcher!);
 
     this.log.info('Discovery watchers activated');
   }
@@ -1489,6 +1540,66 @@ export class Coder {
   }
 
   /**
+   * Handle when a lightdash.config.yml or lightdash.config.yaml is created or modified.
+   */
+  private async handleLightdashConfigChanged(uri: vscode.Uri): Promise<void> {
+    try {
+      const projectRoot = path.dirname(uri.fsPath);
+      await this.modelingFramework.loadProjectConfig(projectRoot, 'dbt');
+      await this.modelingFramework.applyTimeIntervalsSchema(
+        DJ_SCHEMAS_PATH,
+        (intervals) => this.framework.refreshTimeIntervalsSchema(intervals),
+      );
+      this.framework.syncQueue?.enqueueFullSync();
+    } catch (err: unknown) {
+      this.log.warn('Failed to handle Lightdash config change:', err);
+    }
+  }
+
+  /**
+   * Handle when a lightdash.config.yml or lightdash.config.yaml is deleted.
+   */
+  private async handleLightdashConfigDeleted(uri: vscode.Uri): Promise<void> {
+    try {
+      const projectRoot = path.dirname(uri.fsPath);
+      this.modelingFramework.removeProjectConfig(projectRoot);
+      await this.modelingFramework.applyTimeIntervalsSchema(
+        DJ_SCHEMAS_PATH,
+        (intervals) => this.framework.refreshTimeIntervalsSchema(intervals),
+      );
+      this.framework.syncQueue?.enqueueFullSync();
+    } catch (err: unknown) {
+      this.log.warn('Failed to handle Lightdash config deletion:', err);
+    }
+  }
+
+  /**
+   * Apply modeling framework schemas (e.g. Lightdash custom granularities)
+   * to .dj/schemas/ and the Framework service.
+   */
+  private async applyModelingFrameworkSchemas(): Promise<void> {
+    try {
+      if (WORKSPACE_ROOT) {
+        await this.modelingFramework.loadProjectConfig(WORKSPACE_ROOT, 'dbt');
+      }
+      for (const project of this.framework.dbt.projects.values()) {
+        if (project.pathSystem && project.pathSystem !== WORKSPACE_ROOT) {
+          await this.modelingFramework.loadProjectConfig(
+            project.pathSystem,
+            'dbt',
+          );
+        }
+      }
+      await this.modelingFramework.applyTimeIntervalsSchema(
+        DJ_SCHEMAS_PATH,
+        (intervals) => this.framework.refreshTimeIntervalsSchema(intervals),
+      );
+    } catch (err: unknown) {
+      this.log.warn('Failed to apply modeling framework schemas:', err);
+    }
+  }
+
+  /**
    * Handle when a manifest.json is created or updated.
    * This loads the manifest for the corresponding project.
    *
@@ -1609,6 +1720,7 @@ export class Coder {
           }
           await this.framework.dbt.writeAgentsMd();
           await this.framework.dbt.writeSkillFiles();
+          await this.applyModelingFrameworkSchemas();
 
           this.updateProjectViews();
 
@@ -1635,6 +1747,7 @@ export class Coder {
 
       // Activate framework (creates .dj/schemas, updates settings, registers commands)
       await this.framework.activate(this.context);
+      await this.applyModelingFrameworkSchemas();
 
       // Activate other services
       this.trino.activate(this.context);
@@ -1826,6 +1939,25 @@ export class Coder {
     } catch (error: unknown) {
       this.log.warn('[dj-bridge] failed to deploy CLI:', error);
     }
+    this.deployCliExamples();
+  }
+
+  /** Copy the bundled CLI request examples to `.dj/examples/` for agents and users. */
+  private deployCliExamples(): void {
+    try {
+      if (!fs.existsSync(BASE_CLI_EXAMPLES_PATH)) {
+        this.log.warn(
+          `[dj-bridge] CLI examples not found at ${BASE_CLI_EXAMPLES_PATH}; skipping deploy`,
+        );
+        return;
+      }
+      const count = deployCliExamples(BASE_CLI_EXAMPLES_PATH, DJ_EXAMPLES_PATH);
+      this.log.info(
+        `[dj-bridge] deployed ${count} CLI examples to ${DJ_EXAMPLES_PATH}`,
+      );
+    } catch (error: unknown) {
+      this.log.warn('[dj-bridge] failed to deploy CLI examples:', error);
+    }
   }
 
   deactivate() {
@@ -1850,6 +1982,7 @@ export class Coder {
     this.watcher?.dispose();
     this.projectWatcher?.dispose();
     this.manifestWatcher?.dispose();
+    this.lightdashConfigWatcher?.dispose();
     this.cliBridge?.stop();
     this.api.deactivate();
     this.framework.deactivate();

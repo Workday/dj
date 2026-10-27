@@ -1861,7 +1861,7 @@ SELECT * FROM final`,
                 case 'framework-get-available-dags': {
                   return resolve(
                     apiResponse<typeof payloadType>({
-                      dags: ['source_etl', 'cloud_dir_dag', 'data_pipeline'],
+                      dags: ['cloud_dir_dag', 'data_pipeline'],
                     }),
                   );
                 }
@@ -1869,6 +1869,26 @@ SELECT * FROM final`,
                   return resolve(
                     apiResponse<typeof payloadType>({
                       groups: ['ml', 'etl', 'analytics', 'others'],
+                    }),
+                  );
+                }
+                case 'framework-get-kpo-sizes': {
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      sizes: {
+                        small: {
+                          cpu: '1',
+                          memory: '2Gi',
+                          guidance:
+                            'Light jobs — small API responses, narrow CSV extracts, < ~500 MB processed in-memory.',
+                        },
+                        medium: {
+                          cpu: '2',
+                          memory: '4Gi',
+                          guidance:
+                            'Typical ETL — moderate API pagination, joins on staging tables, ~500 MB–2 GB.',
+                        },
+                      },
                     }),
                   );
                 }
@@ -1898,7 +1918,10 @@ SELECT * FROM final`,
                   return resolve(apiResponse<typeof payloadType>([]));
                 case 'framework-model-create-batch':
                   return resolve(
-                    apiResponse<typeof payloadType>({ phase: 'done', results: [] }),
+                    apiResponse<typeof payloadType>({
+                      phase: 'done',
+                      results: [],
+                    }),
                   );
                 case 'framework-model-columns':
                   return resolve(

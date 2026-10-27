@@ -15,6 +15,7 @@ assets/
 # Development files
 .dj/
 .github/
+.githooks/
 AGENTS.md
 docs/
 fixtures/
@@ -24,15 +25,24 @@ tests/
 web/
 
 # Development configs
+.npmrc
 .eslintrc.json
 .eslintcache
 .gitignore
+.markdownlint.json
 .prettierrc
 .prettierignore
+.tagignore
+
+CONTRIBUTORS.md
+DEVELOPMENT_SETUP.md
+Makefile
+ROADMAP.md
 
 Dockerfile
 esbuild.mjs
 eslint.config.mjs
+jest.config.js
 jest.config.ts
 tsconfig.json
 

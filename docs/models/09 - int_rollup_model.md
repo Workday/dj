@@ -77,7 +77,7 @@ Let's create a daily rollup of detailed order data to analyze store performance 
   "group": "sales",
   "topic": "stores",
   "name": "store_daily_performance",
-  "materialized": "incremental",
+  "materialization": "incremental",
   "from": {
     "model": "stg__sales__orders__enriched_orders",
     "rollup": {
@@ -120,7 +120,7 @@ Let's create a comprehensive monthly rollup for customer analytics and retention
   "group": "customers",
   "topic": "analytics",
   "name": "customer_monthly_summary",
-  "materialized": "incremental",
+  "materialization": "incremental",
   "from": {
     "model": "int__customers__profiles__summary",
     "rollup": {

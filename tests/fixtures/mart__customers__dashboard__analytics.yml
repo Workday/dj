@@ -12,6 +12,7 @@ models:
     config:
       tags:
         - json
+        - lightdash
         - lightdash-explore
         - mart
     columns:
@@ -99,3 +100,16 @@ models:
             type: string
             label: Total Orders
             hidden: true
+          metrics:
+            metric_total_orders_per_customer:
+              ai_hint: Use this to analyze customer purchase frequency and identify high-value
+                customers
+              type: sum
+              label: Total Orders Per Customer
+              group_label: Customer Metrics
+            metric_avg_orders_per_customer:
+              ai_hint: Use this to understand typical customer engagement and repeat purchase
+                behavior
+              type: average
+              label: Average Orders Per Customer
+              group_label: Customer Metrics

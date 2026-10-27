@@ -4,6 +4,7 @@
     "topic": "dashboard",
     "name": "comprehensive_analytics",
     "tags": [
+        "lightdash",
         "lightdash-explore"
     ],
     "from": {

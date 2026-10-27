@@ -73,7 +73,7 @@ Let's create a comprehensive customer view by combining customer data from diffe
   "group": "customers",
   "topic": "analytics",
   "name": "unified_customer_insights",
-  "materialized": "incremental",
+  "materialization": "incremental",
   "from": {
     "model": "int__customers__profiles__summary",
     "union": {
@@ -163,7 +163,7 @@ Let's create a more complex example that combines sales data from different chan
   "group": "sales",
   "topic": "performance",
   "name": "unified_sales_analytics",
-  "materialized": "incremental",
+  "materialization": "incremental",
   "from": {
     "model": "int__sales__channels__online_performance",
     "union": {

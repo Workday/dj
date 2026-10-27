@@ -21,6 +21,10 @@ models:
           type: dim
           origin:
             id: model.jaffle_shop.stg__sales__orders__standardized
+          dimension:
+            type: date
+            label: Order Date
+            group_label: Order Fields
       - name: order_id_count
         data_type: number
         description: Number of orders in the last 30 days
@@ -28,6 +32,20 @@ models:
           type: fct
           origin:
             id: model.jaffle_shop.stg__sales__orders__standardized
+          dimension:
+            label: Order ID
+            group_label: Order Fields
+          metrics:
+            metric_order_count:
+              ai_hint: Use this to count total orders or analyze order volume trends over time
+              type: count_distinct
+              label: Number of Orders
+              group_label: Order Metrics
+            metric_rolling_order_count:
+              ai_hint: Use this to track order volume trends over 30-day rolling windows
+              type: count
+              label: 30-Day Order Count
+              group_label: Rolling Window Metrics
       - name: order_total_dollars_sum
         data_type: number
         description: Revenue metrics for the last 30 days (sum, min, max)
@@ -35,6 +53,28 @@ models:
           type: fct
           origin:
             id: model.jaffle_shop.int__sales__orders__enriched
+          metrics:
+            metric_order_total_dollars:
+              ai_hint: Use this metric for revenue analysis in dollar amounts. This is the
+                primary metric for overall sales performance and revenue trends
+              type: sum
+              label: Total Revenue (Dollars)
+              group_label: Order Metrics
+            metric_rolling_revenue_sum:
+              ai_hint: Use this to analyze rolling 30-day revenue trends by store
+              type: sum
+              label: 30-Day Revenue (Sum)
+              group_label: Rolling Window Metrics
+            metric_rolling_revenue_min:
+              ai_hint: Use this to identify lowest revenue days within 30-day windows
+              type: min
+              label: 30-Day Revenue (Min)
+              group_label: Rolling Window Metrics
+            metric_rolling_revenue_max:
+              ai_hint: Use this to identify peak revenue days within 30-day windows
+              type: max
+              label: 30-Day Revenue (Max)
+              group_label: Rolling Window Metrics
       - name: order_total_dollars_min
         data_type: number
         description: Revenue metrics for the last 30 days (sum, min, max)
@@ -42,6 +82,13 @@ models:
           type: fct
           origin:
             id: model.jaffle_shop.int__sales__orders__enriched
+          metrics:
+            metric_order_total_dollars:
+              ai_hint: Use this metric for revenue analysis in dollar amounts. This is the
+                primary metric for overall sales performance and revenue trends
+              type: sum
+              label: Total Revenue (Dollars)
+              group_label: Order Metrics
       - name: order_total_dollars_max
         data_type: number
         description: Revenue metrics for the last 30 days (sum, min, max)
@@ -49,6 +96,13 @@ models:
           type: fct
           origin:
             id: model.jaffle_shop.int__sales__orders__enriched
+          metrics:
+            metric_order_total_dollars:
+              ai_hint: Use this metric for revenue analysis in dollar amounts. This is the
+                primary metric for overall sales performance and revenue trends
+              type: sum
+              label: Total Revenue (Dollars)
+              group_label: Order Metrics
       - name: store_id
         data_type: varchar
         description: Foreign key to store
@@ -56,6 +110,9 @@ models:
           type: dim
           origin:
             id: model.jaffle_shop.stg__sales__orders__standardized
+          dimension:
+            label: Store ID
+            group_label: Store Fields
       - name: store_name
         data_type: varchar
         description: Store location name

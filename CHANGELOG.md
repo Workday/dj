@@ -1,5 +1,29 @@
 # Change Log
 
+## 2.5.0
+
+### Python models
+
+- **MWAA worker is the default compute.** New `.python.json` files omit `compute` (Create Python Model defaults to Airflow worker). Set `"compute": "kpo"` and optional `kpo_size` to run on Kubernetes; pod presets remain in `dags/_ext_/kpo_sizes.yml`.
+- **Airflow-aligned defaults for `depends_on` upstream inference.** When DJ auto-fills trino `upstream_sources` from `depends_on`, catalog and schema resolve from `dj.pythonModel.catalogName` / `dj.pythonModel.databaseName` (mirrors Airflow Variables `dj_python_model_catalog_name` and `dj_python_model_database_name`), KPO env vars, then `glue` and `python_source` — not hardcoded org catalogs.
+- **KPO and python models use the same Trino Variables as source ETL.** Regenerated `python_models/_trino_io.py` and KPO pod env read `dj_etl_trino_host`, `dj_etl_trino_user`, and `dj_etl_trino_password` instead of legacy `opus-etl-*` names.
+
+### Model Wizard
+
+- **Create and edit models with `materialization` instead of deprecated top-level fields.** The wizard writes `materialization` (string or nested strategy/partitions) rather than `materialized`, `incremental_strategy`, and `partitioned_by`. Saving an edit removes those legacy keys from the file. jaffle_shop examples use the new shape.
+
+### Agent / CLI
+
+- **CLI request examples in every workspace.** Sample request files are copied to `.dj/examples/` on activation, so `dj <operation> --help` and the agent skills point at files that exist in your project.
+
+### Framework
+
+- **Dynamic Lightdash custom granularities and expanded time intervals.** Custom time granularities defined in `lightdash.config.yml` (under `custom_granularities`) are dynamically discovered and loaded into model schemas and editor autocomplete. Built-in time intervals also now include `MINUTE`, `SECOND`, and `MILLISECOND`.
+
+### Documentation
+
+- **Single `jaffle_shop` example project.** Consolidates the two duplicate example dbt projects into one at `docs/examples/jaffle_shop`, which now includes the Lightdash examples. Docs, links, and the example walkthroughs point at this single project.
+
 ## 2.4.0
 
 ### Agent / CLI

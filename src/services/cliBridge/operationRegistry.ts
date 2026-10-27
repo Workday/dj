@@ -16,17 +16,17 @@ import {
   normalizeDbtCompileRequest,
   normalizeWrappedModelRequest,
 } from '@services/cliBridge/requestShape';
+import {
+  formatGlobalHelp,
+  formatOperationHelpSummary,
+  listOperationHelp,
+} from '@shared/cli/operationHelp';
 import type {
   OperationContext,
   OperationDef,
   OperationRegistry,
   SideEffect,
 } from '@shared/cli/types';
-import {
-  formatGlobalHelp,
-  formatOperationHelpSummary,
-  listOperationHelp,
-} from '@shared/cli/operationHelp';
 
 /**
  * Normalize a CLI input payload into the `request` object `handleApi` expects.
@@ -312,7 +312,7 @@ export function createOperationRegistry(): OperationRegistry {
     'model.columns',
     'framework-model-columns',
     'Resolved column list (name, dim/fct, types) from manifest/synced YAML. Requires { modelName }; projectName optional when a single dbt project exists.',
-    'examples/model-columns.request.json',
+    '.dj/examples/model-columns.request.json',
   );
   registerForward(
     'model.similar',
@@ -381,7 +381,7 @@ export function createOperationRegistry(): OperationRegistry {
       const request = readRequest(input);
       if (!request) {
         throw new Error(
-          'model.create requires an object payload (see examples/model-create.request.json)',
+          'model.create requires an object payload (see .dj/examples/model-create.request.json)',
         );
       }
       resolveProjectName(request, ctx);
@@ -567,7 +567,7 @@ export function createOperationRegistry(): OperationRegistry {
   register({
     name: 'model.lineage',
     description:
-      "Get upstream/downstream lineage. CLI defaults depth to -1 (walk to sources) unless overridden. Optional maxNodes (default 50). Requires { modelName }; projectName optional when a single dbt project exists.",
+      'Get upstream/downstream lineage. CLI defaults depth to -1 (walk to sources) unless overridden. Optional maxNodes (default 50). Requires { modelName }; projectName optional when a single dbt project exists.',
     sideEffect: 'read',
     handler: async (input, ctx) => {
       const request = readRequest(input, { allowEmpty: true }) as Record<
@@ -577,7 +577,7 @@ export function createOperationRegistry(): OperationRegistry {
       assertNonEmptyModelName(
         'model.lineage',
         request,
-        'examples/model-lineage.request.json',
+        '.dj/examples/model-lineage.request.json',
       );
       resolveProjectName(request, ctx);
       if (request.depth === undefined) {
@@ -593,13 +593,13 @@ export function createOperationRegistry(): OperationRegistry {
     'model.compiled-sql',
     'data-explorer-get-compiled-sql',
     "Read a model's compiled SQL. Requires { modelName }; projectName optional when a single dbt project exists.",
-    'examples/model-lineage.request.json',
+    '.dj/examples/model-lineage.request.json',
   );
   registerModelNameOp(
     'model.query',
     'data-explorer-execute-query',
     "Run a model's compiled SQL via Trino (not the deployed warehouse relation). Optional schemaColumns, includeHiddenDims, aggregations { groupBy, metrics }. Requires { modelName }; projectName optional when a single dbt project exists.",
-    'examples/model-query.request.json',
+    '.dj/examples/model-query.request.json',
   );
   register({
     name: 'model.data-check',
@@ -614,7 +614,7 @@ export function createOperationRegistry(): OperationRegistry {
       assertNonEmptyModelName(
         'model.data-check',
         request,
-        'examples/model-lineage.request.json',
+        '.dj/examples/model-lineage.request.json',
       );
       resolveProjectName(request, ctx);
       return ctx.api.handleApi({
@@ -637,7 +637,7 @@ export function createOperationRegistry(): OperationRegistry {
     handler: async (input, ctx) => {
       const request = readRequest(input, {
         allowEmpty: true,
-      }) as Record<string, unknown> | null;
+      });
       assertQueryExecutePayload(request);
       const sql = request!.sql as string;
       assertReadOnlySelect(sql);

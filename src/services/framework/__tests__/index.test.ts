@@ -55,6 +55,90 @@ describe('framework fixtures', () => {
   });
 });
 
+describe('dj.aiHintTag', () => {
+  const pathRelative = '../../../../tests/fixtures';
+  const pathSystem = path.join(__dirname, pathRelative);
+  const projectManifest = jsonParse(
+    fs.readFileSync(path.join(pathSystem, 'manifest.json'), 'utf8'),
+  );
+
+  const project: DbtProject = {
+    macroPaths: ['macros'],
+    manifest: projectManifest,
+    modelPaths: ['models'],
+    name: projectManifest.metadata.project_name,
+    pathRelative,
+    pathSystem,
+    properties: { vars: { event_dates: '2024-01-01' } },
+    targetPath: 'target',
+  };
+
+  const supplyInventoryModel = jsonParse(
+    fs.readFileSync(
+      path.join(
+        pathSystem,
+        'stg__supply_chain__supplies__inventory.model.json',
+      ),
+      'utf8',
+    ),
+  ) as FrameworkModel;
+
+  const revenueMartModel = jsonParse(
+    fs.readFileSync(
+      path.join(pathSystem, 'mart__sales__reporting__revenue.model.json'),
+      'utf8',
+    ),
+  ) as FrameworkModel;
+
+  function metricTags(
+    properties: ReturnType<typeof frameworkGenerateModelOutput>['properties'],
+    columnName: string,
+    metricName: string,
+  ): string[] | undefined {
+    const column = properties.columns?.find((c) => c.name === columnName);
+    const metrics = column?.meta?.metrics as
+      | Record<string, { tags?: string[] }>
+      | undefined;
+    return metrics?.[metricName]?.tags;
+  }
+
+  test('does not add metric tags when dj.aiHintTag is unset', () => {
+    const { properties } = frameworkGenerateModelOutput({
+      dj: { config: {} },
+      modelJson: supplyInventoryModel,
+      project,
+    });
+
+    expect(
+      metricTags(properties, 'cost_dollars', 'metric_supply_cost_total'),
+    ).toBeUndefined();
+  });
+
+  test('adds metric tags on authored column metrics when dj.aiHintTag is set', () => {
+    const { properties } = frameworkGenerateModelOutput({
+      dj: { config: { aiHintTag: 'ai' } },
+      modelJson: supplyInventoryModel,
+      project,
+    });
+
+    expect(
+      metricTags(properties, 'cost_dollars', 'metric_supply_cost_total'),
+    ).toEqual(['ai']);
+  });
+
+  test('adds metric tags on inherited column metrics when dj.aiHintTag is set', () => {
+    const { properties } = frameworkGenerateModelOutput({
+      dj: { config: { aiHintTag: 'ai' } },
+      modelJson: revenueMartModel,
+      project,
+    });
+
+    expect(metricTags(properties, 'order_id', 'metric_order_count')).toEqual([
+      'ai',
+    ]);
+  });
+});
+
 describe('framework unit tests', () => {
   const project: DbtProject = {
     name: 'project',
@@ -618,6 +702,49 @@ describe('materialization shorthand', () => {
 
     expect(config.materialized).toBe('incremental');
     expect(config.incremental_strategy).toBe('delete+insert');
+    expect(config.pre_hook).toContain('iterative_optimizer_timeout');
+  });
+
+  test('sql_hooks.pre null omits the incremental session pre-hook', () => {
+    const modelJson: FrameworkModel = {
+      type: 'int_select_model',
+      group: 'sales',
+      topic: 'orders',
+      name: 'enriched',
+      materialization: 'incremental',
+      sql_hooks: { pre: null },
+      select: [{ model: 'model_a', columns: ['dim_a'] }],
+      from: { model: 'model_a' },
+    } as unknown as FrameworkModel;
+
+    const { config } = frameworkGenerateModelOutput({
+      dj: { config: {} },
+      modelJson,
+      project,
+    });
+
+    expect(config.pre_hook).toBeUndefined();
+  });
+
+  test('an authored sql_hooks.pre replaces the session pre-hook', () => {
+    const modelJson: FrameworkModel = {
+      type: 'int_select_model',
+      group: 'sales',
+      topic: 'orders',
+      name: 'enriched',
+      materialization: 'incremental',
+      sql_hooks: { pre: 'select 1' },
+      select: [{ model: 'model_a', columns: ['dim_a'] }],
+      from: { model: 'model_a' },
+    } as unknown as FrameworkModel;
+
+    const { config } = frameworkGenerateModelOutput({
+      dj: { config: {} },
+      modelJson,
+      project,
+    });
+
+    expect(config.pre_hook).toBe('select 1');
   });
 
   test('"materialization": "incremental" respects config override to merge', () => {

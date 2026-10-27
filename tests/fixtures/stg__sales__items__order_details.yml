@@ -21,6 +21,10 @@ models:
           type: dim
           origin:
             id: model.jaffle_shop.stg__sales__items__order_details
+          dimension:
+            type: boolean
+            label: Is Beverage?
+            group_label: Product Fields
       - name: is_jaffle_item
         data_type: varchar
         description: Boolean flag for jaffle items
@@ -28,6 +32,10 @@ models:
           type: dim
           origin:
             id: model.jaffle_shop.stg__sales__items__order_details
+          dimension:
+            type: boolean
+            label: Is Jaffle?
+            group_label: Product Fields
       - name: item_id
         data_type: varchar
         description: Unique identifier for each order item
@@ -35,6 +43,9 @@ models:
           type: dim
           origin:
             id: model.jaffle_shop.stg__sales__items__order_details
+          dimension:
+            label: Order ID
+            group_label: Product Fields
       - name: order_id
         data_type: varchar
         description: Foreign key to orders table
@@ -42,6 +53,9 @@ models:
           type: dim
           origin:
             id: model.jaffle_shop.stg__sales__items__order_details
+          dimension:
+            label: Order ID
+            group_label: Product Fields
       - name: portal_source_count
         data_type: bigint
         description: Portal Source Count
@@ -61,6 +75,9 @@ models:
           type: dim
           origin:
             id: model.jaffle_shop.stg__sales__items__order_details
+          dimension:
+            label: Product SKU
+            group_label: Product Fields
       - name: product_type
         data_type: varchar
         description: Product type derived from SKU pattern
@@ -68,3 +85,6 @@ models:
           type: dim
           origin:
             id: model.jaffle_shop.stg__sales__items__order_details
+          dimension:
+            label: Product Type
+            group_label: Product Fields

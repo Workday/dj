@@ -4,6 +4,7 @@
     "topic": "reporting",
     "name": "revenue",
     "tags": [
+        "lightdash",
         "lightdash-explore"
     ],
     "from": {
@@ -44,19 +45,59 @@
             "name": "subtotal_dollars",
             "expr": "CAST(subtotal_cents AS DECIMAL(10,2)) / 100.0",
             "type": "fct",
-            "description": "Order subtotal in dollars"
+            "description": "Order subtotal in dollars",
+            "lightdash": {
+                "metrics": [
+                    {
+                        "name": "metric_subtotal_revenue",
+                        "type": "sum",
+                        "group_label": "Revenue Metrics",
+                        "label": "Total Subtotal Revenue",
+                        "ai_hint": "Use this to analyze pre-tax revenue for reporting and comparison across tax jurisdictions"
+                    }
+                ]
+            }
         },
         {
             "name": "tax_dollars",
             "expr": "CAST(tax_paid_cents AS DECIMAL(10,2)) / 100.0",
             "type": "fct",
-            "description": "Tax amount in dollars"
+            "description": "Tax amount in dollars",
+            "lightdash": {
+                "metrics": [
+                    {
+                        "name": "metric_total_tax",
+                        "type": "sum",
+                        "group_label": "Revenue Metrics",
+                        "label": "Total Tax Collected",
+                        "ai_hint": "Use this for tax reporting and compliance analysis"
+                    }
+                ]
+            }
         },
         {
             "name": "total_dollars",
             "expr": "order_total_dollars",
             "type": "fct",
-            "description": "Total order amount in dollars"
+            "description": "Total order amount in dollars",
+            "lightdash": {
+                "metrics": [
+                    {
+                        "name": "metric_total_revenue",
+                        "type": "sum",
+                        "group_label": "Revenue Metrics",
+                        "label": "Total Revenue",
+                        "ai_hint": "Use this as the primary revenue metric for financial reporting and dashboard KPIs"
+                    },
+                    {
+                        "name": "metric_avg_order_value",
+                        "type": "average",
+                        "group_label": "Revenue Metrics",
+                        "label": "Average Order Value (AOV)",
+                        "ai_hint": "Use this to track AOV trends over time, a key e-commerce performance indicator"
+                    }
+                ]
+            }
         },
         {
             "name": "revenue_tier",

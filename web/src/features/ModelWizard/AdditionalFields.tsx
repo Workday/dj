@@ -1,4 +1,8 @@
-import { FRAMEWORK_PARTITIONS } from '@shared/framework/constants';
+import {
+  DEFAULT_INCREMENTAL_PRE_HOOK,
+  DEFAULT_INCREMENTAL_STRATEGY,
+  FRAMEWORK_PARTITIONS,
+} from '@shared/framework/constants';
 import type { IncrementalStrategy } from '@shared/schema/types/model.schema';
 import {
   Checkbox,
@@ -65,8 +69,13 @@ export function AdditionalFields({
   watch,
 }: AdditionalFieldsProps) {
   const type = useModelStore((state) => state.basicFields.type);
-  const materialized = useModelStore((state) => state.basicFields.materialized);
+  const materialization = useModelStore(
+    (state) => state.basicFields.materialization,
+  );
   const setAdditionalField = useModelStore((state) => state.setAdditionalField);
+  const defaultIncrementalStrategy =
+    useModelStore((state) => state.defaultIncrementalStrategy) ??
+    DEFAULT_INCREMENTAL_STRATEGY;
   const additionalFieldsSqlHooks = useModelStore(
     (state) => state.additionalFields.sql_hooks,
   );
@@ -77,7 +86,7 @@ export function AdditionalFields({
     | undefined;
 
   // Sync store's sql_hooks to form state on mount
-  // This handles cases where materialized was changed on BasicInformation step,
+  // This handles cases where materialization was changed on BasicInformation step,
   // updating sql_hooks in the store, and user navigates to AdditionalFields step
   useEffect(() => {
     const formHooks = watch('sql_hooks');
@@ -98,7 +107,7 @@ export function AdditionalFields({
     type,
   );
 
-  const isIncrementalMaterialization = materialized === 'incremental';
+  const isIncrementalMaterialization = materialization === 'incremental';
 
   /**
    * Exclude daily filters are not available for stg_select_source, stg_union_sources and mart models
@@ -108,7 +117,7 @@ export function AdditionalFields({
   );
 
   /**
-   * Incremental Strategy is only available when materialized type is 'incremental' and non-mart model
+   * Incremental Strategy is only available when materialization type is 'incremental' and non-mart model
    */
   const showIncrementalStrategy =
     !isMartModelType && isIncrementalMaterialization;
@@ -142,23 +151,36 @@ export function AdditionalFields({
             self.findIndex((s) => s.trim() === stmt.trim()) === index,
         );
 
-        const hookValue: string | [string, ...string[]] | undefined =
-          uniqueStatements.length === 0
+        const hookValue: string | [string, ...string[]] | null | undefined =
+          hookType === 'pre' &&
+          uniqueStatements.length === 1 &&
+          uniqueStatements[0] === DEFAULT_INCREMENTAL_PRE_HOOK
             ? undefined
-            : uniqueStatements.length === 1
-              ? uniqueStatements[0]
-              : (uniqueStatements as [string, ...string[]]);
+            : uniqueStatements.length === 0
+              ? hookType === 'pre' && materialization === 'incremental'
+                ? null
+                : undefined
+              : uniqueStatements.length === 1
+                ? uniqueStatements[0]
+                : (uniqueStatements as [string, ...string[]]);
 
-        const newSqlHooks = {
+        const newSqlHooks: ModelWizardFormValues['sql_hooks'] = {
           ...currentSqlHooks,
           [hookType]: hookValue,
         };
+        if (hookValue === undefined) {
+          delete newSqlHooks[hookType];
+        }
+        const stored =
+          newSqlHooks.pre !== undefined || newSqlHooks.post !== undefined
+            ? newSqlHooks
+            : undefined;
 
-        fieldOnChange(newSqlHooks);
-        setValue('sql_hooks', newSqlHooks);
-        setAdditionalField('sql_hooks', newSqlHooks);
+        fieldOnChange(stored);
+        setValue('sql_hooks', stored);
+        setAdditionalField('sql_hooks', stored);
       },
-    [setValue, setAdditionalField],
+    [materialization, setAdditionalField, setValue],
   );
 
   return (
@@ -230,12 +252,37 @@ export function AdditionalFields({
                   name={field.name}
                   onBlur={field.onBlur}
                   value={field.value || ''}
+                  placeholder={`Default (${defaultIncrementalStrategy})`}
                   onChange={(value) => {
-                    field.onChange(value);
-                    const updateIncrementalStrategy = {
-                      ...incrementalStrategy,
-                      type: value as IncrementalStrategy['type'],
-                    } as IncrementalStrategy;
+                    if (!value) {
+                      field.onChange(undefined);
+                      setValue('incremental_strategy', undefined);
+                      setAdditionalField('incremental_strategy', undefined);
+                      return;
+                    }
+                    const strategyType = value as IncrementalStrategy['type'];
+                    field.onChange(strategyType);
+                    const previousKey =
+                      incrementalStrategy &&
+                      'unique_key' in incrementalStrategy &&
+                      incrementalStrategy.unique_key
+                        ? incrementalStrategy.unique_key
+                        : undefined;
+                    const updateIncrementalStrategy = (
+                      strategyType === 'merge'
+                        ? {
+                            type: 'merge',
+                            ...(previousKey ? { unique_key: previousKey } : {}),
+                          }
+                        : strategyType === 'delete+insert'
+                          ? {
+                              type: 'delete+insert',
+                              ...(previousKey
+                                ? { unique_key: previousKey }
+                                : {}),
+                            }
+                          : { type: strategyType }
+                    ) as IncrementalStrategy;
                     setValue('incremental_strategy', updateIncrementalStrategy);
                     setAdditionalField(
                       'incremental_strategy',
@@ -308,17 +355,31 @@ export function AdditionalFields({
                                 : (value as [string, ...string[]]);
 
                           field.onChange(uniqueKeyValue);
-                          const newStrategy = {
-                            ...incrementalStrategy,
-                            unique_key: uniqueKeyValue || '',
-                          };
-                          setValue(
-                            'incremental_strategy',
-                            newStrategy as ModelWizardFormValues['incremental_strategy'],
-                          );
+                          const strategyType = incrementalStrategy?.type;
+                          const newStrategy = (
+                            strategyType === 'merge'
+                              ? {
+                                  type: 'merge',
+                                  ...(uniqueKeyValue
+                                    ? { unique_key: uniqueKeyValue }
+                                    : {}),
+                                }
+                              : strategyType === 'delete+insert'
+                                ? {
+                                    type: 'delete+insert',
+                                    ...(uniqueKeyValue
+                                      ? { unique_key: uniqueKeyValue }
+                                      : {}),
+                                  }
+                                : incrementalStrategy
+                          ) as IncrementalStrategy | undefined;
+                          if (!newStrategy) {
+                            return;
+                          }
+                          setValue('incremental_strategy', newStrategy);
                           setAdditionalField(
                             'incremental_strategy',
-                            newStrategy as IncrementalStrategy,
+                            newStrategy,
                           );
                         }}
                         onBlur={field.onBlur}
@@ -446,17 +507,28 @@ export function AdditionalFields({
 
                 // Convert pre to array format
                 const preValue = sqlHooks?.pre;
-                const preStatements = Array.isArray(preValue)
-                  ? preValue
-                  : preValue
-                    ? [preValue]
-                    : [];
+                const preStatements =
+                  preValue === null
+                    ? []
+                    : Array.isArray(preValue)
+                      ? preValue
+                      : preValue
+                        ? [preValue]
+                        : isIncrementalMaterialization
+                          ? [DEFAULT_INCREMENTAL_PRE_HOOK]
+                          : [];
 
                 return (
                   <div className="flex flex-col gap-3">
                     <h4 className="text-sm font-medium text-foreground flex items-center gap-2">
                       Pre Hook
-                      <Tooltip content="SQL statement(s) to run before the model" />
+                      <Tooltip
+                        content={
+                          isIncrementalMaterialization
+                            ? 'Incremental models get this session statement when the file omits a pre-hook. Leave it to keep that behavior without writing it. Delete it to omit the pre-hook. Your own statements replace it.'
+                            : 'SQL statement(s) to run before the model'
+                        }
+                      />
                     </h4>
 
                     <EditableList
@@ -467,7 +539,11 @@ export function AdditionalFields({
                         field.onChange,
                       )}
                       placeholder="Enter SQL statement"
-                      emptyText="No pre hooks added"
+                      emptyText={
+                        isIncrementalMaterialization
+                          ? 'No pre-hook. The incremental session statement will not be added.'
+                          : 'No pre hooks added'
+                      }
                       addButtonLabel="Add"
                     />
                   </div>

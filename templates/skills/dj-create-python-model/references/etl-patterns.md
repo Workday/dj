@@ -1,59 +1,51 @@
 # ETL Pattern Reference
 
-Detailed patterns for each ETL stage. **SQL-first:** all transformation and loading patterns use Trino SQL by default. DataFrame patterns are provided only for cases where SQL cannot express the logic.
+Stage-level patterns for both orchestrators. All Trino I/O goes through **`python_models._trino_io`** — no inline `trino.dbapi.connect`, no `execute_trino`, no standalone `delete()`.
 
-All patterns target `<dev_catalog>.<python_output_schema>` by default.
+Default output target: `<dev_catalog>.<python_output_schema>` (resolve from Step 0 / `output` in `.python.json` and `get_catalog_name()` at runtime).
 
----
-
-## Trino Connection Helper
-
-Include this in all models that use Trino for staging or transformation. All patterns below assume this function is defined:
+Build `table_fqn` for every helper call:
 
 ```python
-def get_trino_conn():
-    """Reusable Trino connection."""
-    from trino.dbapi import connect
-    return connect(
-        host=INPUT_VARIABLES.get("trino_host", "localhost"),
-        port=int(INPUT_VARIABLES.get("trino_port", "8080")),
-        user=INPUT_VARIABLES.get("trino_user", "etl"),
-        catalog="<dev_catalog>",
-        schema="<python_output_schema>",
-    )
+from python_models._config import PythonModelConfig, get_catalog_name
+
+table_fqn = f"{get_catalog_name()}.{OUTPUT_CONFIG.namespace}.{OUTPUT_CONFIG.table_name or OUTPUT_CONFIG.model_name}"
 ```
 
 ---
 
-## Orchestrator Patterns
+## Orchestrator patterns
 
-### SQL-first flow (preferred)
-
-```python
-def run_etl(context: dict):
-    """Main ETL orchestrator — SQL-first flow."""
-    df = extract(context)
-    stage(df, context)
-    transform_and_load(context)
-    cleanup(context)
-```
-
-### DataFrame fallback flow
+### Pandas orchestrator
 
 ```python
 def run_etl(context: dict):
-    """Main ETL orchestrator — DataFrame fallback for Python-only transforms."""
+    """Pandas end-to-end flow."""
     df = extract(context)
     df = transform(df, context)
     load(df, context)
     post_load(context)
 ```
 
+### SQL / Trino orchestrator
+
+```python
+def run_etl(context: dict):
+    """SQL end-to-end flow."""
+    extract(context)          # optional — stage external data or no-op
+    transform_and_load(context)
+    cleanup(context)
+```
+
+### Mixed (author choice)
+
+Combine stages when the user requests it — e.g. pandas `extract` + SQL `transform_and_load` after staging. Not required by the framework.
+
 ---
 
-## Extract Patterns
+## Extract patterns
 
-Extract is always Python — it pulls data from external systems into a DataFrame (or skips extraction if data is already in Trino).
+Extract is Python — it pulls data from external systems or reads Trino partitions into a DataFrame. Skip when the SQL path reads directly from existing Trino tables.
 
 ### REST API with pagination
 
@@ -94,7 +86,6 @@ def extract(context: dict) -> pd.DataFrame:
         log.info(f"Page {page}: fetched {len(records)} records (total: {len(all_records)})")
         page += 1
 
-    log.info(f"Total records extracted: {len(all_records)}")
     return pd.DataFrame(all_records)
 ```
 
@@ -178,274 +169,52 @@ def extract(context: dict) -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True)
 ```
 
-### Data already in Trino (skip extract)
+### Read upstream Trino partition (pandas path)
 
-When the source data is already available in Trino, skip extraction entirely and go straight to SQL transform + load:
-
-```python
-def extract(context: dict):
-    """No extraction needed — source data is already in Trino."""
-    log.info("Source data is in Trino — skipping extract, will transform via SQL")
-    return None
-```
-
----
-
-## Stage Pattern
-
-Stage a raw DataFrame into a temporary Trino table so all subsequent transformation happens in SQL. **Always batch INSERTs** to manage memory.
+When `upstream_sources` declares a trino table, read via `_trino_io`:
 
 ```python
-def stage(df: pd.DataFrame, context: dict) -> None:
-    """Stage raw data into a temporary Trino table."""
-    if df is None or df.empty:
-        log.warning("No data to stage")
-        return
+from python_models._trino_io import read_partition_to_dataframe
 
-    conn = get_trino_conn()
-    cursor = conn.cursor()
-    table_name = OUTPUT_CONFIG.table_name or OUTPUT_CONFIG.model_name
-    staging_table = f"stg_tmp_{table_name}"
-
-    cursor.execute(f"DROP TABLE IF EXISTS <dev_catalog>.<python_output_schema>.{staging_table}")
-
-    columns = df.columns.tolist()
-    col_defs = ", ".join(f"{c} VARCHAR" for c in columns)
-    cursor.execute(
-        f"CREATE TABLE <dev_catalog>.<python_output_schema>.{staging_table} ({col_defs})"
+def extract(context: dict) -> pd.DataFrame:
+    """Read an upstream Iceberg partition declared in upstream_sources."""
+    ds = context["ds"]
+    upstream_fqn = f"{get_catalog_name()}.<python_output_schema>.upstream_model_a"
+    return read_partition_to_dataframe(
+        upstream_fqn,
+        "portal_partition_daily",
+        ds,
+        columns=["id", "name", "amount"],
     )
+```
 
-    batch_size = 1000
-    for i in range(0, len(df), batch_size):
-        batch = df.iloc[i:i + batch_size]
-        values_list = []
-        for _, row in batch.iterrows():
-            vals = ", ".join(
-                f"'{str(v).replace(chr(39), chr(39)+chr(39))}'" for v in row
-            )
-            values_list.append(f"({vals})")
-        cursor.execute(
-            f"INSERT INTO <dev_catalog>.<python_output_schema>.{staging_table} "
-            f"VALUES {', '.join(values_list)}"
-        )
+Declare in `.python.json`:
 
-    log.info(f"Staged {len(df)} rows into {staging_table}")
+```json
+"upstream_sources": [
+  { "type": "trino", "value": "<dev_catalog>.<python_output_schema>.upstream_model_a" }
+]
+```
+
+### Data already in Trino (SQL path — skip extract)
+
+```python
+def extract(context: dict) -> None:
+    """No extraction — transform_and_load reads directly from Trino."""
+    log.info("Source data is in Trino — skipping extract")
 ```
 
 ---
 
-## Transform + Load Patterns (SQL-first)
-
-All transformations are SQL expressions executed by Trino. Trino manages the Iceberg table writes.
-
-### Column renaming and type casting
-
-```python
-def transform_and_load(context: dict) -> None:
-    conn = get_trino_conn()
-    cursor = conn.cursor()
-    ds = context["ds"]
-    target = f"<dev_catalog>.<python_output_schema>.{OUTPUT_CONFIG.table_name}"
-    staging = f"<dev_catalog>.<python_output_schema>.stg_tmp_{OUTPUT_CONFIG.table_name}"
-
-    cursor.execute(f"""
-        CREATE TABLE IF NOT EXISTS {target} (
-            user_id VARCHAR,
-            full_name VARCHAR,
-            created_at TIMESTAMP,
-            amount DOUBLE,
-            portal_partition_daily VARCHAR
-        )
-        WITH (
-            format = 'PARQUET',
-            partitioned_by = ARRAY['portal_partition_daily']
-        )
-    """)
-
-    cursor.execute(f"DELETE FROM {target} WHERE portal_partition_daily = '{ds}'")
-
-    cursor.execute(f"""
-        INSERT INTO {target}
-        SELECT
-            CAST(userID AS VARCHAR) AS user_id,
-            TRIM(fullName) AS full_name,
-            CAST(createdAt AS TIMESTAMP) AS created_at,
-            CAST(amount AS DOUBLE) AS amount,
-            '{ds}' AS portal_partition_daily
-        FROM {staging}
-    """)
-
-    log.info(f"Transform + load complete: {target}")
-```
-
-### Filtering with WHERE
-
-```python
-    cursor.execute(f"""
-        INSERT INTO {target}
-        SELECT
-            id,
-            name,
-            status,
-            CAST(amount AS DOUBLE) AS amount,
-            '{ds}' AS portal_partition_daily
-        FROM {staging}
-        WHERE status IN ('active', 'pending')
-          AND CAST(amount AS DOUBLE) > 0
-    """)
-```
-
-### Deduplication with ROW_NUMBER
-
-```python
-    cursor.execute(f"""
-        INSERT INTO {target}
-        SELECT id, name, status, updated_at, '{ds}' AS portal_partition_daily
-        FROM (
-            SELECT
-                *,
-                ROW_NUMBER() OVER (
-                    PARTITION BY id
-                    ORDER BY updated_at DESC
-                ) AS rn
-            FROM {staging}
-        )
-        WHERE rn = 1
-    """)
-```
-
-### Aggregation with GROUP BY
-
-```python
-    cursor.execute(f"""
-        INSERT INTO {target}
-        SELECT
-            category,
-            region,
-            SUM(CAST(amount AS DOUBLE)) AS total_amount,
-            COUNT(*) AS record_count,
-            AVG(CAST(amount AS DOUBLE)) AS avg_amount,
-            '{ds}' AS portal_partition_daily
-        FROM {staging}
-        GROUP BY category, region
-    """)
-```
-
-### Join with existing Trino tables
-
-```python
-    cursor.execute(f"""
-        INSERT INTO {target}
-        SELECT
-            s.id,
-            s.name,
-            r.region_name,
-            CAST(s.amount AS DOUBLE) AS amount,
-            '{ds}' AS portal_partition_daily
-        FROM {staging} s
-        LEFT JOIN <dev_catalog>.<python_output_schema>.region_lookup r
-            ON s.region_code = r.region_code
-    """)
-```
-
-### Window functions
-
-```python
-    cursor.execute(f"""
-        INSERT INTO {target}
-        SELECT
-            id,
-            name,
-            amount,
-            SUM(CAST(amount AS DOUBLE)) OVER (
-                PARTITION BY category
-                ORDER BY created_at
-                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-            ) AS running_total,
-            '{ds}' AS portal_partition_daily
-        FROM {staging}
-    """)
-```
-
-### CASE expressions
-
-```python
-    cursor.execute(f"""
-        INSERT INTO {target}
-        SELECT
-            id,
-            name,
-            CASE
-                WHEN CAST(amount AS DOUBLE) > 1000 THEN 'high'
-                WHEN CAST(amount AS DOUBLE) > 100 THEN 'medium'
-                ELSE 'low'
-            END AS amount_tier,
-            '{ds}' AS portal_partition_daily
-        FROM {staging}
-    """)
-```
-
-### Source already in Trino (no staging needed)
-
-When source data is already in Trino, skip extract and stage entirely — go directly to SQL transform + load:
-
-```python
-def transform_and_load(context: dict) -> None:
-    """Transform from an existing Trino source table — no staging needed."""
-    conn = get_trino_conn()
-    cursor = conn.cursor()
-    ds = context["ds"]
-    source = "<dev_catalog>.some_catalog.raw_events"
-    target = f"<dev_catalog>.<python_output_schema>.{OUTPUT_CONFIG.table_name}"
-
-    cursor.execute(f"""
-        CREATE TABLE IF NOT EXISTS {target} (
-            event_id VARCHAR,
-            event_type VARCHAR,
-            user_id VARCHAR,
-            event_count BIGINT,
-            portal_partition_daily VARCHAR
-        )
-        WITH (
-            format = 'PARQUET',
-            partitioned_by = ARRAY['portal_partition_daily']
-        )
-    """)
-
-    cursor.execute(f"DELETE FROM {target} WHERE portal_partition_daily = '{ds}'")
-
-    cursor.execute(f"""
-        INSERT INTO {target}
-        SELECT
-            event_id,
-            event_type,
-            user_id,
-            COUNT(*) AS event_count,
-            '{ds}' AS portal_partition_daily
-        FROM {source}
-        WHERE portal_partition_daily = '{ds}'
-        GROUP BY event_id, event_type, user_id
-    """)
-
-    log.info(f"Direct SQL transform + load complete: {target}")
-```
-
----
-
-## DataFrame Transform Patterns (fallback — use only when SQL cannot express the logic)
-
-These patterns are for cases where the transformation requires Python-specific capabilities.
-
-### Nested JSON flattening
-
-SQL cannot easily handle deeply nested JSON with variable keys:
+## Pandas transform patterns
 
 ```python
 def transform(df: pd.DataFrame, context: dict) -> pd.DataFrame:
-    """Flatten nested JSON columns — SQL cannot handle variable-depth nesting."""
+    """Pandas transforms — set partition column before load."""
     if df is None or df.empty:
         return pd.DataFrame()
 
+    # Example: nested JSON flattening
     if "metadata" in df.columns:
         meta_df = pd.json_normalize(df["metadata"].apply(
             lambda x: x if isinstance(x, dict) else {}
@@ -457,189 +226,281 @@ def transform(df: pd.DataFrame, context: dict) -> pd.DataFrame:
     return df
 ```
 
-### Complex string parsing
-
-When regex or multi-step parsing logic is impractical in SQL:
+### Merge multiple upstream DataFrames
 
 ```python
-def transform(df: pd.DataFrame, context: dict) -> pd.DataFrame:
-    """Parse structured strings that need multi-step regex — not practical in SQL."""
-    import re
-    if df is None or df.empty:
-        return pd.DataFrame()
-
-    pattern = r'(?P<host>[^:]+):(?P<port>\d+)/(?P<path>.+)'
-    parsed = df["endpoint"].str.extract(pattern)
-    df = pd.concat([df, parsed], axis=1)
-
-    df["portal_partition_daily"] = context["ds"]
-    return df
+def transform(dfs: dict[str, pd.DataFrame], context: dict) -> pd.DataFrame:
+    """Join upstream partitions in pandas (integration model pattern)."""
+    merged = dfs["model_a"].merge(dfs["model_b"], on="tenant_id", how="outer")
+    merged["portal_partition_daily"] = context["ds"]
+    return merged
 ```
 
-### ML preprocessing
+---
 
-When the transformation involves scikit-learn or similar:
-
-```python
-def transform(df: pd.DataFrame, context: dict) -> pd.DataFrame:
-    """ML feature engineering — requires Python libraries."""
-    from sklearn.preprocessing import LabelEncoder
-    if df is None or df.empty:
-        return pd.DataFrame()
-
-    le = LabelEncoder()
-    df["category_encoded"] = le.fit_transform(df["category"])
-
-    df["portal_partition_daily"] = context["ds"]
-    return df
-```
-
-After a DataFrame transform, **still load via Trino** by staging the result and using SQL CTAS:
+## Pandas load pattern
 
 ```python
+from python_models._trino_io import overwrite_partition_from_dataframe
+
 def load(df: pd.DataFrame, context: dict) -> None:
-    """Stage transformed DataFrame to Trino, then write final table via SQL."""
+    """Write partition output from a DataFrame."""
     if df is None or df.empty:
         log.warning("No data to load")
         return
 
-    stage(df, context)
-    transform_and_load_from_staging(context)
-    cleanup(context)
-```
-
----
-
-## Cleanup Pattern
-
-Always drop staging tables after the final write:
-
-```python
-def cleanup(context: dict) -> None:
-    """Drop temporary staging table."""
-    conn = get_trino_conn()
-    cursor = conn.cursor()
-    table_name = OUTPUT_CONFIG.table_name or OUTPUT_CONFIG.model_name
-    staging_table = f"stg_tmp_{table_name}"
-    cursor.execute(
-        f"DROP TABLE IF EXISTS <dev_catalog>.<python_output_schema>.{staging_table}"
-    )
-    log.info(f"Dropped staging table: {staging_table}")
-```
-
----
-
-## Post-Load Patterns
-
-### Validate with Trino SQL
-
-```python
-def post_load(context: dict) -> None:
-    """Verify data was written correctly via Trino query."""
-    conn = get_trino_conn()
-    cursor = conn.cursor()
     ds = context["ds"]
-    target = f"<dev_catalog>.<python_output_schema>.{OUTPUT_CONFIG.table_name}"
+    table_fqn = f"{get_catalog_name()}.{OUTPUT_CONFIG.namespace}.{OUTPUT_CONFIG.table_name}"
+    columns = ["tenant_id", "status", "portal_partition_daily"]
+    overwrite_partition_from_dataframe(
+        table_fqn,
+        "portal_partition_daily",
+        ds,
+        df,
+        columns,
+        batch_size=1000,
+    )
+    log.info(f"Loaded {len(df)} rows into {table_fqn} for {ds}")
+```
 
-    cursor.execute(f"""
-        SELECT COUNT(*) AS row_count
-        FROM {target}
+---
+
+## SQL stage pattern (optional — SQL path with external extract)
+
+Stage raw external data into a temporary table before SQL transforms. Use `create_iceberg_table` + batched `execute_sql` INSERTs, or stage in pandas and load via `overwrite_partition_from_dataframe` to a `stg_tmp_*` table.
+
+```python
+from python_models._trino_io import create_iceberg_table, overwrite_partition_from_dataframe
+
+def stage(df: pd.DataFrame, context: dict) -> None:
+    """Stage raw API data into a temporary Iceberg table for SQL transforms."""
+    if df is None or df.empty:
+        log.warning("No data to stage")
+        return
+
+    catalog = get_catalog_name()
+    staging_fqn = f"{catalog}.{OUTPUT_CONFIG.namespace}.stg_tmp_{OUTPUT_CONFIG.table_name}"
+    columns = [(c, "VARCHAR") for c in df.columns.tolist()]
+
+    create_iceberg_table(staging_fqn, columns)
+    # Write all rows to a single staging partition (ds-scoped for cleanup)
+    df = df.copy()
+    df["_stage_partition"] = context["ds"]
+    staging_columns = list(df.columns)
+    overwrite_partition_from_dataframe(
+        staging_fqn, "_stage_partition", context["ds"], df, staging_columns
+    )
+    log.info(f"Staged {len(df)} rows into {staging_fqn}")
+```
+
+---
+
+## SQL transform + load patterns
+
+All partition loads use `overwrite_partition` — not manual `DELETE` + `INSERT`.
+
+### Column renaming and type casting
+
+```python
+from python_models._trino_io import overwrite_partition
+
+def transform_and_load(context: dict) -> None:
+    ds = context["ds"]
+    catalog = get_catalog_name()
+    target_fqn = f"{catalog}.{OUTPUT_CONFIG.namespace}.{OUTPUT_CONFIG.table_name}"
+    staging_fqn = f"{catalog}.{OUTPUT_CONFIG.namespace}.stg_tmp_{OUTPUT_CONFIG.table_name}"
+
+    source_query = f"""
+        SELECT
+            CAST(userID AS VARCHAR) AS user_id,
+            TRIM(fullName) AS full_name,
+            CAST(createdAt AS TIMESTAMP) AS created_at,
+            CAST(amount AS DOUBLE) AS amount,
+            '{ds}' AS portal_partition_daily
+        FROM {staging_fqn}
+    """
+    overwrite_partition(
+        target_fqn,
+        "portal_partition_daily",
+        ds,
+        source_query=source_query,
+        columns=["user_id", "full_name", "created_at", "amount", "portal_partition_daily"],
+    )
+```
+
+### Filtering with WHERE
+
+```python
+    source_query = f"""
+        SELECT id, name, status, CAST(amount AS DOUBLE) AS amount, '{ds}' AS portal_partition_daily
+        FROM {staging_fqn}
+        WHERE status IN ('active', 'pending')
+          AND CAST(amount AS DOUBLE) > 0
+    """
+```
+
+### Deduplication with ROW_NUMBER
+
+```python
+    source_query = f"""
+        SELECT id, name, status, updated_at, '{ds}' AS portal_partition_daily
+        FROM (
+            SELECT *, ROW_NUMBER() OVER (PARTITION BY id ORDER BY updated_at DESC) AS rn
+            FROM {staging_fqn}
+        )
+        WHERE rn = 1
+    """
+```
+
+### Aggregation with GROUP BY
+
+```python
+    source_query = f"""
+        SELECT
+            category,
+            region,
+            SUM(CAST(amount AS DOUBLE)) AS total_amount,
+            COUNT(*) AS record_count,
+            '{ds}' AS portal_partition_daily
+        FROM {staging_fqn}
+        GROUP BY category, region
+    """
+```
+
+### Join with existing Trino tables
+
+```python
+    source_fqn = f"{catalog}.<python_output_schema>.raw_events"
+    lookup_fqn = f"{catalog}.<python_output_schema>.region_lookup"
+
+    source_query = f"""
+        SELECT
+            s.id, s.name, r.region_name,
+            CAST(s.amount AS DOUBLE) AS amount,
+            '{ds}' AS portal_partition_daily
+        FROM {source_fqn} s
+        LEFT JOIN {lookup_fqn} r ON s.region_code = r.region_code
+        WHERE s.portal_partition_daily = '{ds}'
+    """
+```
+
+### Source already in Trino (no staging)
+
+```python
+def transform_and_load(context: dict) -> None:
+    """Direct SQL transform from an existing Trino table."""
+    ds = context["ds"]
+    catalog = get_catalog_name()
+    source_fqn = f"{catalog}.analytics.raw_events"
+    target_fqn = f"{catalog}.{OUTPUT_CONFIG.namespace}.{OUTPUT_CONFIG.table_name}"
+
+    source_query = f"""
+        SELECT event_id, event_type, user_id, COUNT(*) AS event_count, '{ds}' AS portal_partition_daily
+        FROM {source_fqn}
+        WHERE portal_partition_daily = '{ds}'
+        GROUP BY event_id, event_type, user_id
+    """
+    overwrite_partition(
+        target_fqn,
+        "portal_partition_daily",
+        ds,
+        source_query=source_query,
+        columns=["event_id", "event_type", "user_id", "event_count", "portal_partition_daily"],
+    )
+```
+
+---
+
+## Cleanup pattern (SQL path)
+
+```python
+from python_models._trino_io import execute_sql
+
+def cleanup(context: dict) -> None:
+    """Drop temporary staging tables."""
+    catalog = get_catalog_name()
+    staging_fqn = f"{catalog}.{OUTPUT_CONFIG.namespace}.stg_tmp_{OUTPUT_CONFIG.table_name}"
+    execute_sql(f"DROP TABLE IF EXISTS {staging_fqn}")
+    log.info(f"Dropped staging table: {staging_fqn}")
+```
+
+---
+
+## Post-load patterns
+
+### Validate with fetch_value
+
+```python
+from python_models._trino_io import fetch_value
+
+def post_load(context: dict) -> None:
+    """Verify data was written correctly."""
+    ds = context["ds"]
+    table_fqn = f"{get_catalog_name()}.{OUTPUT_CONFIG.namespace}.{OUTPUT_CONFIG.table_name}"
+
+    row_count = fetch_value(f"""
+        SELECT COUNT(*) FROM {table_fqn}
         WHERE portal_partition_daily = '{ds}'
     """)
-    row_count = cursor.fetchone()[0]
-    log.info(f"Post-load validation: {target} has {row_count} rows for {ds}")
+    log.info(f"Post-load validation: {table_fqn} has {row_count} rows for {ds}")
 
-    if row_count == 0:
-        raise ValueError(f"No rows loaded for {ds} — check extract and transform logic")
+    if not row_count:
+        raise ValueError(f"No rows loaded for {ds}")
 ```
 
-### Partition sync (Hive metastore)
+### Error handling with cleanup (SQL path)
 
 ```python
-def post_load(context: dict) -> None:
-    """Sync Hive metastore partitions after Iceberg write."""
-    conn = get_trino_conn()
-    cursor = conn.cursor()
-    table = f"{OUTPUT_CONFIG.namespace}.{OUTPUT_CONFIG.table_name or OUTPUT_CONFIG.model_name}"
-    cursor.execute(f"CALL iceberg.system.sync_partition_metadata('{table}')")
-    log.info(f"Partition sync complete for {table}")
+def run_etl(context: dict):
+    try:
+        extract(context)
+        transform_and_load(context)
+    finally:
+        cleanup(context)
 ```
 
 ---
 
-## Optimization Patterns
+## Optimization patterns
 
 ### Partition pruning
 
-Always include partition column predicates in WHERE clauses to avoid full table scans:
-
 ```sql
--- GOOD: Trino prunes partitions, reads only one day
-SELECT * FROM target WHERE portal_partition_daily = '2025-01-15'
+-- Reads one partition
+SELECT id, name FROM target WHERE portal_partition_daily = '2025-01-15'
 
--- BAD: full table scan — reads every partition
-SELECT * FROM target WHERE name = 'foo'
+-- Full table scan — avoid on large tables
+SELECT id, name FROM target WHERE name = 'foo'
 ```
 
 ### Column projection
 
-Enumerate columns explicitly — never use `SELECT *` in production:
-
-```sql
--- GOOD: reads only needed columns from Parquet/Iceberg
-SELECT id, name, amount, portal_partition_daily FROM target
-
--- BAD: reads all columns, wastes I/O and memory
-SELECT * FROM target
-```
-
-### EXPLAIN ANALYZE
-
-Use `EXPLAIN ANALYZE` to verify query plans before deploying:
-
-```python
-def debug_query(context: dict) -> None:
-    """Check query plan for performance issues."""
-    conn = get_trino_conn()
-    cursor = conn.cursor()
-
-    cursor.execute(f"""
-        EXPLAIN ANALYZE
-        SELECT id, name, amount
-        FROM <dev_catalog>.<python_output_schema>.stg_tmp_my_model
-        WHERE status = 'active'
-    """)
-
-    for row in cursor.fetchall():
-        log.info(row[0])
-```
+Enumerate columns in SELECT and INSERT — avoid `SELECT *` in production SQL.
 
 ### Write mode decision matrix
 
-| Scenario | Write mode | SQL pattern |
-|----------|-----------|-------------|
-| Daily idempotent loads | `overwrite_partitions` | `DELETE WHERE partition = ds` then `INSERT INTO ... SELECT` |
-| Event streams / append-only | `append` | `INSERT INTO ... SELECT` (no DELETE) |
-| Full table refresh | `overwrite` | `DROP TABLE` then `CREATE TABLE AS SELECT` |
-| Slowly changing dimensions | `merge` (if supported) | `MERGE INTO ... USING ... ON ...` |
+| Scenario | Write mode | Pattern |
+| -------- | ---------- | ------- |
+| Daily idempotent loads | `overwrite_partitions` | `overwrite_partition` / `overwrite_partition_from_dataframe` |
+| Event streams | `append` | `append(table_fqn, insert_sql)` |
+| Full table refresh | `overwrite` | `overwrite(table_fqn, "true", insert_sql=…)` |
+| Upsert by key | merge | `merge(table_fqn, merge_sql)` |
 
-### Batch size for staging
+### Batch size guidance (pandas writes)
 
-For large DataFrames, tune the batch size based on column count:
+| Columns | Recommended `batch_size` |
+| ------- | ------------------------ |
+| < 10 | 1000–5000 |
+| 10–50 | 500–1000 |
+| > 50 | 100–500 |
 
-| Columns | Recommended batch size |
-|---------|----------------------|
-| < 10 | 1000 - 5000 rows |
-| 10 - 50 | 500 - 1000 rows |
-| > 50 | 100 - 500 rows |
-
-### Avoid common performance pitfalls
+### Common pitfalls
 
 | Pitfall | Fix |
-|---------|-----|
-| `SELECT *` in transforms | Enumerate needed columns explicitly |
-| No partition predicate in WHERE | Add `WHERE portal_partition_daily = '{ds}'` |
-| Pulling Trino data into pandas for transforms | Use SQL transforms directly in Trino |
-| Not dropping staging tables | Always call `cleanup()` after `transform_and_load()` |
-| Single INSERT for entire DataFrame | Batch into chunks (e.g., 1000 rows) |
-| Creating tables without `partitioned_by` | Always specify `partitioned_by = ARRAY['portal_partition_daily']` |
+| ------- | --- |
+| Inline Trino connections | Import from `python_models._trino_io` |
+| `execute_trino` (old name) | Use `execute_sql` / `fetch_value` |
+| Manual `DELETE` before INSERT | Use `overwrite_partition` or `overwrite_partition_from_dataframe` |
+| `SELECT *` in production SQL | Enumerate columns |
+| Missing partition predicate | Add `WHERE portal_partition_daily = '{ds}'` on large sources |
+| Orphaned `stg_tmp_*` tables | Call `cleanup()` in `finally` block |

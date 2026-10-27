@@ -25,7 +25,10 @@ export async function resolveModelJsonPath({
   if (modelId) {
     const model = dbt.models.get(modelId);
     if (model?.pathSystemFile) {
-      const fromManifest = model.pathSystemFile.replace(/\.sql$/, '.model.json');
+      const fromManifest = model.pathSystemFile.replace(
+        /\.sql$/,
+        '.model.json',
+      );
       if (fs.existsSync(fromManifest)) {
         return fromManifest;
       }
@@ -50,7 +53,10 @@ export async function resolveModelJsonPath({
     );
   }
 
-  const flatCandidate = path.join(project.pathSystem, `${modelName}.model.json`);
+  const flatCandidate = path.join(
+    project.pathSystem,
+    `${modelName}.model.json`,
+  );
   if (fs.existsSync(flatCandidate)) {
     return flatCandidate;
   }

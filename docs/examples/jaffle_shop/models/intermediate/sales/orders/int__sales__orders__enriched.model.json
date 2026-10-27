@@ -3,6 +3,7 @@
     "group": "sales",
     "topic": "orders",
     "name": "enriched",
+    "materialization": "incremental",
     "from": {
         "model": "stg__sales__orders__standardized",
         "join": [
@@ -51,7 +52,18 @@
             "name": "order_total_dollars",
             "expr": "CAST(stg__sales__orders__standardized.order_total_cents AS DECIMAL(10,2)) / 100.0",
             "type": "fct",
-            "description": "Order total in dollars"
+            "description": "Order total in dollars",
+            "lightdash": {
+                "metrics": [
+                    {
+                        "ai_hint": "Use this metric for revenue analysis in dollar amounts. This is the primary metric for overall sales performance and revenue trends",
+                        "name": "metric_order_total_dollars",
+                        "type": "sum",
+                        "group_label": "Order Metrics",
+                        "label": "Total Revenue (Dollars)"
+                    }
+                ]
+            }
         }
     ]
 }

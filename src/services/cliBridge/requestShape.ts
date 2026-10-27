@@ -71,20 +71,14 @@ export function assertWrappedModelJsonPayload(
 export function normalizeWrappedModelRequest(
   request: Record<string, unknown>,
 ): Record<string, unknown> {
-  if (
-    !('modelJson' in request) &&
-    looksLikeFlatModelCreatePayload(request)
-  ) {
+  if (!('modelJson' in request) && looksLikeFlatModelCreatePayload(request)) {
     const { projectName, ...modelFields } = request;
     return {
       ...(typeof projectName === 'string' ? { projectName } : {}),
       modelJson: modelFields,
     };
   }
-  if (
-    !('modelJson' in request) &&
-    looksLikeRawModelJsonBody(request)
-  ) {
+  if (!('modelJson' in request) && looksLikeRawModelJsonBody(request)) {
     const { projectName, ...modelFields } = request;
     return {
       ...(typeof projectName === 'string' ? { projectName } : {}),
@@ -118,8 +112,7 @@ export function assertModelUpdatePayload(
     );
   }
   const path = request.originalModelPath;
-  const hasPath =
-    typeof path === 'string' && path.trim() !== '';
+  const hasPath = typeof path === 'string' && path.trim() !== '';
   const hasModelJson = isPlainObject(request.modelJson);
   const hasModelName =
     typeof request.modelName === 'string' && request.modelName.trim() !== '';
@@ -133,7 +126,10 @@ export function assertModelUpdatePayload(
     ) {
       hint =
         ' Use "originalModelPath" (absolute path to the .model.json) or "modelName" (resolved within projectName) plus "modelJson".';
-    } else if (looksLikeRawModelJsonBody(request) || looksLikeFlatModelCreatePayload(request)) {
+    } else if (
+      looksLikeRawModelJsonBody(request) ||
+      looksLikeFlatModelCreatePayload(request)
+    ) {
       hint =
         ' Do not pass a raw .model.json file as the whole payload; use { "originalModelPath": "<path>", "modelJson": { … } }.';
     }
@@ -159,7 +155,7 @@ export type NormalizedDbtCompileRequest = {
 export function assertNonEmptyModelName(
   op: string,
   request: Record<string, unknown>,
-  example = 'examples/model-lineage.request.json',
+  example = '.dj/examples/model-lineage.request.json',
 ): void {
   const modelName = request.modelName;
   if (typeof modelName !== 'string' || modelName.trim() === '') {
@@ -174,13 +170,13 @@ export function assertQueryExecutePayload(
 ): void {
   if (!request || typeof request !== 'object') {
     throw new Error(
-      `query.execute: requires a JSON payload with "sql". Use --file examples/query-execute.request.json or --sql 'SELECT …'. ${PAYLOAD_DOC}`,
+      `query.execute: requires a JSON payload with "sql". Use --file .dj/examples/query-execute.request.json or --sql 'SELECT …'. ${PAYLOAD_DOC}`,
     );
   }
   const sql = request.sql;
   if (typeof sql !== 'string' || sql.trim() === '') {
     throw new Error(
-      `query.execute: requires non-empty "sql". Use --file examples/query-execute.request.json or --sql 'SELECT …'. ${PAYLOAD_DOC}`,
+      `query.execute: requires non-empty "sql". Use --file .dj/examples/query-execute.request.json or --sql 'SELECT …'. ${PAYLOAD_DOC}`,
     );
   }
 }
@@ -212,11 +208,7 @@ export function normalizeDbtCompileRequest(
     delete working.modelNames;
   }
 
-  const allowedAfterNormalize = new Set([
-    'projectName',
-    'modelName',
-    'select',
-  ]);
+  const allowedAfterNormalize = new Set(['projectName', 'modelName', 'select']);
   const unknown = Object.keys(working).filter(
     (k) => !allowedAfterNormalize.has(k),
   );
@@ -242,8 +234,7 @@ export function normalizeDbtCompileRequest(
   }
 
   const projectName =
-    typeof working.projectName === 'string' &&
-    working.projectName.trim() !== ''
+    typeof working.projectName === 'string' && working.projectName.trim() !== ''
       ? working.projectName.trim()
       : undefined;
 

@@ -402,7 +402,7 @@ _From: [int\_\_products\_\_analytics\_\_product_popularity.model.json](examples/
 - Set AI hints for semantic layer
 - Configure metric merges
 
-**Example from jaffle_shop_lightdash:**
+**Example from jaffle_shop:**
 
 ```json
 {
@@ -424,7 +424,7 @@ _From: [int\_\_products\_\_analytics\_\_product_popularity.model.json](examples/
 }
 ```
 
-_From: [mart\_\_sales\_\_reporting\_\_profitability.model.json](examples/jaffle_shop_lightdash/models/marts/sales/reporting/mart__sales__reporting__profitability.model.json)_
+_From: [mart\_\_sales\_\_reporting\_\_profitability.model.json](examples/jaffle_shop/models/marts/sales/reporting/mart__sales__reporting__profitability.model.json)_
 
 See [Lightdash Integration](integrations/lightdash-integration.md) for complete Lightdash configuration examples.
 

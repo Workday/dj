@@ -22,6 +22,13 @@ import type {
 export const DEFAULT_INCREMENTAL_STRATEGY: DefaultIncrementalStrategy =
   'overwrite_existing_partitions';
 
+/**
+ * Session pre-hook DJ adds for incremental models when `sql_hooks.pre` is
+ * omitted. `sql_hooks.pre: null` disables it. A string or array replaces it.
+ */
+export const DEFAULT_INCREMENTAL_PRE_HOOK =
+  "set session iterative_optimizer_timeout='60m'; set session query_max_planning_time='60m'";
+
 // Named constants for the framework-injected partition column names, used
 // throughout SQL generation, column building, and filter logic. They live in
 // the shared barrel so the extension backend and the webview resolve a single

@@ -21,6 +21,9 @@ models:
           type: dim
           origin:
             id: model.jaffle_shop.stg__products__catalog__catalog
+          dimension:
+            label: Product Description
+            group_label: Product Fields
       - name: is_beverage
         data_type: varchar
         description: Boolean flag for beverage products
@@ -28,6 +31,10 @@ models:
           type: dim
           origin:
             id: model.jaffle_shop.stg__products__catalog__catalog
+          dimension:
+            type: boolean
+            label: Is Beverage?
+            group_label: Product Fields
       - name: is_jaffle
         data_type: varchar
         description: Boolean flag for jaffle products
@@ -35,6 +42,10 @@ models:
           type: dim
           origin:
             id: model.jaffle_shop.stg__products__catalog__catalog
+          dimension:
+            type: boolean
+            label: Is Jaffle?
+            group_label: Product Fields
       - name: portal_source_count
         data_type: bigint
         description: Portal Source Count
@@ -54,6 +65,9 @@ models:
           type: dim
           origin:
             id: model.jaffle_shop.stg__products__catalog__catalog
+          dimension:
+            label: Product Name
+            group_label: Product Fields
       - name: product_price_cents
         data_type: varchar
         description: Product price in cents
@@ -61,6 +75,12 @@ models:
           type: fct
           origin:
             id: model.jaffle_shop.stg__products__catalog__catalog
+          metrics:
+            metric_product_price_cents_sum:
+              ai_hint: Use this for internal calculations or when cent precision is required
+              type: sum
+              label: Product Price Sum (cents)
+              group_label: Product Metrics
       - name: product_price_dollars
         data_type: varchar
         description: Product price in dollars
@@ -68,6 +88,13 @@ models:
           type: fct
           origin:
             id: model.jaffle_shop.stg__products__catalog__catalog
+          metrics:
+            metric_product_price_dollars_sum:
+              ai_hint: Use this metric to calculate total product catalog value or analyze
+                average product pricing
+              type: sum
+              label: Total Product Value
+              group_label: Product Metrics
       - name: product_sku
         data_type: varchar
         description: Product SKU identifier
@@ -75,6 +102,9 @@ models:
           type: dim
           origin:
             id: model.jaffle_shop.stg__products__catalog__catalog
+          dimension:
+            label: Product SKU
+            group_label: Product Fields
       - name: product_type
         data_type: varchar
         description: Product category (jaffle, beverage)
@@ -82,3 +112,6 @@ models:
           type: dim
           origin:
             id: model.jaffle_shop.stg__products__catalog__catalog
+          dimension:
+            label: Product Type
+            group_label: Product Fields

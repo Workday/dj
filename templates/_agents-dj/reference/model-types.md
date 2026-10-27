@@ -14,7 +14,7 @@ Selects columns from a raw data source table.
   "group": "my_group",
   "topic": "my_topic",
   "name": "raw_data_conformed",
-  "materialized": "incremental", // optional: "incremental" or "ephemeral"
+  "materialization": "incremental", // optional: "incremental" or "ephemeral"
   "from": {
     "source": "my_database__my_schema.my_table", // format: <database>__<schema>.<table>
   },
@@ -95,7 +95,7 @@ Transforms data from a single upstream model. Supports optional `from.rollup` fo
   "group": "my_group",
   "topic": "my_topic",
   "name": "daily_summary",
-  "materialized": "incremental",
+  "materialization": "incremental",
   "from": {
     "model": "stg__my_group__my_topic__raw_data_conformed",
     // optional: re-aggregate to coarser time grain
@@ -134,7 +134,7 @@ Joins a primary model with one or more additional models. Supports optional `fro
   "group": "my_group",
   "topic": "my_topic",
   "name": "enriched_daily",
-  "materialized": "incremental",
+  "materialization": "incremental",
   "from": {
     "model": "int__my_group__my_topic__daily_summary",
     // optional: re-aggregate to coarser time grain
@@ -209,7 +209,7 @@ Aggregates data to a coarser time interval.
   "group": "my_group",
   "topic": "my_topic",
   "name": "daily_from_hourly",
-  "materialized": "incremental",
+  "materialization": "incremental",
   "from": {
     "model": "int__my_group__my_topic__hourly_summary",
     "rollup": {
@@ -231,7 +231,7 @@ Aggregates over a trailing number of days.
   "group": "my_group",
   "topic": "my_topic",
   "name": "trailing_30d",
-  "materialized": "incremental",
+  "materialization": "incremental",
   "from": {
     "model": "int__my_group__my_topic__daily_summary",
     "lookback": {

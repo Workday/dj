@@ -11,6 +11,7 @@ import {
 import { BASE_AIRFLOW_PATH, BASE_SCHEMAS_PATH } from '@services/constants';
 import type { Dbt } from '@services/dbt';
 import type { DJLogger } from '@services/djLogger';
+import { MODEL_TYPE_SCHEMA_MAP } from '@services/modelValidation';
 import type { StateManager } from '@services/statemanager';
 import {
   buildOrderedResources,
@@ -62,7 +63,6 @@ import { PreferencesHandler } from './handlers/preferences-handler';
 import { SourceHandler } from './handlers/source-handler';
 import { UIHandlers } from './handlers/ui-handlers';
 import {
-  buildDagInjectionPreview,
   buildInjectedDagSource,
   findDangerousSqlStatements,
   frameworkGetModelId,
@@ -73,8 +73,13 @@ import {
   generatePythonModelScaffoldPy,
   generatePythonModelTasksPy,
   generateTrinoIoPy,
+  SOURCE_ETL_DAG_ID,
   workspaceHasPythonModels,
 } from './utils';
+import {
+  ETL_HELPER_BUNDLE_FILES,
+  readKpoSizesTemplate,
+} from './utils/kpo-sizes';
 import { resolveModelJsonPath } from './utils/resolve-model-json-path';
 
 /**
@@ -132,6 +137,7 @@ export class Framework implements ApiEnabledService<'framework'> {
   private columnLineageHandler: ColumnLineageHandler;
   private preferencesHandler: PreferencesHandler;
   private cteAnalysisHandlers: CteAnalysisHandlers;
+  private readonly schemaCache = new Map<string, unknown>();
 
   // Content hash cache for change detection - skips regenerating unchanged files
   private cacheManager = new CacheManager();
@@ -411,6 +417,8 @@ export class Framework implements ApiEnabledService<'framework'> {
           tags,
           namespace: reqNamespace,
           table_name: reqTableName,
+          compute: reqCompute,
+          kpo_size: reqKpoSize,
           create_dag: createDag,
           dag_config: dagConfig,
         } = payload.request;
@@ -420,7 +428,6 @@ export class Framework implements ApiEnabledService<'framework'> {
           throw new Error('Project not found');
         }
 
-        // Create directory structure: dags/python_models/<group>/<topic>/
         const pythonModelDir = path.join(
           WORKSPACE_ROOT,
           'dags',
@@ -431,74 +438,75 @@ export class Framework implements ApiEnabledService<'framework'> {
         await vscode.workspace.fs.createDirectory(
           vscode.Uri.file(pythonModelDir),
         );
-
-        // Ensure __init__.py files exist for Python package structure
         await this.ensurePythonModelsInitFiles(group, topic);
 
-        // Check if python model file already exists
-        const pythonJsonFileName = `${name}.python.json`;
-        const pythonJsonPath = path.join(pythonModelDir, pythonJsonFileName);
-        const pythonJsonUri = vscode.Uri.file(pythonJsonPath);
-        try {
-          await vscode.workspace.fs.stat(pythonJsonUri);
-          throw new Error(
-            `Python model '${name}' already exists in ${group}/${topic}`,
-          );
-        } catch (err) {
-          // File doesn't exist, which is expected - continue with creation
-          if (err instanceof Error && err.message.includes('already exists')) {
-            throw err;
-          }
-        }
+        const baseTags =
+          tags && tags.length > 0 ? tags : ['python-model', group];
+        const kpoFields =
+          reqCompute === 'kpo'
+            ? {
+                compute: 'kpo' as const,
+                kpo_size: reqKpoSize ?? 'small',
+              }
+            : {};
 
         const pythonModelConfig: PythonModelConfig = {
           name,
           group,
           topic,
-          ...(description && { description }),
           model_type,
           dags,
+          ...kpoFields,
+          ...(description && { description }),
           ...(enable_notebook && { enable_notebook }),
-          tags: tags && tags.length > 0 ? tags : ['python-model', group],
+          tags: baseTags,
           ...(reqNamespace && { namespace: reqNamespace }),
           ...(reqTableName && { table_name: reqTableName }),
           variables: {},
         };
 
-        // Write metadata-only JSON (the .python.py is the source of truth).
+        const pythonJsonPath = path.join(
+          pythonModelDir,
+          `${pythonModelConfig.name}.python.json`,
+        );
+        const pythonJsonUri = vscode.Uri.file(pythonJsonPath);
+        try {
+          await vscode.workspace.fs.stat(pythonJsonUri);
+          throw new Error(
+            `Python model '${pythonModelConfig.name}' already exists in ${group}/${topic}`,
+          );
+        } catch (err) {
+          if (err instanceof Error && err.message.includes('already exists')) {
+            throw err;
+          }
+        }
+
         await vscode.workspace.fs.writeFile(
           pythonJsonUri,
           Buffer.from(JSON.stringify(pythonModelConfig, null, '    ')),
         );
 
-        // Scaffold a clean, marker-delimited .python.py source of truth
-        const modelContent = generatePythonModelScaffoldPy(pythonModelConfig);
-        const modelFileName = `${name}.python.py`;
         const modelUri = vscode.Uri.file(
-          path.join(pythonModelDir, modelFileName),
+          path.join(pythonModelDir, `${pythonModelConfig.name}.python.py`),
         );
         await vscode.workspace.fs.writeFile(
           modelUri,
-          Buffer.from(modelContent),
+          Buffer.from(generatePythonModelScaffoldPy(pythonModelConfig)),
         );
 
-        // Ensure shared scaffolding and refresh source_etl when Python models exist
         await this.ensurePythonModelInfrastructure();
         await this.dbt.writeAirflowDags();
 
-        // Generate new DAG file if requested
         if (createDag && dagConfig?.name) {
           await this.generateDagFile(project, dagConfig);
         }
 
-        // Modify selected DAGs to add register_python_model_tasks (with confirm)
         if (dags && dags.length > 0) {
           for (const dagName of dags) {
             await this.injectPythonModelTasksIntoDag(project, dagName);
           }
         }
 
-        // Clear form state
         try {
           await this.getApi().handleApi({
             type: 'state-clear',
@@ -511,8 +519,7 @@ export class Framework implements ApiEnabledService<'framework'> {
           );
         }
 
-        // Open the created file
-        vscode.window.showTextDocument(pythonJsonUri);
+        void vscode.window.showTextDocument(pythonJsonUri);
 
         return 'Python model created';
       }
@@ -601,6 +608,8 @@ export class Framework implements ApiEnabledService<'framework'> {
 
       case 'framework-get-python-model-groups':
         return { groups: getDjConfig().pythonModelGroups };
+      case 'framework-get-kpo-sizes':
+        return { sizes: await readKpoSizesTemplate() };
       case 'framework-model-cte-analysis':
         return await this.cteAnalysisHandlers.handleCteAnalysis(payload);
 
@@ -647,6 +656,7 @@ export class Framework implements ApiEnabledService<'framework'> {
               for (const { file, content } of fileContents) {
                 try {
                   const schema = JSON.parse(content);
+                  this.schemaCache.set(file, schema);
                   this.ajv.addSchema(schema, file);
                 } catch (parseErr) {
                   this.log.warn(`Failed to parse schema ${file}:`, parseErr);
@@ -702,6 +712,65 @@ export class Framework implements ApiEnabledService<'framework'> {
 
     // Check if .dj folder should be added to .gitignore
     void this.checkAndPromptForGitignore(context);
+  }
+
+  /**
+   * Refreshes the lightdash.time_interval.schema.json in .dj/schemas/ and
+   * re-registers it and dependent model schemas in AJV with the updated interval enum.
+   */
+  async refreshTimeIntervalsSchema(intervals: string[]): Promise<void> {
+    const timeIntervalSchema = {
+      $id: 'lightdash.time_interval.schema.json',
+      title: 'Schema Lightdash Time Interval',
+      description: 'Valid time interval for Lightdash dimension',
+      type: 'string',
+      enum: intervals,
+    };
+    this.schemaCache.set(
+      'lightdash.time_interval.schema.json',
+      timeIntervalSchema,
+    );
+
+    try {
+      await vscode.workspace.fs.writeFile(
+        vscode.Uri.file(
+          path.join(DJ_SCHEMAS_PATH, 'lightdash.time_interval.schema.json'),
+        ),
+        Buffer.from(JSON.stringify(timeIntervalSchema, null, 2)),
+      );
+    } catch (err: unknown) {
+      this.log.warn(
+        'Failed to write lightdash.time_interval.schema.json to disk:',
+        err,
+      );
+    }
+
+    try {
+      this.ajv.removeSchema('lightdash.time_interval.schema.json');
+      this.ajv.addSchema(
+        timeIntervalSchema,
+        'lightdash.time_interval.schema.json',
+      );
+
+      this.ajv.removeSchema('lightdash.dimension.schema.json');
+      const dimSchema = this.schemaCache.get('lightdash.dimension.schema.json');
+      if (dimSchema) {
+        this.ajv.addSchema(dimSchema, 'lightdash.dimension.schema.json');
+      }
+
+      for (const schemaFile of Object.values(MODEL_TYPE_SCHEMA_MAP)) {
+        this.ajv.removeSchema(schemaFile);
+        const cached = this.schemaCache.get(schemaFile);
+        if (cached) {
+          this.ajv.addSchema(cached, schemaFile);
+        }
+      }
+      this.log.info(
+        `Refreshed time_intervals schema in AJV with ${intervals.length} intervals`,
+      );
+    } catch (err: unknown) {
+      this.log.warn('Failed to refresh time intervals in AJV:', err);
+    }
   }
 
   /**
@@ -2098,6 +2167,12 @@ export class Framework implements ApiEnabledService<'framework'> {
 
         for (const [fileName] of pyFiles) {
           const dagName = fileName.replace('.py', '');
+          if (dagName === SOURCE_ETL_DAG_ID) {
+            this.log.info(
+              `[DAG Discovery]   Skip ${dagName} (DJ-managed template)`,
+            );
+            continue;
+          }
           if (seenDags.has(dagName)) {
             this.log.info(`[DAG Discovery]   Skip duplicate: ${dagName}`);
             continue;
@@ -2176,6 +2251,8 @@ export class Framework implements ApiEnabledService<'framework'> {
     const { airflowDagsPath } = getDjConfig();
     const scaffoldingPaths = [
       path.join(WORKSPACE_ROOT, 'dags', '_ext_', 'etl_helper.py'),
+      path.join(WORKSPACE_ROOT, 'dags', '_ext_', 'kpo_factory.py'),
+      path.join(WORKSPACE_ROOT, 'dags', '_ext_', 'kpo_sizes.yml'),
       path.join(WORKSPACE_ROOT, 'dags', 'python_models', '_config.py'),
       path.join(WORKSPACE_ROOT, 'dags', 'python_models', '_trino_io.py'),
       path.join(WORKSPACE_ROOT, 'dags', 'python_models', '_model_tasks.py'),
@@ -2183,6 +2260,8 @@ export class Framework implements ApiEnabledService<'framework'> {
     if (airflowDagsPath) {
       scaffoldingPaths.push(
         path.join(WORKSPACE_ROOT, airflowDagsPath, 'etl_helper.py'),
+        path.join(WORKSPACE_ROOT, airflowDagsPath, 'kpo_factory.py'),
+        path.join(WORKSPACE_ROOT, airflowDagsPath, 'kpo_sizes.yml'),
       );
     }
 
@@ -2258,21 +2337,23 @@ export class Framework implements ApiEnabledService<'framework'> {
   }
 
   /**
-   * Read the etl_helper.py template for the configured Airflow version.
-   * Used both to seed the file and to revert unauthorized edits.
+   * Read an Airflow template file for the configured target version.
    */
-  private async readEtlHelperTemplate(): Promise<string> {
+  private async readAirflowTemplate(fileName: string): Promise<string> {
     const { airflowTargetVersion } = getDjConfig();
     const versionFolder = airflowTargetVersion === '2.10' ? 'v2_10' : 'v2_7';
-    const templatePath = path.join(
-      BASE_AIRFLOW_PATH,
-      versionFolder,
-      'etl_helper.py',
-    );
+    const templatePath = path.join(BASE_AIRFLOW_PATH, versionFolder, fileName);
     const content = await vscode.workspace.fs.readFile(
       vscode.Uri.file(templatePath),
     );
     return Buffer.from(content).toString();
+  }
+
+  /**
+   * Read the etl_helper.py template for the configured Airflow version.
+   */
+  private async readEtlHelperTemplate(): Promise<string> {
+    return this.readAirflowTemplate('etl_helper.py');
   }
 
   /**
@@ -2305,6 +2386,16 @@ export class Framework implements ApiEnabledService<'framework'> {
         glob: '**/etl_helper.py',
         generate: () => this.readEtlHelperTemplate(),
         label: 'etl_helper.py',
+      },
+      {
+        glob: '**/kpo_factory.py',
+        generate: () => this.readAirflowTemplate('kpo_factory.py'),
+        label: 'kpo_factory.py',
+      },
+      {
+        glob: '**/kpo_sizes.yml',
+        generate: () => this.readAirflowTemplate('kpo_sizes.yml'),
+        label: 'kpo_sizes.yml',
       },
     ];
 
@@ -2341,6 +2432,7 @@ export class Framework implements ApiEnabledService<'framework'> {
     '_model_tasks.py',
     '__init__.py',
     'etl_helper.py',
+    'kpo_factory.py',
   ]);
 
   /** Whether a path is a python model file that the SQL guard should scan. */
@@ -2478,50 +2570,49 @@ export class Framework implements ApiEnabledService<'framework'> {
   private async ensureEtlHelperFile(): Promise<void> {
     const { airflowDagsPath, airflowTargetVersion } = getDjConfig();
 
-    // Check possible locations for etl_helper.py
     const possibleTargets: string[] = [];
 
     if (airflowDagsPath) {
-      possibleTargets.push(
-        path.join(WORKSPACE_ROOT, airflowDagsPath, 'etl_helper.py'),
-      );
+      possibleTargets.push(path.join(WORKSPACE_ROOT, airflowDagsPath));
     }
-    possibleTargets.push(
-      path.join(WORKSPACE_ROOT, 'dags', '_ext_', 'etl_helper.py'),
-    );
+    possibleTargets.push(path.join(WORKSPACE_ROOT, 'dags', '_ext_'));
 
-    // Determine best target: overwrite an existing file wherever it lives,
-    // otherwise prefer airflowDagsPath, then workspace dags/_ext_/.
-    let targetPath = possibleTargets[0];
+    let targetDir = possibleTargets[0];
     for (const target of possibleTargets) {
       try {
-        await vscode.workspace.fs.stat(vscode.Uri.file(target));
-        targetPath = target;
+        await vscode.workspace.fs.stat(
+          vscode.Uri.file(path.join(target, 'etl_helper.py')),
+        );
+        targetDir = target;
         break;
       } catch {
         // Not found, continue
       }
     }
 
-    // Determine source template
     const versionFolder = airflowTargetVersion === '2.10' ? 'v2_10' : 'v2_7';
-    const templatePath = path.join(
-      BASE_AIRFLOW_PATH,
-      versionFolder,
-      'etl_helper.py',
-    );
 
     try {
-      const content = await vscode.workspace.fs.readFile(
-        vscode.Uri.file(templatePath),
-      );
-      // Ensure target directory exists
-      const targetDir = path.dirname(targetPath);
       await vscode.workspace.fs.createDirectory(vscode.Uri.file(targetDir));
-      await vscode.workspace.fs.writeFile(vscode.Uri.file(targetPath), content);
-      this.log.info(`Generated etl_helper.py at: ${targetPath}`);
+
+      for (const fileName of ETL_HELPER_BUNDLE_FILES) {
+        const templatePath = path.join(
+          BASE_AIRFLOW_PATH,
+          versionFolder,
+          fileName,
+        );
+        const content = await vscode.workspace.fs.readFile(
+          vscode.Uri.file(templatePath),
+        );
+        const targetPath = path.join(targetDir, fileName);
+        await vscode.workspace.fs.writeFile(
+          vscode.Uri.file(targetPath),
+          content,
+        );
+        this.log.info(`Generated ${fileName} at: ${targetPath}`);
+      }
     } catch (err) {
-      this.log.warn(`Could not generate etl_helper.py: ${String(err)}`);
+      this.log.warn(`Could not generate etl helper bundle: ${String(err)}`);
     }
   }
 
@@ -2813,8 +2904,7 @@ with DAG(
   /**
    * Inject register_python_model_tasks wiring into an existing DAG file.
    * Called when a Python model is created and mapped to a DAG.
-   * Shows a confirm modal with a short preview before writing.
-   * @param dagName - Can be a simple name (e.g., "source_etl") or a relative path (e.g., "_ext_/source_etl")
+   * @param dagName - Can be a simple name (e.g., "my_dag") or a relative path (e.g., "_ext_/my_dag")
    */
   private async injectPythonModelTasksIntoDag(
     project: DbtProject,
@@ -2886,18 +2976,6 @@ with DAG(
       this.log.info(
         `[DAG Injection] Prepared ${built.style} injection for: ${dagName}`,
       );
-    }
-
-    const preview = buildDagInjectionPreview(dagFilePath, dagName);
-    const choice = await vscode.window.showWarningMessage(
-      `Modify DAG "${dagName}" to register Python model tasks?`,
-      { modal: true, detail: preview },
-      'Apply',
-      'Skip',
-    );
-    if (choice !== 'Apply') {
-      this.log.info(`DAG injection skipped by user for: ${dagName}`);
-      return;
     }
 
     await vscode.workspace.fs.writeFile(

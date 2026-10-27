@@ -6,6 +6,7 @@ This guide covers setting up your development environment for contributing to th
 
 - [Prerequisites](#prerequisites)
 - [Extension Development Setup](#extension-development-setup)
+- [Private npm registry](#private-npm-registry)
 - [Development Scripts](#development-scripts)
 - [Debugging](#debugging)
 - [Making Changes](#making-changes)
@@ -36,8 +37,35 @@ For development, you'll also need:
 ```bash
 git clone https://github.com/Workday/dj.git
 cd dj
-npm install
+npm ci
 ```
+
+`npm ci` installs the tree pinned in `package-lock.json`. Use `npm install <pkg>` only when adding or updating a dependency.
+
+### Private npm registry
+
+`package-lock.json` records each tarball as `https://registry.npmjs.org/...` plus a sha512 `integrity`. The committed [`.npmrc`](.npmrc) sets `replace-registry-host=npmjs` and does not set `registry`. npm then fetches those URLs from whatever registry is already configured, and only for this repo.
+
+Internal clones pick up Artifactory from `~/.npmrc`, because npmjs is blocked there. External clones use the public registry, or whatever registry they configured. Other internal repos do not have this file, so they keep committing Artifactory URLs. A `registry=` line in this `.npmrc` would override `~/.npmrc` and must not be added.
+
+Use npm 10.9.x, or npm 11.4.1 or newer. npm 11.0.0 through 11.3.0 drops the mirror path prefix (`/artifactory/api/npm/<repo>/`) and the install 404s.
+
+Install the locked tree with `npm ci`. The request goes to the mirror; the lockfile is not rewritten.
+
+To add or update a dependency while the mirror is the configured registry:
+
+```bash
+npm install <pkg>
+npm ci
+```
+
+`npm install` runs `lockfile:normalize` when it finishes. That reads `npm_config_registry` and rewrites matching `resolved` URLs back to `https://registry.npmjs.org/`. It leaves `integrity` unchanged. An unset registry is the public default, so `npm ci` there exits without editing the file.
+
+You do not have to remember that command. `npm ci` also sets `core.hooksPath` to `.githooks`. The pre-commit hook runs the same normalize when `package-lock.json` is staged, then refuses the commit if a tarball URL still uses another host. CI runs `npm run lockfile:check` on every pull request, which is what catches a commit made with `--no-verify` or an install run with `--ignore-scripts`.
+
+`npm run lockfile:normalize` is the same step, if you want to run it by hand. The follow-up `npm ci` confirms the rewritten URL still resolves through the mirror and the sha512 matches.
+
+This depends on the mirror serving the original public tarball. If it repacks packages, GitHub `npm ci` fails the integrity check, and that lockfile update has to be generated somewhere the public registry is reachable. If the mirror is an allowlist, the package has to be available there before `npm install`.
 
 ### Running the Extension Locally
 

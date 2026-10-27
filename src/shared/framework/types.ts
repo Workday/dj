@@ -58,6 +58,22 @@ export interface PythonModelCell {
   execution_count?: number | null;
 }
 
+export type PythonModelCompute = 'kpo' | 'airflow';
+export type PythonModelKpoSize = 'small' | 'medium' | 'large' | 'xlarge';
+
+export interface KpoSizeSpec {
+  cpu: string;
+  memory: string;
+  guidance: string;
+}
+
+export type PythonModelUpstreamSourceType = 'trino' | 'external';
+
+export interface PythonModelUpstreamSource {
+  type: PythonModelUpstreamSourceType;
+  value: string;
+}
+
 export interface PythonModelConfig {
   name: string;
   group: PythonModelGroup;
@@ -66,6 +82,8 @@ export interface PythonModelConfig {
   model_type: 'python';
   dags?: string[];
   depends_on?: string[];
+  compute?: PythonModelCompute;
+  kpo_size?: PythonModelKpoSize;
   output_type?: PythonModelOutputType;
   output?: PythonModelOutputConfig;
   enable_notebook?: boolean;
@@ -76,6 +94,7 @@ export interface PythonModelConfig {
   table_name?: string;
   cells?: PythonModelCell[];
   variables?: Record<string, string>;
+  upstream_sources?: PythonModelUpstreamSource | PythonModelUpstreamSource[];
 }
 
 export type ModelCreateResponse = {
@@ -117,6 +136,7 @@ export type FrameworkApi =
         type: FrameworkModel['type'];
         projectName: string;
         validateOnly?: boolean;
+        /** @deprecated Legacy wizard/sync input; normalized to `materialization` in templates */
         materialized?: SchemaModelMaterialized;
         materialization?: SchemaModelMaterialization;
         source?: string; // UI field, should be excluded from actual API request
@@ -124,7 +144,7 @@ export type FrameworkApi =
         tags?: string[];
         incremental_strategy?: IncrementalStrategy;
         sql_hooks?: {
-          pre?: string | [string, ...string[]];
+          pre?: string | [string, ...string[]] | null;
           post?: string | [string, ...string[]];
         };
         partitioned_by?: [string, ...string[]];
@@ -523,7 +543,8 @@ export type FrameworkApi =
         description?: string;
         model_type: 'python';
         dags?: string[];
-        depends_on?: string[];
+        compute?: PythonModelCompute;
+        kpo_size?: PythonModelKpoSize;
         output_type?: PythonModelOutputType;
         enable_notebook?: boolean;
         tags?: string[];
@@ -563,6 +584,14 @@ export type FrameworkApi =
       service: 'framework';
       request: null;
       response: { groups: string[] };
+    }
+  | {
+      type: 'framework-get-kpo-sizes';
+      service: 'framework';
+      request: null;
+      response: {
+        sizes: Record<string, KpoSizeSpec>;
+      };
     }
   | {
       /**
@@ -688,6 +717,10 @@ async function apiHandler(p: {
   type: 'framework-get-python-model-groups';
   request: ApiRequest<'framework-get-python-model-groups'>;
 }): Promise<ApiResponse<'framework-get-python-model-groups'>>;
+async function apiHandler(p: {
+  type: 'framework-get-kpo-sizes';
+  request: ApiRequest<'framework-get-kpo-sizes'>;
+}): Promise<ApiResponse<'framework-get-kpo-sizes'>>;
 async function apiHandler(p: {
   type: 'framework-model-cte-analysis';
   request: ApiRequest<'framework-model-cte-analysis'>;

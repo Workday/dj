@@ -97,9 +97,7 @@ export class CliBridgeServer {
         /* not present — fine */
       }
 
-      this.server = net.createServer((socket) =>
-        this.handleConnection(socket),
-      );
+      this.server = net.createServer((socket) => this.handleConnection(socket));
       this.server.on('error', (err) =>
         this.opts.log.error('[dj-bridge] server error:', err),
       );

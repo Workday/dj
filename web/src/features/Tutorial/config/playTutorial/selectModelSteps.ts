@@ -87,7 +87,7 @@ export const selectModelSteps: TutorialStep[] = [
     wizardStep: 0,
   },
   {
-    element: '[data-tutorial-id="materialized-select"]',
+    element: '[data-tutorial-id="materialization-select"]',
     popover: {
       title: 'Materialization',
       description:

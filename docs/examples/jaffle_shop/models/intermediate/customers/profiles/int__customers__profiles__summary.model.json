@@ -40,7 +40,25 @@
             "name": "total_orders",
             "expr": "COUNT(stg__sales__orders__standardized.order_id)",
             "type": "fct",
-            "description": "Total number of orders placed by customer"
+            "description": "Total number of orders placed by customer",
+            "lightdash": {
+                "metrics": [
+                    {
+                        "name": "metric_total_orders_per_customer",
+                        "type": "sum",
+                        "group_label": "Customer Metrics",
+                        "label": "Total Orders Per Customer",
+                        "ai_hint": "Use this to analyze customer purchase frequency and identify high-value customers"
+                    },
+                    {
+                        "name": "metric_avg_orders_per_customer",
+                        "type": "average",
+                        "group_label": "Customer Metrics",
+                        "label": "Average Orders Per Customer",
+                        "ai_hint": "Use this to understand typical customer engagement and repeat purchase behavior"
+                    }
+                ]
+            }
         }
     ]
 }

@@ -14,13 +14,13 @@ import {
 } from '@services/framework/utils';
 import type { ApiPayload, ApiResponse } from '@shared/api/types';
 import { apiResponse } from '@shared/api/utils';
-import { getDbtModelId } from '@shared/dbt/utils';
 import {
   buildModelSummariesForProject,
   rankSimilarModels,
 } from '@shared/dbt/modelCatalogSearch';
-import type { FrameworkModel } from '@shared/framework/types';
+import { getDbtModelId } from '@shared/dbt/utils';
 import { buildDataCheckSql } from '@shared/framework/dataCheckTemplates';
+import type { FrameworkModel } from '@shared/framework/types';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -238,7 +238,7 @@ export class ModelDataHandlers {
     const { modelName, projectName } = payload.request;
     if (typeof modelName !== 'string' || modelName.trim() === '') {
       throw new Error(
-        'model.columns: requires non-empty modelName (use --file examples/model-columns.request.json or --modelName)',
+        'model.columns: requires non-empty modelName (use --file .dj/examples/model-columns.request.json or --modelName)',
       );
     }
     const project = this.ctx.dbt.projects.get(projectName);
@@ -285,15 +285,8 @@ export class ModelDataHandlers {
   handleModelSimilar(
     payload: ApiPayload<'framework'> & { type: 'framework-model-similar' },
   ): ApiResponse {
-    const {
-      projectName,
-      modelName,
-      fromModel,
-      group,
-      topic,
-      tags,
-      limit,
-    } = payload.request;
+    const { projectName, modelName, fromModel, group, topic, tags, limit } =
+      payload.request;
     const project = this.ctx.dbt.projects.get(projectName);
     if (!project) {
       throw new Error(`Project ${projectName} not found`);

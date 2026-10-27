@@ -1,6 +1,11 @@
 import { InformationCircleIcon } from '@heroicons/react/20/solid';
 import type { Api } from '@shared/api/types';
 import type { DbtProject } from '@shared/dbt/types';
+import {
+  getIncrementalStrategy,
+  getMaterializationType,
+  getPartitions,
+} from '@shared/framework/materialization';
 import type {
   ModelCreateResponse,
   ModelCreateValidateResponse,
@@ -87,6 +92,7 @@ export function ModelCreate({ mode = 'create' }: ModelCreateProps) {
     showAddColumnModal,
     editingColumn,
     isActionActive,
+    materializationExtras,
   } = useModelStore();
 
   // Simple local state
@@ -170,9 +176,9 @@ export function ModelCreate({ mode = 'create' }: ModelCreateProps) {
         setBasicField('topic', data.topic);
         setValue('topic', data.topic);
       }
-      if (data.materialized !== undefined) {
-        setBasicField('materialized', data.materialized);
-        setValue('materialized', data.materialized as any);
+      if (data.materialization !== undefined) {
+        setBasicField('materialization', data.materialization);
+        setValue('materialization', data.materialization as any);
       }
 
       // Modeling state fields
@@ -272,7 +278,7 @@ export function ModelCreate({ mode = 'create' }: ModelCreateProps) {
     setValue('type', undefined as any);
     setValue('group', '');
     setValue('topic', '');
-    setValue('materialized', undefined);
+    setValue('materialization', undefined);
   }, [isEditMode, resetStore, setValue, projects]);
 
   // Play Tutorial hook - demo walkthrough with prefilled data
@@ -298,7 +304,7 @@ export function ModelCreate({ mode = 'create' }: ModelCreateProps) {
       type: basicFields.type,
       group: basicFields.group,
       topic: basicFields.topic,
-      materialized: basicFields.materialized,
+      materialization: basicFields.materialization,
       fromModel,
       fromSource,
       hasJoins:
@@ -383,7 +389,7 @@ export function ModelCreate({ mode = 'create' }: ModelCreateProps) {
   const groupOptions = generateGroupOptions(project);
   const sourceOptions = generateSourceOptions();
   const typeOptions = generateTypeOptions(source);
-  const materializedOptions = generateMaterializedOptions();
+  const materializationOptions = generateMaterializedOptions();
 
   const getFormType = useCallback(async () => {
     if (mode === 'edit') {
@@ -510,8 +516,22 @@ export function ModelCreate({ mode = 'create' }: ModelCreateProps) {
           if (dataToLoad.topic) setValue('topic', dataToLoad.topic);
           if (dataToLoad.type) setValue('type', dataToLoad.type);
           if (dataToLoad.source) setValue('source', dataToLoad.source);
-          if (dataToLoad.materialized)
-            setValue('materialized', dataToLoad.materialized);
+          const materializationType = getMaterializationType(
+            dataToLoad as Parameters<typeof getMaterializationType>[0],
+          );
+          if (materializationType) {
+            setValue('materialization', materializationType);
+          }
+          const loadedStrategy = getIncrementalStrategy(
+            dataToLoad as Parameters<typeof getIncrementalStrategy>[0],
+          );
+          setValue('incremental_strategy', loadedStrategy);
+          const loadedPartitions = getPartitions(
+            dataToLoad as Parameters<typeof getPartitions>[0],
+          );
+          if (loadedPartitions) {
+            setValue('partitioned_by', loadedPartitions);
+          }
           if (dataToLoad.projectName) {
             setValue('projectName', dataToLoad.projectName);
           } else if (_projects.length > 0) {
@@ -523,11 +543,7 @@ export function ModelCreate({ mode = 'create' }: ModelCreateProps) {
           if (dataToLoad.description)
             setValue('description', dataToLoad.description);
           if (dataToLoad.tags) setValue('tags', dataToLoad.tags);
-          if (dataToLoad.incremental_strategy)
-            setValue('incremental_strategy', dataToLoad.incremental_strategy);
           if (dataToLoad.sql_hooks) setValue('sql_hooks', dataToLoad.sql_hooks);
-          if (dataToLoad.partitioned_by)
-            setValue('partitioned_by', dataToLoad.partitioned_by);
           if (dataToLoad.exclude_daily_filter !== undefined)
             setValue('exclude_daily_filter', dataToLoad.exclude_daily_filter);
           if (dataToLoad.exclude_date_filter !== undefined)
@@ -738,7 +754,10 @@ export function ModelCreate({ mode = 'create' }: ModelCreateProps) {
       try {
         if (isEditMode) {
           // Edit mode: Call framework-model-update
-          const transformedFormValues = transformFormValuesToApi(apiModel);
+          const transformedFormValues = transformFormValuesToApi(apiModel, {
+            clearDeprecatedTopLevelFields: true,
+            materializationExtras,
+          });
 
           if (!originalModelPath) {
             throw new Error('No original model path available for update');
@@ -755,7 +774,9 @@ export function ModelCreate({ mode = 'create' }: ModelCreateProps) {
           });
         } else {
           // Create mode: Call framework-model-create
-          const transformedValues = transformFormValuesToApi(apiModel);
+          const transformedValues = transformFormValuesToApi(apiModel, {
+            materializationExtras,
+          });
 
           resp = await api.post({
             type: 'framework-model-create',
@@ -768,7 +789,9 @@ export function ModelCreate({ mode = 'create' }: ModelCreateProps) {
         await stateSync.clearState(formType);
 
         const successMessage = isEditMode
-          ? (typeof resp === 'string' ? resp : 'Model updated successfully')
+          ? typeof resp === 'string'
+            ? resp
+            : 'Model updated successfully'
           : typeof resp === 'string'
             ? resp || 'Model created successfully'
             : 'valid' in resp && resp.valid
@@ -863,7 +886,7 @@ export function ModelCreate({ mode = 'create' }: ModelCreateProps) {
             groupOptions={groupOptions}
             sourceOptions={sourceOptions}
             typeOptions={typeOptions}
-            materializedOptions={materializedOptions}
+            materializationOptions={materializationOptions}
             isLoading={isProjectsLoading}
             setValue={(name, value) => {
               setValue(name, value);
