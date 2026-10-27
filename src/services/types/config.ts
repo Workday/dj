@@ -23,6 +23,8 @@ export type CoderConfig = {
   dbtMacroPath?: string;
   pythonVenvPath?: string;
   pythonModelGroups: string[];
+  pythonModelCatalogName?: string;
+  pythonModelDatabaseName?: string;
   trinoPath?: string;
   lightdashProjectPath?: string;
   lightdashProfilesPath?: string;

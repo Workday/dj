@@ -41,6 +41,17 @@
       "default": [],
       "description": "Names of other Python models that must complete before this model runs"
     },
+    "compute": {
+      "type": "string",
+      "enum": ["kpo", "airflow"],
+      "description": "Execution backend: omit for MWAA worker (airflow); set to kpo for Kubernetes pod"
+    },
+    "kpo_size": {
+      "type": "string",
+      "enum": ["small", "medium", "large", "xlarge"],
+      "default": "small",
+      "description": "KPO pod resource preset (only when compute is kpo)"
+    },
     "output_type": {
       "type": "string",
       "enum": ["iceberg", "s3"],
@@ -139,6 +150,17 @@
       "additionalProperties": { "type": "string" },
       "default": {},
       "description": "Environment variables (e.g., S3 bucket, API endpoints)"
+    },
+    "upstream_sources": {
+      "description": "Upstream lineage sources written to Iceberg table properties after each run",
+      "oneOf": [
+        { "$ref": "python-model.upstream_source.schema.json" },
+        {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "python-model.upstream_source.schema.json" }
+        }
+      ]
     }
   }
 }

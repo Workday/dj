@@ -48,6 +48,7 @@ Use when the user mentions: migrate/convert/port a notebook, convert an existing
 5. State resolved defaults in the migration plan before proposing identity fields.
 6. Never assume org-specific catalog, schema, or DAG names without confirmation.
 
+<<<<<<< HEAD
 ## DJ CLI (preferred when DJ is running)
 
 When `.dj/bin/dj system.ping` succeeds, use `trino.columns` (and `trino.tables` when needed) to validate tables named in the migration plan against the live warehouse. For post-migration data parity, delegate execution to **`dj-verify-pymodel-parity`** (`query.execute`). Invocation patterns → `dj-cli`.
@@ -56,6 +57,12 @@ When `.dj/bin/dj system.ping` succeeds, use `trino.columns` (and `trino.tables` 
 
 Before Phase B, inspect existing models under `dags/python_models/` and follow **that** layout:
 
+=======
+## Authoring shape — match the workspace
+
+Before Phase B, inspect existing models under `dags/python_models/` and follow **that** layout:
+
+>>>>>>> ff72b7f (Update python model skills)
 | Workspace pattern | What Phase B produces |
 | ----------------- | --------------------- |
 | **Hand-written `.python.py`** (metadata-only `.python.json` + `def run_etl`) | Write `.python.json` **and** `.python.py`; mirror sibling models |

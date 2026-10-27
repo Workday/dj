@@ -64,6 +64,8 @@ export function getDjConfig(): CoderConfig {
       'analytics',
       'others',
     ]),
+    pythonModelCatalogName: config.get('pythonModel.catalogName', undefined),
+    pythonModelDatabaseName: config.get('pythonModel.databaseName', undefined),
     trinoPath: config.get('trinoPath', undefined),
     lightdashProjectPath: config.get('lightdashProjectPath', undefined),
     lightdashProfilesPath: config.get('lightdashProfilesPath', undefined),

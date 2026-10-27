@@ -1,4 +1,5 @@
 import {
+  ArrowDownTrayIcon,
   CircleStackIcon,
   CodeBracketIcon,
   CogIcon,
@@ -26,6 +27,39 @@ const TYPE_LABELS = {
   source: 'SRC',
   seed: 'SEED',
   python: 'PY',
+};
+
+type PythonLineageKind = 'model' | 'trino-ref' | 'external';
+
+function getPythonLineageKind(tags?: string[]): PythonLineageKind | null {
+  if (!tags?.includes('python')) {
+    return null;
+  }
+  if (tags.includes('external')) {
+    return 'external';
+  }
+  if (tags.includes('trino-ref')) {
+    return 'trino-ref';
+  }
+  return 'model';
+}
+
+const PYTHON_KIND_ICONS: Record<PythonLineageKind, typeof CodeBracketIcon> = {
+  model: CodeBracketIcon,
+  'trino-ref': CircleStackIcon,
+  external: ArrowDownTrayIcon,
+};
+
+const PYTHON_KIND_LABELS: Record<PythonLineageKind, string> = {
+  model: 'PY',
+  'trino-ref': 'TRINO',
+  external: 'EXT',
+};
+
+const PYTHON_KIND_BADGE_STYLES: Record<PythonLineageKind, string> = {
+  model: 'bg-surface border-neutral',
+  'trino-ref': 'bg-cyan-600/15 border-cyan-600/40',
+  external: 'bg-amber-600/15 border-amber-600/40',
 };
 
 const MATERIALIZATION_LABELS: Record<MaterializationType, string> = {
@@ -67,14 +101,21 @@ export default function ModelNode({ data }: { data: ModelNodeData }) {
     onExpandUpstream,
     onExpandDownstream,
     onViewColumns,
+    tags,
   } = data;
+
+  const pythonKind = type === 'python' ? getPythonLineageKind(tags) : null;
 
   // Determine if we need to compile before running
   // Compile if: model is outdated (source changed) OR no compiled file exists
   const needsCompilation = isOutdated === true || hasCompiledFile === false;
 
-  const TypeIcon = TYPE_ICONS[type];
-  const typeLabel = TYPE_LABELS[type];
+  const TypeIcon =
+    pythonKind != null ? PYTHON_KIND_ICONS[pythonKind] : TYPE_ICONS[type];
+  const typeLabel =
+    pythonKind != null ? PYTHON_KIND_LABELS[pythonKind] : TYPE_LABELS[type];
+  const pythonBadgeStyle =
+    pythonKind != null ? PYTHON_KIND_BADGE_STYLES[pythonKind] : '';
 
   // Build title with name and description
   const nodeTitle = description ? `${name}\n\n${description}` : name;
@@ -155,12 +196,20 @@ export default function ModelNode({ data }: { data: ModelNodeData }) {
   const showDownstreamExpand =
     !isStale && hasDownstream && !isDownstreamExpanded && onExpandDownstream;
 
+  const isClickable = !isStale && type !== 'python';
+  const displayName =
+    pythonKind === 'trino-ref' && description
+      ? description
+      : type === 'python' && description && pythonKind === 'model'
+        ? description
+        : name;
+
   return (
     <div
       className={`bg-card border rounded-lg min-w-[240px] max-w-[380px] transition-all ${
-        isStale ? 'cursor-default' : 'cursor-pointer'
+        isClickable ? 'cursor-pointer' : 'cursor-default'
       } ${getBorderStyle()}`}
-      onClick={isStale ? undefined : handleNodeClickInternal}
+      onClick={isClickable ? handleNodeClickInternal : undefined}
       title={isStale ? `${name} - not found in this dbt project` : undefined}
     >
       {/* Input handle - LEFT for horizontal flow */}
@@ -174,7 +223,9 @@ export default function ModelNode({ data }: { data: ModelNodeData }) {
       {/* Header */}
       <div className="px-2 py-1.5 flex items-center gap-2">
         {/* Type icon and label */}
-        <div className="flex flex-col items-center flex-shrink-0 px-1.5 py-1 rounded bg-surface border border-neutral">
+        <div
+          className={`flex flex-col items-center flex-shrink-0 px-1.5 py-1 rounded border ${pythonBadgeStyle || 'bg-surface border-neutral'}`}
+        >
           <TypeIcon className="w-3 h-3 text-surface-contrast" />
           <span className="font-mono text-[7px] font-semibold text-surface-contrast opacity-70">
             {typeLabel}
@@ -186,114 +237,117 @@ export default function ModelNode({ data }: { data: ModelNodeData }) {
             className="font-mono font-semibold text-[10px] text-foreground break-words leading-tight"
             title={nodeTitle}
           >
-            {name}
+            {displayName}
           </div>
         </div>
       </div>
 
-      {/* Divider */}
-      <div className="w-full h-[0.5px] bg-black/30" />
+      {/* Divider and footer are hidden for python nodes (no actions/metadata) */}
+      {type !== 'python' && (
+        <>
+          <div className="w-full h-[0.5px] bg-black/30" />
 
-      {/* Footer */}
-      <div className="px-2 py-1.5 flex items-center justify-between gap-1">
-        {/* Left: Expand upstream */}
-        <div className="flex items-center">
-          {showUpstreamExpand && (
-            <button
-              onClick={handleExpandUpstream}
-              className="p-1 rounded hover:bg-surface transition-colors"
-              title="Show upstream models"
-            >
-              <PlusCircleIcon className="w-4 h-4 text-primary" />
-            </button>
-          )}
-        </div>
+          <div className="px-2 py-1.5 flex items-center justify-between gap-1">
+            {/* Left: Expand upstream */}
+            <div className="flex items-center">
+              {showUpstreamExpand && (
+                <button
+                  onClick={handleExpandUpstream}
+                  className="p-1 rounded hover:bg-surface transition-colors"
+                  title="Show upstream models"
+                >
+                  <PlusCircleIcon className="w-4 h-4 text-primary" />
+                </button>
+              )}
+            </div>
 
-        {/* Center: Materialization and test count (or stale flag) */}
-        <div className="flex items-center gap-1.5 flex-1 justify-start">
-          {isStale && (
-            <span
-              className="font-mono flex items-center gap-1 text-[8px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/40"
-              title="Referenced by Lightdash but not found in this dbt project"
-            >
-              <ExclamationTriangleIcon className="w-2.5 h-2.5" />
-              not in project
-            </span>
-          )}
-          {!isStale && materialized && (
-            <span
-              className={`font-mono text-[9px] px-1.5 py-0.5 rounded border font-medium ${MATERIALIZATION_STYLES[materialized]}`}
-            >
-              {MATERIALIZATION_LABELS[materialized]}
-            </span>
-          )}
-          {!isStale && testCount !== undefined && testCount > 0 && (
-            <span
-              title={`${testCount} ${testCount === 1 ? 'test' : 'tests'}`}
-              className="font-mono flex items-center gap-0.5 text-[8px] px-1.5 py-0.5 rounded bg-surface text-surface-contrast border border-neutral"
-            >
-              {testCount}
-              <ShieldCheckIcon className="w-2.5 h-2.5" />
-            </span>
-          )}
-        </div>
+            {/* Center: Materialization and test count (or stale flag) */}
+            <div className="flex items-center gap-1.5 flex-1 justify-start">
+              {isStale && (
+                <span
+                  className="font-mono flex items-center gap-1 text-[8px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/40"
+                  title="Referenced by Lightdash but not found in this dbt project"
+                >
+                  <ExclamationTriangleIcon className="w-2.5 h-2.5" />
+                  not in project
+                </span>
+              )}
+              {!isStale && materialized && (
+                <span
+                  className={`font-mono text-[9px] px-1.5 py-0.5 rounded border font-medium ${MATERIALIZATION_STYLES[materialized]}`}
+                >
+                  {MATERIALIZATION_LABELS[materialized]}
+                </span>
+              )}
+              {!isStale && testCount !== undefined && testCount > 0 && (
+                <span
+                  title={`${testCount} ${testCount === 1 ? 'test' : 'tests'}`}
+                  className="font-mono flex items-center gap-0.5 text-[8px] px-1.5 py-0.5 rounded bg-surface text-surface-contrast border border-neutral"
+                >
+                  {testCount}
+                  <ShieldCheckIcon className="w-2.5 h-2.5" />
+                </span>
+              )}
+            </div>
 
-        {/* Right: Action buttons (suppressed for stale references) */}
-        <div className="flex items-center">
-          {!isStale && (
-            <button
-              onClick={handleViewColumns}
-              className="p-1 rounded hover:bg-surface transition-colors"
-              title="View columns"
-            >
-              <ViewColumnsIcon className="w-4 h-4 text-surface-contrast" />
-            </button>
-          )}
-          {!isStale && type === 'model' && (
-            <>
-              <button
-                onClick={handleCompileClick}
-                className={`p-1 rounded hover:bg-surface transition-colors relative ${
-                  needsCompilation ? 'text-orange-600' : ''
-                }`}
-                title={
-                  needsCompilation
-                    ? 'Compile model (source has changed)'
-                    : 'Compile model'
-                }
-              >
-                <CogIcon
-                  className={`w-4 h-4 ${needsCompilation ? 'text-orange-600' : 'text-surface-contrast'}`}
-                />
-                {needsCompilation && (
-                  <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-orange-500 rounded-full" />
-                )}
-              </button>
-              <button
-                onClick={handleRunClick}
-                className="p-1 rounded hover:bg-surface transition-colors"
-                title={
-                  needsCompilation
-                    ? 'Compile & Run query (model has changes)'
-                    : 'Run query'
-                }
-              >
-                <PlayCircleIcon className="w-4 h-4 text-green-800" />
-              </button>
-            </>
-          )}
+            {/* Right: Action buttons (suppressed for stale references) */}
+            <div className="flex items-center">
+              {!isStale && (
+                <button
+                  onClick={handleViewColumns}
+                  className="p-1 rounded hover:bg-surface transition-colors"
+                  title="View columns"
+                >
+                  <ViewColumnsIcon className="w-4 h-4 text-surface-contrast" />
+                </button>
+              )}
+              {!isStale && type === 'model' && (
+                <>
+                  <button
+                    onClick={handleCompileClick}
+                    className={`p-1 rounded hover:bg-surface transition-colors relative ${
+                      needsCompilation ? 'text-orange-600' : ''
+                    }`}
+                    title={
+                      needsCompilation
+                        ? 'Compile model (source has changed)'
+                        : 'Compile model'
+                    }
+                  >
+                    <CogIcon
+                      className={`w-4 h-4 ${needsCompilation ? 'text-orange-600' : 'text-surface-contrast'}`}
+                    />
+                    {needsCompilation && (
+                      <span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-orange-500 rounded-full" />
+                    )}
+                  </button>
+                  <button
+                    onClick={handleRunClick}
+                    className="p-1 rounded hover:bg-surface transition-colors"
+                    title={
+                      needsCompilation
+                        ? 'Compile & Run query (model has changes)'
+                        : 'Run query'
+                    }
+                  >
+                    <PlayCircleIcon className="w-4 h-4 text-green-800" />
+                  </button>
+                </>
+              )}
 
-          {showDownstreamExpand && (
-            <button
-              onClick={handleExpandDownstream}
-              className="p-1 rounded hover:bg-surface transition-colors"
-              title="Show downstream models"
-            >
-              <PlusCircleIcon className="w-4 h-4 text-primary" />
-            </button>
-          )}
-        </div>
-      </div>
+              {showDownstreamExpand && (
+                <button
+                  onClick={handleExpandDownstream}
+                  className="p-1 rounded hover:bg-surface transition-colors"
+                  title="Show downstream models"
+                >
+                  <PlusCircleIcon className="w-4 h-4 text-primary" />
+                </button>
+              )}
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Output handle - RIGHT for horizontal flow */}
       <Handle

@@ -47,6 +47,14 @@ export interface SchemaPythonModel {
    */
   depends_on?: string[];
   /**
+   * Execution backend: omit for MWAA worker (airflow); set to kpo for Kubernetes pod
+   */
+  compute?: 'kpo' | 'airflow';
+  /**
+   * KPO pod resource preset (only when compute is kpo)
+   */
+  kpo_size?: 'small' | 'medium' | 'large' | 'xlarge';
+  /**
    * Output backend type for data writes
    */
   output_type?: 'iceberg' | 's3';
@@ -112,4 +120,23 @@ export interface SchemaPythonModel {
   variables?: {
     [k: string]: string | undefined;
   };
+  /**
+   * Upstream lineage sources written to Iceberg table properties after each run
+   */
+  upstream_sources?:
+    | SchemaPythonModelUpstreamSource
+    | [SchemaPythonModelUpstreamSource, ...SchemaPythonModelUpstreamSource[]];
+}
+/**
+ * A single upstream lineage source for a Python model output table
+ */
+export interface SchemaPythonModelUpstreamSource {
+  /**
+   * trino = Iceberg/Hive table (schema.table); external = non-Trino source
+   */
+  type: 'trino' | 'external';
+  /**
+   * trino: schema.table; external: free-form identifier (API name, S3 path, etc.)
+   */
+  value: string;
 }
