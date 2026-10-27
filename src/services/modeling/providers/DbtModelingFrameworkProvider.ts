@@ -13,9 +13,7 @@ export class DbtModelingFrameworkProvider implements ModelingFrameworkProvider {
     warn: (...args: unknown[]) => void;
   };
 
-  constructor(options?: {
-    logger?: { warn: (...args: unknown[]) => void };
-  }) {
+  constructor(options?: { logger?: { warn: (...args: unknown[]) => void } }) {
     this.logger = options?.logger;
   }
 

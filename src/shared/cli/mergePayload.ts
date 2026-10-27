@@ -28,7 +28,7 @@ export function mergeCliPayload(
     base = {};
   } else if (isPlainObject(input)) {
     if ('request' in input && isPlainObject(input.request)) {
-      base = { ...(input.request) };
+      base = { ...input.request };
     } else {
       base = { ...input };
     }
