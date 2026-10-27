@@ -5,6 +5,8 @@
 ### Python models
 
 - **MWAA worker is the default compute.** New `.python.json` files omit `compute` (Create Python Model defaults to Airflow worker). Set `"compute": "kpo"` and optional `kpo_size` to run on Kubernetes; pod presets remain in `dags/_ext_/kpo_sizes.yml`.
+- **Airflow-aligned defaults for `depends_on` upstream inference.** When DJ auto-fills trino `upstream_sources` from `depends_on`, catalog and schema resolve from `dj.pythonModel.catalogName` / `dj.pythonModel.databaseName` (mirrors Airflow Variables `dj_python_model_catalog_name` and `dj_python_model_database_name`), KPO env vars, then `glue` and `python_source` — not hardcoded org catalogs.
+- **KPO and python models use the same Trino Variables as source ETL.** Regenerated `python_models/_trino_io.py` and KPO pod env read `dj_etl_trino_host`, `dj_etl_trino_user`, and `dj_etl_trino_password` instead of legacy `opus-etl-*` names.
 
 ### Model Wizard
 

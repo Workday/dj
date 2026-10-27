@@ -1,5 +1,6 @@
 import { describe, expect, test } from '@jest/globals';
 
+import { DEFAULT_PYTHON_MODEL_CATALOG_DEFAULTS } from '@shared/pymodel/python-model-catalog-defaults';
 import {
   inferTrinoUpstreamFromDependsOn,
   mergeInferredUpstreamSources,
@@ -7,10 +8,7 @@ import {
 } from '@shared/pymodel/python-upstream-inference';
 import type { PythonModelConfig } from '@shared/framework/types';
 
-const defaults = {
-  catalog: 'glue_development',
-  namespace: 'opus_python_source',
-};
+const defaults = DEFAULT_PYTHON_MODEL_CATALOG_DEFAULTS;
 
 describe('resolvePythonModelOutputFqn', () => {
   test('uses output block when present', () => {
@@ -32,7 +30,7 @@ describe('resolvePythonModelOutputFqn', () => {
   test('falls back to defaults and model name', () => {
     expect(
       resolvePythonModelOutputFqn({ name: 'customer_tenant_dc_tracker' }, defaults),
-    ).toBe('glue_development.opus_python_source.customer_tenant_dc_tracker');
+    ).toBe('glue.python_source.customer_tenant_dc_tracker');
   });
 });
 
@@ -73,12 +71,12 @@ describe('inferTrinoUpstreamFromDependsOn', () => {
       {
         type: 'trino',
         value:
-          'glue_development.opus_python_source.customer_tenant_dc_tracker',
+          'glue.python_source.customer_tenant_dc_tracker',
       },
       {
         type: 'trino',
         value:
-          'glue_development.opus_python_source.customer_tenant_migration_enrichment',
+          'glue.python_source.customer_tenant_migration_enrichment',
       },
     ]);
   });
@@ -94,7 +92,7 @@ describe('inferTrinoUpstreamFromDependsOn', () => {
         {
           type: 'trino',
           value:
-            'glue_development.opus_python_source.customer_tenant_dc_tracker',
+            'glue.python_source.customer_tenant_dc_tracker',
         },
       ],
     };
@@ -105,7 +103,7 @@ describe('inferTrinoUpstreamFromDependsOn', () => {
       {
         type: 'trino',
         value:
-          'glue_development.opus_python_source.customer_tenant_migration_enrichment',
+          'glue.python_source.customer_tenant_migration_enrichment',
       },
     ]);
   });

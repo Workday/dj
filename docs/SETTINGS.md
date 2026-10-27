@@ -47,6 +47,17 @@ Complete guide to configuring the DJ (Data JSON) Framework VS Code extension.
 - Extension activates venv when running dbt and Python tools
 - Validated: checks for `bin/activate` file
 
+**`dj.pythonModel.catalogName`** — Default Glue/Trino catalog when DJ infers `upstream_sources` from `depends_on` on `.python.json` sync. Mirrors Airflow Variable `dj_python_model_catalog_name` (runtime default when unset: `glue`).
+
+**`dj.pythonModel.databaseName`** — Default schema/namespace for the same inference. Mirrors Airflow Variable `dj_python_model_database_name`.
+
+```json
+{
+  "dj.pythonModel.catalogName": "glue",
+  "dj.pythonModel.databaseName": "python_source"
+}
+```
+
 **`dj.trinoPath`** - Path to Trino CLI executable (default: `"trino-cli"`)
 
 ```json

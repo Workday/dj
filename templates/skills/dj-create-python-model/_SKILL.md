@@ -173,7 +173,9 @@ New models default to the **MWAA worker** — omit `compute` in `.python.json`. 
 
 **`PYMODEL_*` environment:** Airflow sets `PYMODEL_DS`, `PYMODEL_DS_NODASH`, and optionally `PYMODEL_DATES` (JSON array) before execution. `build_context_from_env()` in `_config.py` reads them and configures `logging.basicConfig` to stdout (required for KPO log visibility).
 
-**`__main__` block (required):** Scaffolded `.python.py` must end with:
+**Trino connection (`_trino_io.py`):** Uses the same Airflow Variables as source ETL — `dj_etl_trino_host`, `dj_etl_trino_user`, `dj_etl_trino_password`. KPO runs may also set env `DJ_ETL_TRINO_HOST`, `DJ_ETL_TRINO_USER`, `DJ_ETL_TRINO_PASSWORD` (from `etl_helper`). Local VS Code upstream inference can mirror catalog/schema via `dj.pythonModel.catalogName` / `dj.pythonModel.databaseName`.
+
+**`__main__` block (default scaffold):** New `.python.py` files from DJ should end with:
 
 ```python
 if __name__ == "__main__":
@@ -181,7 +183,7 @@ if __name__ == "__main__":
     run_etl(build_context_from_env())
 ```
 
-MWAA worker and KPO pod both execute the file as `__main__`. `run_etl` is scaffold convention, not a framework-enforced name.
+MWAA worker and KPO `python <path>` execution use pattern above. Projects with a custom `entrypoint.py` that imports models and calls `run_etl(context)` may omit `__main__` if every model defines `run_etl` and has no bare top-level runner call. `run_etl` is scaffold convention, not a framework-enforced name.
 
 **Airflow UI:** Each KPO model is **one task** named after the model `name` field.
 

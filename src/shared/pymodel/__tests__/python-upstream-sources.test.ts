@@ -42,11 +42,11 @@ describe('serializeUpstreamSourcesForProperty', () => {
   test('serializes as compact JSON array', () => {
     expect(
       serializeUpstreamSourcesForProperty([
-        { type: 'trino', value: 'opus_python_source.raw_events' },
+        { type: 'trino', value: 'python_source.raw_events' },
         { type: 'external', value: 'backstage_api' },
       ]),
     ).toBe(
-      '[{"type":"trino","value":"opus_python_source.raw_events"},{"type":"external","value":"backstage_api"}]',
+      '[{"type":"trino","value":"python_source.raw_events"},{"type":"external","value":"backstage_api"}]',
     );
   });
 });
@@ -66,10 +66,10 @@ describe('parseUpstreamSourcesProperty', () => {
   test('falls back to legacy comma-separated trino entries', () => {
     expect(
       parseUpstreamSourcesProperty(
-        'opus_python_source.raw_events, analytics.user_sessions',
+        'python_source.raw_events, analytics.user_sessions',
       ),
     ).toEqual([
-      { type: 'trino', value: 'opus_python_source.raw_events' },
+      { type: 'trino', value: 'python_source.raw_events' },
       { type: 'trino', value: 'analytics.user_sessions' },
     ]);
   });
@@ -84,11 +84,11 @@ describe('parseUpstreamSourcesProperty', () => {
     // property can surface as a real array rather than a string.
     expect(
       parseUpstreamSourcesProperty([
-        { type: 'trino', value: 'glue_development.opus_python_sources.wpc_slavepool_details' },
+        { type: 'trino', value: 'glue.python_sources.wpc_slavepool_details' },
         { type: 'external', value: 'jenkins::dcim_inventory_csv' },
       ]),
     ).toEqual([
-      { type: 'trino', value: 'glue_development.opus_python_sources.wpc_slavepool_details' },
+      { type: 'trino', value: 'glue.python_sources.wpc_slavepool_details' },
       { type: 'external', value: 'jenkins::dcim_inventory_csv' },
     ]);
   });
@@ -97,10 +97,10 @@ describe('parseUpstreamSourcesProperty', () => {
     expect(
       parseUpstreamSourcesProperty({
         type: 'trino',
-        value: 'glue_development.opus_python_sources.wpc_slavepool_details',
+        value: 'glue.python_sources.wpc_slavepool_details',
       }),
     ).toEqual([
-      { type: 'trino', value: 'glue_development.opus_python_sources.wpc_slavepool_details' },
+      { type: 'trino', value: 'glue.python_sources.wpc_slavepool_details' },
     ]);
   });
 
@@ -114,21 +114,21 @@ describe('parseTrinoUpstreamValue', () => {
   test('parses 3-part catalog.schema.table', () => {
     expect(
       parseTrinoUpstreamValue(
-        'glue_development.opus_python_source.model_c',
+        'glue.python_source.model_c',
         'glue',
       ),
     ).toEqual({
-      catalog: 'glue_development',
-      schema: 'opus_python_source',
+      catalog: 'glue',
+      schema: 'python_source',
       table: 'model_c',
     });
   });
 
   test('parses 2-part schema.table with fallback catalog', () => {
-    expect(parseTrinoUpstreamValue('opus_python_source.model_c', 'glue')).toEqual(
+    expect(parseTrinoUpstreamValue('python_source.model_c', 'glue')).toEqual(
       {
         catalog: 'glue',
-        schema: 'opus_python_source',
+        schema: 'python_source',
         table: 'model_c',
       },
     );

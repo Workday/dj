@@ -16,11 +16,11 @@ describe('parsePythonModelProperties', () => {
       parsePythonModelProperties({
         python_model_name: 'model_d',
         python_model_upstream_sources:
-          '[{"type":"trino","value":"opus_python_source.model_c"}]',
+          '[{"type":"trino","value":"python_source.model_c"}]',
       }),
     ).toEqual({
       pythonModelName: 'model_d',
-      upstreamSources: [{ type: 'trino', value: 'opus_python_source.model_c' }],
+      upstreamSources: [{ type: 'trino', value: 'python_source.model_c' }],
       namespace: undefined,
       table: undefined,
       description: undefined,
@@ -52,23 +52,23 @@ describe('buildPythonUpstreamGraph', () => {
     name: 'model_d',
     type: 'source',
     path: '',
-    schema: 'opus_python_source',
+    schema: 'python_source',
     database: 'glue',
   };
 
   test('walks a multi-hop Python model chain D -> C -> B,A', async () => {
     const propsByTable: Record<string, Record<string, string>> = {
-      'glue.opus_python_source.model_d': {
+      'glue.python_source.model_d': {
         python_model_name: 'model_d',
         python_model_upstream_sources:
-          '[{"type":"trino","value":"opus_python_source.model_c"}]',
+          '[{"type":"trino","value":"python_source.model_c"}]',
       },
-      'glue.opus_python_source.model_c': {
+      'glue.python_source.model_c': {
         python_model_name: 'model_c',
         python_model_upstream_sources:
-          '[{"type":"trino","value":"opus_python_source.model_b"},{"type":"external","value":"backstage_api"}]',
+          '[{"type":"trino","value":"python_source.model_b"},{"type":"external","value":"backstage_api"}]',
       },
-      'glue.opus_python_source.model_b': {
+      'glue.python_source.model_b': {
         python_model_name: 'model_b',
       },
     };
@@ -213,17 +213,17 @@ describe('buildPythonUpstreamGraph', () => {
       name: 'out',
       type: 'source',
       path: '',
-      schema: 'opus_python_source',
-      database: 'glue_development',
+      schema: 'python_source',
+      database: 'glue',
     };
 
     const propsByTable: Record<string, Record<string, string>> = {
-      'glue_development.opus_python_source.out': {
+      'glue.python_source.out': {
         python_model_name: 'out_model',
         python_model_upstream_sources:
-          '[{"type":"trino","value":"glue_development.opus_python_source.upstream"}]',
+          '[{"type":"trino","value":"glue.python_source.upstream"}]',
       },
-      'glue_development.opus_python_source.upstream': {
+      'glue.python_source.upstream': {
         python_model_name: 'upstream_model',
       },
     };

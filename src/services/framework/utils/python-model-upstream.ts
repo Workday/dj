@@ -1,13 +1,24 @@
+import { getDjConfig } from '@services/config';
 import type { PythonModelConfig } from '@shared/framework/types';
 import {
   DEFAULT_PYTHON_MODEL_CATALOG_DEFAULTS,
   enrichPythonModelUpstreamSources,
+  resolvePythonModelCatalogDefaults,
   type PythonModelCatalogDefaults,
 } from '@shared/pymodel/python-upstream-inference';
 import * as fs from 'fs';
 import * as path from 'path';
 
 export { DEFAULT_PYTHON_MODEL_CATALOG_DEFAULTS };
+
+/** Catalog/namespace defaults for upstream inference (workspace settings, env, fallbacks). */
+export function getPythonModelCatalogDefaultsForWorkspace(): PythonModelCatalogDefaults {
+  const dj = getDjConfig();
+  return resolvePythonModelCatalogDefaults({
+    catalog: dj.pythonModelCatalogName,
+    namespace: dj.pythonModelDatabaseName,
+  });
+}
 
 /** Load all python model configs in a topic directory keyed by model name. */
 export function loadTopicPythonModelConfigs(
@@ -41,7 +52,7 @@ export function loadTopicPythonModelConfigs(
 export function applyUpstreamInference(
   config: PythonModelConfig,
   topicDir: string,
-  defaults: PythonModelCatalogDefaults = DEFAULT_PYTHON_MODEL_CATALOG_DEFAULTS,
+  defaults: PythonModelCatalogDefaults = getPythonModelCatalogDefaultsForWorkspace(),
 ): PythonModelConfig {
   const siblings = loadTopicPythonModelConfigs(topicDir);
   siblings.set(config.name, config);

@@ -909,9 +909,9 @@ def build_kpo_env_vars_from_context(ctx: dict) -> dict[str, str]:
         ),
         "python_models_s3_bucket": _airflow_var("python_models_s3_bucket"),
         "python_model_s3_region": _airflow_var("python_model_s3_region", "us-west-2"),
-        "OPUS-ETL-CLUSTER-HOST": _airflow_var("opus-etl-cluster-host"),
-        "OPUS-ETL-USER-NAME": _airflow_var("opus-etl-user-name"),
-        "OPUS-ETL-CLUSTER-PASSWORD": _airflow_var("opus-etl-cluster-password"),
+        "DJ_ETL_TRINO_HOST": _airflow_var("dj_etl_trino_host"),
+        "DJ_ETL_TRINO_USER": _airflow_var("dj_etl_trino_user"),
+        "DJ_ETL_TRINO_PASSWORD": _airflow_var("dj_etl_trino_password"),
     }
     if "dates" in ctx:
         env["PYMODEL_DATES"] = json.dumps(ctx["dates"])

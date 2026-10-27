@@ -29,4 +29,37 @@ describe('generateTrinoIoPy', () => {
     expect(py).toContain('def overwrite_partition_from_dataframe');
     expect(py).toContain('Pandas I/O (python-path models only)');
   });
+
+  test('resolves Trino connection from dj_etl_trino_* variables', () => {
+    const py = generateTrinoIoPy();
+    expect(py).toContain('_var("dj_etl_trino_host")');
+    expect(py).toContain('_var("dj_etl_trino_user")');
+    expect(py).toContain('_var("dj_etl_trino_password")');
+    expect(py).not.toContain('opus-etl-cluster-host');
+  });
+
+  test('exports stable public _trino_io API surface', () => {
+    const py = generateTrinoIoPy();
+    const publicDefs = [
+      ...py.matchAll(/^def ([a-z][a-z0-9_]*)\(/gm),
+    ].map((m) => m[1]);
+
+    expect(publicDefs).toEqual([
+      'get_trino_connection',
+      'execute_sql',
+      'fetch_value',
+      'append',
+      'overwrite',
+      'overwrite_partition',
+      'merge',
+      'create_schema',
+      'create_hive_csv_external_table',
+      'create_iceberg_table',
+      'set_extra_properties',
+      'flush_hive_metadata_cache',
+      'update',
+      'read_partition_to_dataframe',
+      'overwrite_partition_from_dataframe',
+    ]);
+  });
 });

@@ -30,7 +30,10 @@ import {
   generatePythonModelScaffoldPy,
   stripNotebookOnlyCells,
 } from '@services/framework/utils';
-import { loadTopicPythonModelConfigs } from '@services/framework/utils/python-model-upstream';
+import {
+  getPythonModelCatalogDefaultsForWorkspace,
+  loadTopicPythonModelConfigs,
+} from '@services/framework/utils/python-model-upstream';
 import { workspaceHasPythonModels } from '@services/framework/utils/source-etl-python-workspace';
 import type {
   PythonModelCell,
@@ -529,6 +532,7 @@ export class PythonModelSyncService implements vscode.Disposable {
     const enriched = enrichPythonModelUpstreamSources(
       fileSet.config,
       siblings,
+      getPythonModelCatalogDefaultsForWorkspace(),
     );
     const before = JSON.stringify(fileSet.config.upstream_sources ?? null);
     const after = JSON.stringify(enriched.upstream_sources ?? null);

@@ -21,6 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 
+# Must match PYTHON_MODEL_*_AIRFLOW_VAR in src/shared/pymodel/python-model-catalog-defaults.ts
 GLUE_CATALOG_VARIABLE = "dj_python_model_catalog_name"
 
 NAMESPACE_VARIABLE = "dj_python_model_database_name"
@@ -194,12 +195,13 @@ def _var(name: str, default: str = "") -> str:
 
 
 def _resolve_trino_config() -> dict[str, Any]:
-    host = _var("opus-etl-cluster-host")
+    # Variable names match airflow variables.py and KPO env in etl_helper.build_kpo_env_vars_from_context
+    host = _var("dj_etl_trino_host")
     return {
         "host": host,
         "port": 443,
-        "user": _var("opus-etl-user-name"),
-        "password": _var("opus-etl-cluster-password"),
+        "user": _var("dj_etl_trino_user"),
+        "password": _var("dj_etl_trino_password"),
     }
 
 

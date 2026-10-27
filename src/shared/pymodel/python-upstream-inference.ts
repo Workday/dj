@@ -3,12 +3,17 @@ import type {
   PythonModelUpstreamSource,
 } from '@shared/framework/types';
 
+import {
+  resolvePythonModelCatalogDefaults,
+  type PythonModelCatalogDefaults,
+} from './python-model-catalog-defaults';
 import { normalizeUpstreamSources } from './python-upstream-sources';
 
-export interface PythonModelCatalogDefaults {
-  catalog: string;
-  namespace: string;
-}
+export type { PythonModelCatalogDefaults } from './python-model-catalog-defaults';
+export {
+  DEFAULT_PYTHON_MODEL_CATALOG_DEFAULTS,
+  resolvePythonModelCatalogDefaults,
+} from './python-model-catalog-defaults';
 
 /** Resolve catalog.schema.table for a python model output table. */
 export function resolvePythonModelOutputFqn(
@@ -79,16 +84,11 @@ export function inferTrinoUpstreamFromDependsOn(
   return inferred;
 }
 
-export const DEFAULT_PYTHON_MODEL_CATALOG_DEFAULTS: PythonModelCatalogDefaults = {
-  catalog: 'glue_development',
-  namespace: 'opus_python_source',
-};
-
 /** Apply depends_on inference and return a config with merged upstream_sources. */
 export function enrichPythonModelUpstreamSources(
   config: PythonModelConfig,
   siblingConfigs: Map<string, PythonModelConfig>,
-  defaults: PythonModelCatalogDefaults = DEFAULT_PYTHON_MODEL_CATALOG_DEFAULTS,
+  defaults: PythonModelCatalogDefaults = resolvePythonModelCatalogDefaults(),
 ): PythonModelConfig {
   const inferred = inferTrinoUpstreamFromDependsOn(
     config,

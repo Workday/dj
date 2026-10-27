@@ -33,9 +33,11 @@ Extended explanations, code examples, and edge cases for each check in the DJ Py
 
 `.python.py` is the source of truth for code. The `cells` array in `.python.json` is an optional, non-authoritative snapshot of the last notebook save — it may be empty when the model is authored by editing `.python.py` directly, which is fine and not a failure.
 
-### F4: `__main__` script entry
+### F4: Script entry (`__main__` or importable `run_etl`)
 
-**Pass condition:** `.python.py` contains:
+**Pass condition (either pattern):**
+
+**A — DJ default (MWAA worker / KPO `python <file>.python.py`):** `.python.py` contains:
 
 ```python
 if __name__ == "__main__":
@@ -43,7 +45,9 @@ if __name__ == "__main__":
     run_etl(build_context_from_env())
 ```
 
-**Why it matters:** Airflow worker and KPO pods execute the script as `__main__` via `python <path>` — not import + callable lookup. `build_context_from_env()` reads `PYMODEL_DS`, `PYMODEL_DS_NODASH`, `PYMODEL_DATES` and configures stdout logging for KPO.
+**B — Custom KPO / batch entrypoint (`dags/python_models/entrypoint.py` or similar):** module defines `def run_etl(context: dict) -> None:` (or equivalent orchestrator) and has **no** bare top-level `run_etl(...)` call. The orchestrator loads the file with `importlib` and calls `run_etl(context)` with a built context dict.
+
+**Why it matters:** The MWAA worker path uses `runpy.run_path(..., run_name="__main__")`, so pattern A is required there. Pattern B is valid when deployment docs state that execution is import-based, not `python` as `__main__`. `build_context_from_env()` reads `PYMODEL_DS`, `PYMODEL_DS_NODASH`, `PYMODEL_DATES` for pattern A and for KPO env parity.
 
 ### F5: `_trino_io` usage
 
@@ -99,19 +103,23 @@ OUTPUT_CONFIG = PythonModelConfig(
 
 ### F8: Import safety
 
-**Pass condition:** `.python.py` has no side-effectful top-level statements — e.g. no bare `run_etl(context)` at module scope (which would execute on import). Execution goes through the `__main__` block.
+**Pass condition:** `.python.py` has no side-effectful top-level statements — e.g. no bare `run_etl(context)` at module scope (which would execute on import).
 
 ```python
-# FAIL — runs on import
+# FAIL — runs on import (breaks entrypoint import path too)
 run_etl(context)
 
-# PASS — script entry only
+# PASS — MWAA / KPO script path (F4 pattern A)
 if __name__ == "__main__":
     from python_models._config import build_context_from_env
     run_etl(build_context_from_env())
+
+# PASS — entrypoint path (F4 pattern B): define only, orchestrator calls run_etl
+def run_etl(context: dict) -> None:
+    ...
 ```
 
-**Why it matters:** Airflow workers import the module and KPO runs `python <file>` — a top-level runner call would fire at import time. Only the derived `# Python Model: …` header is notebook-only; all other code in the notebook view is real module code.
+**Why it matters:** Custom entrypoints import the module before calling `run_etl`. A top-level runner call fires at import time. MWAA worker `__main__` execution still requires pattern A in F4 when that path is used.
 
 ### F9: Orchestrator structure
 

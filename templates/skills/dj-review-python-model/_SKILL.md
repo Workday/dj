@@ -54,11 +54,11 @@ Use this skill when the user mentions: review python model, audit python model, 
 | F1 | `.python.json` has required fields: `name`, `group`, `topic` |
 | F2 | Name/group/topic match pattern `^[a-z][a-z0-9_]*$` |
 | F3 | `.python.json` is valid with required metadata; `cells` is an optional non-authoritative snapshot (may be empty when the model is authored via `.python.py` directly) |
-| F4 | `.python.py` contains `if __name__ == "__main__":` calling `run_etl(build_context_from_env())` |
+| F4 | Script entry: **`__main__`** + `run_etl(build_context_from_env())` (MWAA worker / KPO `python` path) **or** **`def run_etl(context)`** only when a documented import/entrypoint orchestrator calls it (no bare top-level `run_etl(...)`) |
 | F5 | Uses `_trino_io` helpers (`from python_models._trino_io import …`) — no inline Trino connection code (`trino.dbapi.connect`, `create_engine`, raw HTTP to Trino) |
 | F6 | `OUTPUT_CONFIG` uses `PythonModelConfig` from `python_models._config` |
 | F7 | `.python.py` is present and treated as the code source of truth — hand-edited code is expected and preserved (DJ never overwrites it from JSON) |
-| F8 | `.python.py` is import-safe — no side-effectful top-level statement such as a bare `run_etl(context)`; execution runs through the `__main__` block |
+| F8 | `.python.py` is import-safe — no side-effectful top-level statement such as a bare `run_etl(context)` at module scope |
 | F9 | ETL follows a coherent orchestrator: pandas (`extract` / `transform` / `load`) **or** SQL (`extract` / `transform_and_load` / `cleanup`) **or** documented mixed pattern |
 
 ### 2. Lineage Readiness (L)
@@ -178,7 +178,7 @@ DJ auto-infers trino `upstream_sources` from `depends_on` at create/sync — inf
 
 | Priority | Criteria |
 | -------- | -------- |
-| CRITICAL | Lineage broken (L2/L5/L7 failures), missing `__main__`, no partition column |
+| CRITICAL | Lineage broken (L2/L5/L7 failures), missing script entry (F4), no partition column |
 | HIGH | Inline Trino code, missing cleanup, stale `upstream_sources`, missing `depends_on` for Python upstream |
 | MEDIUM | Orchestrator inconsistency, missing batch staging, no error handling |
 | LOW | Legacy 2-part trino FQN, naming style, documentation gaps |
@@ -208,7 +208,8 @@ DJ auto-infers trino `upstream_sources` from `depends_on` at create/sync — inf
 - **`_trino_io` SQL path:** `execute_sql`, `fetch_value`, `overwrite_partition`, `overwrite`, `append`, `merge`, `update`
 - **`_trino_io` pandas path:** `read_partition_to_dataframe`, `overwrite_partition_from_dataframe`
 - **Do not use:** `execute_trino`, inline `trino.dbapi.connect`, standalone `delete()`
-- **Script entry:** `if __name__ == "__main__":` with `build_context_from_env()` from `_config.py`
+- **Trino connection (generated `_trino_io.py`):** Airflow Variables `dj_etl_trino_host`, `dj_etl_trino_user`, `dj_etl_trino_password` (same as source ETL). KPO may prefetch `DJ_ETL_TRINO_HOST`, `DJ_ETL_TRINO_USER`, `DJ_ETL_TRINO_PASSWORD` into the pod env.
+- **Script entry:** `if __name__ == "__main__":` with `build_context_from_env()` from `_config.py` for MWAA worker / KPO `python <file>` — or `def run_etl(context)` when a project entrypoint imports the module and invokes it
 - **`upstream_sources` trino format:** `catalog.schema.table` (canonical); `schema.table` legacy
 - **`upstream_sources` external format:** `s3::…`, `api::…`, `jenkins::…`
 - **Partition contract:** `portal_partition_daily` in partition-based models
