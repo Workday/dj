@@ -101,16 +101,16 @@ export function parseTrinoUpstreamValue(
   const parts = trimmed.split('.');
   if (parts.length >= 3) {
     return {
-      catalog: parts[0]!,
-      schema: parts[1]!,
+      catalog: parts[0],
+      schema: parts[1],
       table: parts.slice(2).join('.'),
     };
   }
   if (parts.length === 2) {
     return {
       catalog: fallbackCatalog,
-      schema: parts[0]!,
-      table: parts[1]!,
+      schema: parts[0],
+      table: parts[1],
     };
   }
   return null;

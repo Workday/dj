@@ -31,8 +31,8 @@ export * from './sql-utils';
 export * from './meta-lint';
 
 // Python model utilities
-export * from './python-model-utils';
 export * from './python-model-upstream';
+export * from './python-model-utils';
 
 // Destructive-SQL guard for python model files
 export * from './python-sql-guard';

@@ -10,13 +10,9 @@ const {
 } = require('./lockfile-registry');
 
 function main() {
-  const registry = process.env.npm_config_registry;
-  if (!registry) {
-    console.error(
-      'npm_config_registry is unset. Run `npm run lockfile:normalize` so npm passes the active registry.'
-    );
-    process.exit(1);
-  }
+  // npm omits npm_config_registry when the active registry is the built-in default.
+  const configured = process.env.npm_config_registry;
+  const registry = configured || PUBLIC_REGISTRY;
 
   const prefix = registryPrefix(registry);
   if (!prefix) {
@@ -38,11 +34,18 @@ function main() {
       log(`Registry is ${PUBLIC_REGISTRY}. Nothing to rewrite.`);
       return;
     }
-    console.error(
-      `Registry is ${PUBLIC_REGISTRY}, but package-lock.json has tarball URLs on another host.`
-    );
+    if (!configured) {
+      console.error(
+        'npm_config_registry is unset, and package-lock.json has tarball URLs on another host.'
+      );
+      console.error('Run `npm run lockfile:normalize` so npm passes the active registry.');
+    } else {
+      console.error(
+        `Registry is ${PUBLIC_REGISTRY}, but package-lock.json has tarball URLs on another host.`
+      );
+      console.error('Re-run with npm_config_registry set to the registry that produced those URLs.');
+    }
     printRemaining(remaining);
-    console.error('Re-run with npm_config_registry set to the registry that produced those URLs.');
     process.exit(1);
   }
 

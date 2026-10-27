@@ -1,10 +1,9 @@
+import { getDjConfig } from '@services/config';
+import { BASE_AIRFLOW_PATH } from '@services/constants';
+import type { KpoSizeSpec } from '@shared/framework/types';
 import fs from 'fs/promises';
 import path from 'path';
 import { parse as parseYaml } from 'yaml';
-
-import { BASE_AIRFLOW_PATH } from '@services/constants';
-import { getDjConfig } from '@services/config';
-import type { KpoSizeSpec } from '@shared/framework/types';
 
 /**
  * Read KPO pod size presets from the extension's airflow template YAML.

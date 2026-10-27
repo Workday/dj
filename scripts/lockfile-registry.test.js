@@ -1,5 +1,9 @@
 'use strict';
 
+const { spawnSync } = require('child_process');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const {
   PUBLIC_REGISTRY,
   collectDisallowedResolved,
@@ -105,5 +109,39 @@ describe('lockfile registry', () => {
   test('the committed lockfile uses the public npm host', () => {
     const lock = require('../package-lock.json');
     expect(collectDisallowedResolved(lock)).toEqual([]);
+  });
+
+  test('an unset registry leaves a public lockfile unchanged', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lockfile-registry-'));
+    const lockPath = path.join(dir, 'package-lock.json');
+    const sample =
+      '{"packages":{"node_modules/a":{"resolved":"https://registry.npmjs.org/a/-/a-1.0.0.tgz"}}}\n';
+    fs.writeFileSync(lockPath, sample);
+    const env = { ...process.env, npm_lifecycle_event: 'postinstall' };
+    delete env.npm_config_registry;
+    const result = spawnSync(
+      process.execPath,
+      [path.join(__dirname, 'normalize-lockfile-registry.js')],
+      { cwd: dir, env, encoding: 'utf8' }
+    );
+    expect(result.status).toBe(0);
+    expect(fs.readFileSync(lockPath, 'utf8')).toBe(sample);
+  });
+
+  test('an unset registry fails when the lockfile uses another host', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lockfile-registry-'));
+    const lockPath = path.join(dir, 'package-lock.json');
+    const sample = `{"packages":{"node_modules/a":{"resolved":"${MIRROR}a/-/a-1.0.0.tgz"}}}\n`;
+    fs.writeFileSync(lockPath, sample);
+    const env = { ...process.env };
+    delete env.npm_config_registry;
+    const result = spawnSync(
+      process.execPath,
+      [path.join(__dirname, 'normalize-lockfile-registry.js')],
+      { cwd: dir, env, encoding: 'utf8' }
+    );
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('npm_config_registry is unset');
+    expect(fs.readFileSync(lockPath, 'utf8')).toBe(sample);
   });
 });

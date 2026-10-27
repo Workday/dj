@@ -1,12 +1,11 @@
 import { describe, expect, test } from '@jest/globals';
-
+import type { PythonModelConfig } from '@shared/framework/types';
 import { DEFAULT_PYTHON_MODEL_CATALOG_DEFAULTS } from '@shared/pymodel/python-model-catalog-defaults';
 import {
   inferTrinoUpstreamFromDependsOn,
   mergeInferredUpstreamSources,
   resolvePythonModelOutputFqn,
 } from '@shared/pymodel/python-upstream-inference';
-import type { PythonModelConfig } from '@shared/framework/types';
 
 const defaults = DEFAULT_PYTHON_MODEL_CATALOG_DEFAULTS;
 
@@ -29,7 +28,10 @@ describe('resolvePythonModelOutputFqn', () => {
 
   test('falls back to defaults and model name', () => {
     expect(
-      resolvePythonModelOutputFqn({ name: 'customer_tenant_dc_tracker' }, defaults),
+      resolvePythonModelOutputFqn(
+        { name: 'customer_tenant_dc_tracker' },
+        defaults,
+      ),
     ).toBe('glue.python_source.customer_tenant_dc_tracker');
   });
 });
@@ -65,20 +67,18 @@ describe('inferTrinoUpstreamFromDependsOn', () => {
       depends_on: [ingest.name, enrichment.name],
     };
 
-    expect(
-      inferTrinoUpstreamFromDependsOn(status, siblings, defaults),
-    ).toEqual([
-      {
-        type: 'trino',
-        value:
-          'glue.python_source.customer_tenant_dc_tracker',
-      },
-      {
-        type: 'trino',
-        value:
-          'glue.python_source.customer_tenant_migration_enrichment',
-      },
-    ]);
+    expect(inferTrinoUpstreamFromDependsOn(status, siblings, defaults)).toEqual(
+      [
+        {
+          type: 'trino',
+          value: 'glue.python_source.customer_tenant_dc_tracker',
+        },
+        {
+          type: 'trino',
+          value: 'glue.python_source.customer_tenant_migration_enrichment',
+        },
+      ],
+    );
   });
 
   test('does not duplicate author-declared trino entries', () => {
@@ -91,21 +91,19 @@ describe('inferTrinoUpstreamFromDependsOn', () => {
       upstream_sources: [
         {
           type: 'trino',
-          value:
-            'glue.python_source.customer_tenant_dc_tracker',
+          value: 'glue.python_source.customer_tenant_dc_tracker',
         },
       ],
     };
 
-    expect(
-      inferTrinoUpstreamFromDependsOn(status, siblings, defaults),
-    ).toEqual([
-      {
-        type: 'trino',
-        value:
-          'glue.python_source.customer_tenant_migration_enrichment',
-      },
-    ]);
+    expect(inferTrinoUpstreamFromDependsOn(status, siblings, defaults)).toEqual(
+      [
+        {
+          type: 'trino',
+          value: 'glue.python_source.customer_tenant_migration_enrichment',
+        },
+      ],
+    );
   });
 
   test('mergeInferredUpstreamSources appends inferred entries', () => {

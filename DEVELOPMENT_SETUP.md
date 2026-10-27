@@ -59,7 +59,7 @@ npm install <pkg>
 npm ci
 ```
 
-`npm install` runs `lockfile:normalize` when it finishes. That reads `npm_config_registry` and rewrites matching `resolved` URLs back to `https://registry.npmjs.org/`. It leaves `integrity` unchanged. On the public registry it exits without editing the file.
+`npm install` runs `lockfile:normalize` when it finishes. That reads `npm_config_registry` and rewrites matching `resolved` URLs back to `https://registry.npmjs.org/`. It leaves `integrity` unchanged. An unset registry is the public default, so `npm ci` there exits without editing the file.
 
 You do not have to remember that command. `npm ci` also sets `core.hooksPath` to `.githooks`. The pre-commit hook runs the same normalize when `package-lock.json` is staged, then refuses the commit if a tarball URL still uses another host. CI runs `npm run lockfile:check` on every pull request, which is what catches a commit made with `--no-verify` or an install run with `--ignore-scripts`.
 

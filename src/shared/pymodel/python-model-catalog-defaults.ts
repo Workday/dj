@@ -7,7 +7,8 @@ export interface PythonModelCatalogDefaults {
 export const PYTHON_MODEL_CATALOG_AIRFLOW_VAR = 'dj_python_model_catalog_name';
 
 /** Airflow Variable for output schema/namespace. */
-export const PYTHON_MODEL_DATABASE_AIRFLOW_VAR = 'dj_python_model_database_name';
+export const PYTHON_MODEL_DATABASE_AIRFLOW_VAR =
+  'dj_python_model_database_name';
 
 /** KPO pod env key set from {@link PYTHON_MODEL_CATALOG_AIRFLOW_VAR} in etl_helper. */
 export const PYTHON_MODEL_CATALOG_ENV = 'DJ_PYTHON_MODEL_CATALOG_NAME';
@@ -46,7 +47,8 @@ export function resolvePythonModelCatalogDefaults(
 }
 
 /** Static fallbacks only (stable for tests); prefer {@link resolvePythonModelCatalogDefaults}. */
-export const DEFAULT_PYTHON_MODEL_CATALOG_DEFAULTS: PythonModelCatalogDefaults = {
-  catalog: PYTHON_MODEL_CATALOG_FALLBACK,
-  namespace: PYTHON_MODEL_DATABASE_FALLBACK,
-};
+export const DEFAULT_PYTHON_MODEL_CATALOG_DEFAULTS: PythonModelCatalogDefaults =
+  {
+    catalog: PYTHON_MODEL_CATALOG_FALLBACK,
+    namespace: PYTHON_MODEL_DATABASE_FALLBACK,
+  };

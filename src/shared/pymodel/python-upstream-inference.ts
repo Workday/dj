@@ -4,8 +4,8 @@ import type {
 } from '@shared/framework/types';
 
 import {
-  resolvePythonModelCatalogDefaults,
   type PythonModelCatalogDefaults,
+  resolvePythonModelCatalogDefaults,
 } from './python-model-catalog-defaults';
 import { normalizeUpstreamSources } from './python-upstream-sources';
 
