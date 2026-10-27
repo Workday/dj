@@ -1085,7 +1085,7 @@ export class ModelLineage {
       };
     }
 
-    let columns = Object.keys(rawResults[0]);
+    const columns = Object.keys(rawResults[0]);
     const rows = rawResults.map((row) => columns.map((col) => row[col]));
     return { columns, schemaColumns, rows, rowCount: rows.length };
   }
