@@ -9,6 +9,7 @@ WITH
 		SELECT
 			customer_id,
 			customer_name,
+			datetime,
 			day_of_week(order_date) IN (6, 7) AS is_weekend_order,
 			order_date,
 			order_id,
@@ -37,7 +38,11 @@ WITH
 			store_name,
 			CAST(subtotal_cents AS DECIMAL(10, 2)) / 100.0 AS subtotal_dollars,
 			CAST(tax_paid_cents AS DECIMAL(10, 2)) / 100.0 AS tax_dollars,
-			order_total_dollars AS total_dollars
+			order_total_dollars AS total_dollars,
+			-- partition columns
+			portal_partition_monthly,
+			portal_partition_daily,
+			portal_partition_hourly
 		FROM
 			{{ ref('int__sales__orders__enriched') }}
 	)
