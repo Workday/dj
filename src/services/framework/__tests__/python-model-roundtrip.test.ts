@@ -211,6 +211,19 @@ describe('.py -> notebook -> .py stability', () => {
     expect(CONFIG.kpo_size).toBe('medium');
   });
 
+  test('scaffold generation works when compute is omitted (Airflow default)', () => {
+    const config: PythonModelConfig = {
+      name: 'worker_model',
+      group: 'analytics',
+      topic: 'revenue',
+      model_type: 'python',
+      dags: ['full_source_etl'],
+    };
+    const py = generatePythonModelScaffoldPy(config);
+    expect(py).toContain('worker_model');
+    expect(config.compute).toBeUndefined();
+  });
+
   test('scaffold includes __main__ entry with build_context_from_env', () => {
     const py = generatePythonModelScaffoldPy(CONFIG);
     expect(py).toContain('if __name__ == "__main__":');

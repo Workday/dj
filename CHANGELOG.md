@@ -1,5 +1,11 @@
 # Change Log
 
+## 2.5.0
+
+### Python models
+
+- **MWAA worker is the default compute.** New `.python.json` files omit `compute` (Create Python Model defaults to Airflow worker). Set `"compute": "kpo"` and optional `kpo_size` to run on Kubernetes; pod presets remain in `dags/_ext_/kpo_sizes.yml`.
+
 ## 2.4.0
 
 ### Agent / CLI

@@ -51,7 +51,7 @@ Reference the correct file model throughout:
 **Prompt:** "Create a model that runs on a large KPO pod."
 
 **Expected:**
-- `compute: "kpo"` (default) with `kpo_size: "large"`.
+- When user asks for KPO: `compute: "kpo"` with `kpo_size: "large"`. When unspecified, omit `compute` (Airflow worker).
 - Mentions the required Airflow Variable `python_models_s3_bucket` and `airflow_runner_cfg`.
 - One Airflow task named after the model `name`.
 

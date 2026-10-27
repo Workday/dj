@@ -568,9 +568,10 @@ def discover_models(dag_id: str | None = None) -> list[dict]:
             "depends_on": config.get("depends_on", []),
             "task_group": config.get("task_group"),
             "topic": config.get("topic", ""),
-            "compute": config.get("compute", "kpo"),
-            "kpo_size": config.get("kpo_size", "small"),
+            "compute": config.get("compute", "airflow"),
         }
+        if config.get("compute") == "kpo":
+            model["kpo_size"] = config.get("kpo_size", "small")
 
         if config.get("output"):
             model["table_name"] = config["output"].get("table", "")
@@ -825,7 +826,7 @@ def resolve_dates_in(dates_in: str | list | dict, ds: str) -> list[str]:
 
 
 def _model_uses_kpo(model: dict) -> bool:
-    return model.get("compute", "kpo") != "airflow"
+    return model.get("compute") == "kpo"
 
 
 def _current_dag():

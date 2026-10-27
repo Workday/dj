@@ -47,7 +47,7 @@ export interface SchemaPythonModel {
    */
   depends_on?: string[];
   /**
-   * Execution backend: kpo (Kubernetes pod, default) or airflow (MWAA worker)
+   * Execution backend: omit for MWAA worker (airflow); set to kpo for Kubernetes pod
    */
   compute?: 'kpo' | 'airflow';
   /**

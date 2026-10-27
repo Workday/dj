@@ -440,10 +440,12 @@ export class Framework implements ApiEnabledService<'framework'> {
 
         const baseTags =
           tags && tags.length > 0 ? tags : ['python-model', group];
-        const compute = reqCompute ?? 'kpo';
         const kpoFields =
-          compute === 'kpo' || reqCompute === undefined
-            ? { kpo_size: reqKpoSize ?? 'small' }
+          reqCompute === 'kpo'
+            ? {
+                compute: 'kpo' as const,
+                kpo_size: reqKpoSize ?? 'small',
+              }
             : {};
 
         const pythonModelConfig: PythonModelConfig = {
@@ -452,7 +454,6 @@ export class Framework implements ApiEnabledService<'framework'> {
           topic,
           model_type,
           dags,
-          compute,
           ...kpoFields,
           ...(description && { description }),
           ...(enable_notebook && { enable_notebook }),
@@ -473,10 +474,7 @@ export class Framework implements ApiEnabledService<'framework'> {
             `Python model '${pythonModelConfig.name}' already exists in ${group}/${topic}`,
           );
         } catch (err) {
-          if (
-            err instanceof Error &&
-            err.message.includes('already exists')
-          ) {
+          if (err instanceof Error && err.message.includes('already exists')) {
             throw err;
           }
         }

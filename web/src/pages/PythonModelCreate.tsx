@@ -152,9 +152,14 @@ export function PythonModelCreate() {
         setIsSubmitting(true);
         setShowErrorDialog(false);
         setErrorMessage('');
+        const { compute: formCompute, kpo_size, ...rest } = values;
+        const request: Values =
+          formCompute === 'kpo'
+            ? { ...rest, compute: 'kpo', kpo_size: kpo_size ?? 'small' }
+            : rest;
         const resp = await api.post({
           type: 'framework-python-model-create',
-          request: values,
+          request,
         });
         setSuccess(resp);
         void onClose();
@@ -192,8 +197,7 @@ export function PythonModelCreate() {
           setValue('projectName', _projects[0].name);
         }
         setValue('model_type', 'python');
-        setValue('compute', 'kpo');
-        setValue('kpo_size', 'small');
+        setValue('compute', 'airflow');
         setValue('description', '');
         setValue('namespace', '');
         setValue('table_name', '');
@@ -256,8 +260,7 @@ export function PythonModelCreate() {
       namespace: '',
       table_name: '',
       model_type: 'python',
-      compute: 'kpo',
-      kpo_size: 'small',
+      compute: 'airflow',
       dags: [],
       enable_notebook: true,
       tags: undefined,
@@ -449,9 +452,7 @@ export function PythonModelCreate() {
               label="Select DAG"
               options={availableDags.map((d) => ({ label: d, value: d }))}
               disabled={isDagsLoading || !projectName}
-              placeholder={
-                isDagsLoading ? 'Loading DAGs...' : 'Select a DAG'
-              }
+              placeholder={isDagsLoading ? 'Loading DAGs...' : 'Select a DAG'}
               tooltipText="The DAG where this model will run. The model will execute as part of the run_python_models task in the selected DAG."
             />
           )}
@@ -463,13 +464,13 @@ export function PythonModelCreate() {
           render={({ field }) => (
             <FieldSelectSingle
               {...field}
-              value={field.value ?? 'kpo'}
+              value={field.value ?? 'airflow'}
               label="Compute"
               options={[
-                { label: 'KPO (Kubernetes pod)', value: 'kpo' },
                 { label: 'Airflow worker', value: 'airflow' },
+                { label: 'KPO (Kubernetes pod)', value: 'kpo' },
               ]}
-              tooltipText="Where the Python model runs: KPO launches a pod on EKS (default); Airflow runs on the MWAA worker."
+              tooltipText="Where the Python model runs: Airflow worker is the default (omit compute in .python.json); choose KPO to launch a pod on EKS."
             />
           )}
         />

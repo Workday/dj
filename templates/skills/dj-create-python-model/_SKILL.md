@@ -116,8 +116,8 @@ Present defaults and confirm overrides:
 | `output.write_mode`   | `overwrite_partitions`       | Yes                     |
 | `output.partition_by` | `["portal_partition_daily"]` | Yes                     |
 | `namespace`           | `python`                     | Yes                     |
-| `compute`             | `kpo`                        | Yes (`airflow` for MWAA worker) |
-| `kpo_size`            | `small`                      | Yes (when `compute` is `kpo`) |
+| `compute`             | omitted (MWAA worker)        | Yes — set `kpo` for Kubernetes pod |
+| `kpo_size`            | `small` when `compute` is `kpo` | Yes (only with `compute: kpo`) |
 
 **Confirm the write target before proceeding.** `overwrite_partitions` is destructive for affected partitions. State resolved `output.database` / `output.schema` / `write_mode` and get explicit confirmation when not using defaults. Never point a new model at production without confirmation.
 
@@ -162,11 +162,11 @@ Declare in `.python.json` only — DJ writes properties after each run; **do not
 
 ## KPO and execution requirements
 
-New models default to **`compute: "kpo"`** (Kubernetes pod). Set **`compute: "airflow"`** when the KPO image pipeline is not ready.
+New models default to the **MWAA worker** — omit `compute` in `.python.json`. Set **`compute: "kpo"`** when the KPO image pipeline is ready.
 
 | Field | Purpose |
 | ----- | ------- |
-| `compute` | `kpo` (default) or `airflow` |
+| `compute` | Omit for Airflow worker, or `kpo` for Kubernetes pod |
 | `kpo_size` | Pod preset when `compute` is `kpo`: `small`, `medium`, `large`, `xlarge` |
 
 **KPO script path:** The configured KPO runner image (from project defaults or `airflow_runner_cfg`) syncs `s3://<bucket>/dags/python_models/` into the pod and runs `python <group>/<topic>/<name>.python.py`. Set Airflow Variable **`python_models_s3_bucket`**; optional **`python_model_s3_region`**. Configure **`airflow_runner_cfg`** (image, tag, namespace, cluster).
@@ -200,7 +200,7 @@ Model ID: `python__<group>__<topic>__<name>`
 - [ ] Step 3: Determine DAG assignment
 - [ ] Step 4: Confirm transform strategy (pandas, SQL, or mixed)
 - [ ] Step 5: Identify data sources
-- [ ] Step 6: Confirm output config and compute (`kpo` default)
+- [ ] Step 6: Confirm output config and compute (Airflow default; opt into `kpo` when needed)
 - [ ] Step 7: Set `depends_on`, `upstream_sources`, and optional fields
 - [ ] Step 8: Read `.dj/schemas/python-model.schema.json`
 - [ ] Step 9: Write `.python.json` at `dags/python_models/<group>/<topic>/<name>.python.json`
