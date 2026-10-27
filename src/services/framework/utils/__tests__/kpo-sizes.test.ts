@@ -18,6 +18,6 @@ describe('readKpoSizesTemplate', () => {
     });
     expect(sizes.large?.cpu).toBe('2');
     expect(sizes.large?.memory).toBe('8Gi');
-    expect(sizes.xlarge?.memory).toBe('16Gi');
+    expect(sizes.xlarge?.memory).toBe('12Gi');
   });
 });

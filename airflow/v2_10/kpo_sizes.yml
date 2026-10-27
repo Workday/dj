@@ -15,5 +15,5 @@ sizes:
     guidance: "Heavier transforms — wider schemas, multi-step pandas work, ~2–8 GB."
   xlarge:
     cpu: "2"
-    memory: "16Gi"
+    memory: "12Gi"
     guidance: "Large workloads — full-table scans, wide fin-style exports, ~8–16 GB."

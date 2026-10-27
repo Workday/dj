@@ -37,7 +37,7 @@ _DEFAULT_SIZE_SPECS: dict[str, tuple[str, str]] = {
     "small": ("1", "2Gi"),
     "medium": ("2", "4Gi"),
     "large": ("2", "8Gi"),
-    "xlarge": ("2", "16Gi"),
+    "xlarge": ("2", "12Gi"),
 }
 
 _SIZES_YAML_PATH = Path(__file__).resolve().parent / "kpo_sizes.yml"
