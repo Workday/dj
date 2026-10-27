@@ -14,6 +14,9 @@ models:
         - json
         - lightdash-explore
         - mart
+    meta:
+      required_filters:
+        - datetime: inThePast 14 days
     columns:
       - name: avg_order_value_dollars
         data_type: varchar
@@ -26,6 +29,15 @@ models:
             type: string
             label: Avg Order Value Dollars
             hidden: true
+      - name: datetime
+        data_type: timestamp(6)
+        description: Event Datetime Column
+        meta:
+          type: dim
+          dimension:
+            type: timestamp
+            label: Datetime
+            sql: portal_partition_hourly
       - name: order_count
         data_type: varchar
         description: Number of orders
@@ -45,8 +57,9 @@ models:
           origin:
             id: model.jaffle_shop.stg__sales__orders__standardized
           dimension:
-            type: string
+            type: date
             label: Order Date
+            group_label: Order Fields
       - name: order_year_month
         data_type: varchar
         description: Order year-month
@@ -90,7 +103,8 @@ models:
             id: model.jaffle_shop.stg__sales__orders__standardized
           dimension:
             type: string
-            label: Store Id
+            label: Store ID
+            group_label: Store Fields
       - name: store_name
         data_type: varchar
         description: Store location name
@@ -122,4 +136,31 @@ models:
           dimension:
             type: string
             label: Total Tax Collected Dollars
+            hidden: true
+      - name: portal_partition_monthly
+        data_type: date
+        description: Monthly Partition Column
+        meta:
+          type: dim
+          dimension:
+            type: date
+            label: Portal Partition Monthly
+            hidden: true
+      - name: portal_partition_daily
+        data_type: date
+        description: Daily Partition Column
+        meta:
+          type: dim
+          dimension:
+            type: date
+            label: Portal Partition Daily
+            hidden: true
+      - name: portal_partition_hourly
+        data_type: timestamp(6)
+        description: Hourly Partition Column
+        meta:
+          type: dim
+          dimension:
+            type: timestamp
+            label: Portal Partition Hourly
             hidden: true

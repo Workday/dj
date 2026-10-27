@@ -70,6 +70,7 @@ models:
           dimension:
             type: string
             label: Product Name
+            group_label: Product Fields
       - name: product_price_dollars
         data_type: varchar
         description: Product price in dollars
@@ -81,6 +82,13 @@ models:
             type: string
             label: Product Price Dollars
             hidden: true
+          metrics:
+            metric_product_price_dollars_sum:
+              ai_hint: Use this metric to calculate total product catalog value or analyze
+                average product pricing
+              type: sum
+              label: Total Product Value
+              group_label: Product Metrics
       - name: product_sku
         data_type: varchar
         description: Product SKU identifier
@@ -90,7 +98,8 @@ models:
             id: model.jaffle_shop.stg__sales__items__order_details
           dimension:
             type: string
-            label: Product Sku
+            label: Product SKU
+            group_label: Product Fields
       - name: product_type
         data_type: varchar
         description: Product type derived from SKU pattern
@@ -101,6 +110,7 @@ models:
           dimension:
             type: string
             label: Product Type
+            group_label: Product Fields
       - name: strategic_recommendation
         data_type: varchar
         description: Strategic business recommendation
@@ -122,6 +132,19 @@ models:
             type: string
             label: Total Items Sold
             hidden: true
+          metrics:
+            metric_total_items_sold:
+              ai_hint: Use this to analyze product sales volume and inventory demand for
+                best-selling items
+              type: sum
+              label: Total Items Sold
+              group_label: Product Popularity
+            metric_avg_items_per_order:
+              ai_hint: Use this to understand typical order quantities for inventory and
+                fulfillment planning
+              type: average
+              label: Average Items Per Order
+              group_label: Product Popularity
       - name: total_orders
         data_type: varchar
         description: Number of unique orders containing this product
@@ -133,3 +156,10 @@ models:
             type: string
             label: Total Orders
             hidden: true
+          metrics:
+            metric_product_order_count:
+              ai_hint: Use this to understand product popularity and which items are
+                frequently purchased together
+              type: sum
+              label: Orders Containing Product
+              group_label: Product Popularity
