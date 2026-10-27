@@ -12,6 +12,7 @@ models:
     config:
       tags:
         - json
+        - lightdash
         - lightdash-explore
         - mart
     columns:

@@ -4,6 +4,7 @@
     "topic": "reporting",
     "name": "cost_efficiency",
     "tags": [
+        "lightdash",
         "lightdash-explore"
     ],
     "from": {
