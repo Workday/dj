@@ -41,7 +41,7 @@ export const modelValidationRules = {
       message: VALIDATION_MESSAGES.maxLength('Topic'),
     },
   },
-  materialized: {
+  materialization: {
     required: false, // Now optional - validation handled conditionally in validateStep
   },
 };
@@ -55,7 +55,7 @@ export const STEP_VALIDATIONS = {
       { name: 'type', label: 'Type' },
       { name: 'group', label: 'Group' },
       { name: 'topic', label: 'Topic' },
-      { name: 'materialized', label: 'Materialization' },
+      { name: 'materialization', label: 'Materialization' },
     ],
   },
   2: {

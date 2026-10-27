@@ -1898,7 +1898,10 @@ SELECT * FROM final`,
                   return resolve(apiResponse<typeof payloadType>([]));
                 case 'framework-model-create-batch':
                   return resolve(
-                    apiResponse<typeof payloadType>({ phase: 'done', results: [] }),
+                    apiResponse<typeof payloadType>({
+                      phase: 'done',
+                      results: [],
+                    }),
                   );
                 case 'framework-model-columns':
                   return resolve(

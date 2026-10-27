@@ -2193,11 +2193,14 @@ const VALID_ROLLUP_INTERVALS = new Set<FrameworkInterval>([
 ]);
 
 /** Rejects rollup intervals outside the JSON schema enum (e.g. `week`). */
-export function validateRollupInterval(modelJson: unknown): ValidationErrorDetail[] {
+export function validateRollupInterval(
+  modelJson: unknown,
+): ValidationErrorDetail[] {
   if (!modelJson || typeof modelJson !== 'object') {
     return [];
   }
-  const from = (modelJson as { from?: { rollup?: { interval?: string } } }).from;
+  const from = (modelJson as { from?: { rollup?: { interval?: string } } })
+    .from;
   const interval = from?.rollup?.interval;
   if (typeof interval !== 'string') {
     return [];

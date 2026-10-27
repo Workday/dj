@@ -3,7 +3,7 @@
     "group": "sales",
     "topic": "stores",
     "name": "locations",
-    "materialized": "ephemeral",
+    "materialization": "ephemeral",
     "from": {
         "source": "development__jaffle_shop_dev_seeds.raw_stores"
     },

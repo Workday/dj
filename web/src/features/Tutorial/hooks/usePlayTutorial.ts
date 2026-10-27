@@ -208,9 +208,9 @@ export function usePlayTutorial({
       } else if (element.includes('topic-input')) {
         // Prefill topic
         onDataPrefill({ topic: demoData.topic });
-      } else if (element.includes('materialized-select')) {
+      } else if (element.includes('materialization-select')) {
         // Prefill materialization
-        onDataPrefill({ materialized: demoData.materialized });
+        onDataPrefill({ materialization: demoData.materialization });
       } else if (element.includes('select-node')) {
         // Prefill source selection (from.model or from.source)
         if (demoData.from) {

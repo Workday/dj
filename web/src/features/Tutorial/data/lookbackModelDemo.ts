@@ -11,7 +11,7 @@ export const lookbackModelDemoData: DemoData = {
   type: 'int_lookback_model',
   group: 'sales',
   topic: 'orders',
-  materialized: 'incremental',
+  materialization: 'incremental',
 
   // Data Modeling
   fromModel: 'stg__sales__orders__standardized',

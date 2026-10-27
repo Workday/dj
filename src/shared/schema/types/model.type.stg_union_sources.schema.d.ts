@@ -508,9 +508,9 @@ export interface ModelSqlHooksSchemaJson {
    */
   post?: string | [string, ...string[]];
   /**
-   * Statement(s) to run before model
+   * Statement(s) to run before the model. Omit to use DJ's incremental session pre-hook. null disables that hook. A string or array replaces it.
    */
-  pre?: string | [string, ...string[]];
+  pre?: string | [string, ...string[]] | null;
 }
 export interface SchemaColumnLightdash {
   case_sensitive?: SchemaLightdashCaseSensitive;

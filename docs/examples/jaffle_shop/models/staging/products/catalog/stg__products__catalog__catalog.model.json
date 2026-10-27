@@ -3,7 +3,7 @@
     "group": "products",
     "topic": "catalog",
     "name": "catalog",
-    "materialized": "ephemeral",
+    "materialization": "ephemeral",
     "from": {
         "source": "development__jaffle_shop_dev_seeds.raw_products"
     },

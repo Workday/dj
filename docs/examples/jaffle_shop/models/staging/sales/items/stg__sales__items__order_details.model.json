@@ -3,7 +3,7 @@
     "group": "sales",
     "topic": "items",
     "name": "order_details",
-    "materialized": "ephemeral",
+    "materialization": "ephemeral",
     "from": {
         "source": "development__jaffle_shop_dev_seeds.raw_items"
     },

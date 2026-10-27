@@ -21,6 +21,7 @@ import { jsonParse, removeEmpty } from '@shared';
 import type { ApiPayload, ApiResponse } from '@shared/api/types';
 import { apiResponse } from '@shared/api/utils';
 import type { DbtProject } from '@shared/dbt/types';
+import { materializationInsertionIndex } from '@shared/framework/materialization';
 import type {
   FrameworkColumn,
   FrameworkModel,
@@ -117,7 +118,9 @@ export class ModelCrudHandlers {
 
   private prepareModelJsonFromRequest(
     request: Record<string, unknown>,
-    autoGenerateTestsConfig: ReturnType<typeof getDjConfig>['autoGenerateTests'],
+    autoGenerateTestsConfig: ReturnType<
+      typeof getDjConfig
+    >['autoGenerateTests'],
   ): FrameworkModel {
     const templated = frameworkMakeModelTemplate(
       request as Parameters<typeof frameworkMakeModelTemplate>[0],
@@ -255,7 +258,13 @@ export class ModelCrudHandlers {
       throw new Error('model.create-batch requires a non-empty models array');
     }
 
-    const written: Array<{ modelPath: string; modelName: string; fileInfo: Awaited<ReturnType<FrameworkContext['coder']['fetchFileInfoFromPath']>> }> = [];
+    const written: Array<{
+      modelPath: string;
+      modelName: string;
+      fileInfo: Awaited<
+        ReturnType<FrameworkContext['coder']['fetchFileInfoFromPath']>
+      >;
+    }> = [];
 
     for (const raw of models) {
       const modelJson = this.prepareModelJsonFromRequest(
@@ -303,7 +312,9 @@ export class ModelCrudHandlers {
       } catch (err: unknown) {
         synced = false;
         batchSyncErrors = [
-          err instanceof Error ? err.message : 'Unknown sync error after batch create',
+          err instanceof Error
+            ? err.message
+            : 'Unknown sync error after batch create',
         ];
       }
     }
@@ -589,8 +600,19 @@ export class ModelCrudHandlers {
         if (isEqual(existingValue, value)) {
           continue;
         }
+        const existingRecord = existingModelJson as unknown as Record<
+          string,
+          unknown
+        >;
+        const replaceMaterialized =
+          key === 'materialization' &&
+          'materialized' in existingRecord &&
+          !('materialization' in existingRecord);
         const edits = modify(updatedContent, [key], value, {
           formattingOptions: JSONC_FORMAT_OPTIONS,
+          ...(replaceMaterialized && {
+            getInsertionIndex: materializationInsertionIndex,
+          }),
         });
         updatedContent = applyEdits(updatedContent, edits);
       }

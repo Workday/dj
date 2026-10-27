@@ -1,3 +1,5 @@
+import { describe, expect, it } from '@jest/globals';
+import { createOperationRegistry } from '@services/cliBridge/operationRegistry';
 import {
   CLI_OPERATION_NAMES,
   formatGlobalHelp,
@@ -5,12 +7,13 @@ import {
   getOperationHelp,
   listOperationHelp,
 } from '@shared/cli/operationHelp';
-import { createOperationRegistry } from '@services/cliBridge/operationRegistry';
 
 describe('operationHelp', () => {
   it('lists help for every bridge op except system.help', () => {
     const registry = createOperationRegistry();
-    const registryNames = Object.keys(registry).filter((n) => n !== 'system.help');
+    const registryNames = Object.keys(registry).filter(
+      (n) => n !== 'system.help',
+    );
     expect(registryNames.sort()).toEqual([...CLI_OPERATION_NAMES].sort());
     for (const name of registryNames) {
       expect(getOperationHelp(name)).toBeDefined();
