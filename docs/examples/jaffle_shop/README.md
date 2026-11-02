@@ -131,7 +131,7 @@ This project demonstrates **4 core DJ model types** with **16 working models** a
 
 ### Prerequisites
 
-This project uses a `development` catalog in Trino. Make sure it's configured before running. See the [Trino Local Setup Guide](../../setup/trino-local-setup.md) for detailed instructions.
+This project uses a `development` catalog in Trino. It is an Iceberg catalog, and it persists across restarts. Start it from the repository root with `docker compose -f docs/setup/trino/docker-compose.yml up -d`. See the [Trino Local Setup Guide](../../setup/trino-local-setup.md) for detailed instructions.
 
 ### Commands
 

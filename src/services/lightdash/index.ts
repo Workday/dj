@@ -851,15 +851,19 @@ export class Lightdash implements ApiEnabledService<'lightdash'> {
   }> {
     const config = getDjConfig();
 
+    const resolveProfilesDir = (projectDir: string): string => {
+      if (config.lightdashProfilesPath) {
+        return `${WORKSPACE_ROOT}/${config.lightdashProfilesPath}`;
+      }
+      return fs.existsSync(path.join(projectDir, 'profiles.yml'))
+        ? projectDir
+        : WORKSPACE_ROOT;
+    };
+
     // Check for custom configuration override for project path
     if (config.lightdashProjectPath) {
       const projectDir = `${WORKSPACE_ROOT}/${config.lightdashProjectPath}`;
-      // Use configured profiles path, otherwise fallback to workspace root
-      const profilesDir = config.lightdashProfilesPath
-        ? `${WORKSPACE_ROOT}/${config.lightdashProfilesPath}`
-        : WORKSPACE_ROOT;
-
-      return { projectDir, profilesDir };
+      return { projectDir, profilesDir: resolveProfilesDir(projectDir) };
     }
 
     // Auto-detect from available dbt projects
@@ -872,9 +876,10 @@ export class Lightdash implements ApiEnabledService<'lightdash'> {
     }
 
     if (dbtProjects.length === 1) {
+      const projectDir = dbtProjects[0].pathSystem;
       return {
-        projectDir: dbtProjects[0].pathSystem,
-        profilesDir: WORKSPACE_ROOT,
+        projectDir,
+        profilesDir: resolveProfilesDir(projectDir),
       };
     }
 
@@ -895,9 +900,10 @@ export class Lightdash implements ApiEnabledService<'lightdash'> {
     }
 
     this.log.info(`Selected dbt project: ${selected.project.name}`);
+    const projectDir = selected.project.pathSystem;
     return {
-      projectDir: selected.project.pathSystem,
-      profilesDir: WORKSPACE_ROOT,
+      projectDir,
+      profilesDir: resolveProfilesDir(projectDir),
     };
   }
 

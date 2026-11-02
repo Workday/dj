@@ -14,6 +14,10 @@
 - **Attach config fragments in Additional Fields** when the project defines `kind: "config"` fragments, and **add select fragments** from the Data Modeling column panel. Duplicate output column names are highlighted on the Columns step and block advancing the wizard until you remove one source.
 - **Create or edit template children** from Basic Information (template + `with` parameters). The editor works on the merged model; save runs `diffAgainstTemplate` so only deltas stay on disk.
 
+### Local Trino & Lightdash
+
+- **Persistent Iceberg `development` catalog via Docker Compose.** Start a local Trino 484 + Postgres Iceberg JDBC catalog with `docker compose -f docs/setup/trino/docker-compose.yml up -d` so partitioned models build and table data survives container restarts. **DJ: Start Lightdash Preview** also automatically detects `profiles.yml` inside a dbt project subdirectory when `dj.lightdashProfilesPath` is unset.
+
 ## 2.5.0
 
 ### Python models

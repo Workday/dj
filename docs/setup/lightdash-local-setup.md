@@ -52,24 +52,19 @@ DBT_PROJECT_DIR=<path-to-your-dbt-project>
 docker compose up -d
 ```
 
-### 2. Connect Trino and Lightdash Networks (If both in Docker)
+### 2. Start Trino After Lightdash (Docker)
 
-**Note**: This is only required if both Trino and Lightdash are running in Docker containers. If Trino is running on your host machine, skip this step and use `host.docker.internal` in the DJ (Data JSON) Framework extension configuration (see below).
-
-If both are in Docker, connect the networks so they can communicate:
+The Trino compose stack in [Trino Local Setup](trino-local-setup.md) joins the `lightdash_default` network automatically, so no manual network connection is needed. Start Lightdash first, then Trino:
 
 ```bash
-# Check docker network name of Lightdash (usually lightdash_default)
-docker network ls | grep lightdash
+# 1. In the Lightdash directory (creates the lightdash_default network)
+docker compose up -d
 
-# Connect Trino to Lightdash network.
-# Replace `lightdash_default` with the network name you found above.
-# Replace `trino_default` with the actual container name of Trino if you have created it with a different name.
-docker network connect lightdash_default trino_default
-
-# Verify connection (optional)
-docker inspect trino_default --format='{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'
+# 2. In the DJ repository root
+docker compose -f docs/setup/trino/docker-compose.yml up -d
 ```
+
+If Trino is running on your host machine instead of in Docker, skip this and use `host.docker.internal` (see Option A below).
 
 ### 3. Create Lightdash Project
 
@@ -88,12 +83,16 @@ lightdash login http://localhost:8081
 Then inside your dbt project, run the following command to create a Lightdash project:
 
 ```bash
-lightdash deploy --create
+DBT_HOST=trino_default lightdash deploy --create --skip-warehouse-catalog --assume-yes
 ```
 
 > Note: dbt must be installed in the dbt project for this command to work.
 
-This will prompt you to enter the project name and once created, you should see URL of the newly created project in the output. This will be something like ` http://localhost:8081/createProject/cli?projectUuid=48c5c6d6-3b63-4661-baa3-da07eb446769`.
+- `DBT_HOST=trino_default` tells Lightdash (running in Docker) to reach Trino via its Docker container name `trino_default`.
+- `--skip-warehouse-catalog` skips local CLI catalog probing during deploy so `trino_default` does not need to resolve on your host machine.
+- `--assume-yes` stores the warehouse credentials from `profiles.yml` (with an empty password), avoiding the Lightdash UI's mandatory password validation and `401` errors.
+
+Once created, you should see the URL of the newly created project in the output.
 
 ### Configure DJ (Data JSON) Framework Extension for Docker
 
@@ -113,18 +112,15 @@ This allows Lightdash (in Docker) to connect to Trino on your host machine via `
 
 #### Option B: Both Trino and Lightdash in Docker
 
-If both are running in Docker containers, first connect them to the same network, then use the container name:
+If both are running in Docker containers (the recommended setup from [Trino Local Setup](trino-local-setup.md)), set the environment variable to the container name:
 
 ```bash
-# Connect the Docker networks (do this first)
-docker network connect lightdash_default trino_default
-
 # Set the environment variable
 echo 'export LIGHTDASH_TRINO_HOST=trino_default' >> ~/.zshrc
 source ~/.zshrc
 ```
 
-This allows Lightdash to connect to Trino using the container name `trino_default`.
+This allows Lightdash to connect to Trino using the container name `trino_default`. The Trino compose stack already shares the `lightdash_default` network, so no further network setup is needed.
 
 #### After Setting the Environment Variable
 
@@ -164,31 +160,34 @@ If you get connection errors when using the DJ (Data JSON) Framework extension's
 
 The environment variable ensures the extension passes the correct Trino hostname to dbt when creating previews.
 
+### "Request failed with status code 401" / Mandatory Password in Lightdash UI
+
+Local Trino runs with `INSECURE` authentication over HTTP (`:8080`), which accepts an empty password (`password: ''`) and rejects any non-empty password with `401 Unauthorized: Password not allowed for insecure authentication`. Because the Lightdash UI form marks **Password** as required when creating or replacing a warehouse connection manually, entering a placeholder password in the UI causes `401` errors.
+
+To fix this without touching the UI form, push the empty-password credentials from your dbt project's `profiles.yml` via the CLI:
+
+```bash
+DBT_HOST=trino_default lightdash set-warehouse --assume-yes
+```
+
+(Or re-run `DBT_HOST=trino_default lightdash deploy --create --skip-warehouse-catalog --assume-yes` inside your dbt project directory.)
+
 ### Manual Connection Configuration (Lightdash UI)
 
-If you're using `lightdash deploy` directly (not through the DJ (Data JSON) Framework extension) and have connection issues, you can manually update the connection settings in the Lightdash UI:
+If you need to inspect or update the host in the Lightdash UI after credentials have been stored via the CLI:
 
 1. Go to `Settings` -> `Project Settings`
 2. Click on the `Connection Settings` tab
-3. Under `Warehouse Connections`, update the host:
+3. Under `Warehouse Connections`, verify the host (leave **User** and **Password** untouched so the stored empty password is preserved):
    - If Trino is in Docker: `trino_default`
    - If Trino is on host: `host.docker.internal`
 
-### Ensure Docker Networks are Connected
+### Trino Container Is Not on the Lightdash Network
 
-If both Lightdash and Trino are running in Docker containers:
-
-```bash
-# Ensure containers are connected to the same network
-docker network connect lightdash_default trino_default
-```
-
-### Alternative: Get Container IP (Linux)
-
-On Linux, you can also use the container's IP address:
+The Trino compose stack must be started after Lightdash, because it joins `lightdash_default`. If Trino started first or Lightdash was recreated, restart the Trino stack:
 
 ```bash
-docker inspect trino_default --format='{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'
+docker compose -f docs/setup/trino/docker-compose.yml up -d
 ```
 
 ### Verify Trino
