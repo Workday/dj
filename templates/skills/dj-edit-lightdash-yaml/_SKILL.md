@@ -77,7 +77,7 @@ When `.dj/bin/dj system.ping` succeeds, use `model.lineage`, `model.compiled-sql
   directory, and YAML schema bindings stay in sync), or offer to run the command
   yourself after confirming the target project.
 - **Confirm the target project before uploading; never assume prod.** State the
-  project UUID/name you will upload to and get explicit confirmation. If it is a
+  project slug, UUID, or name you will upload to and get explicit confirmation. If it is a
   production project or listed in `dj.lightdash.restrictedProjects`, call that out
   and confirm again — the restriction only guards the webview Upload tab, not a
   direct `lightdash upload`. Prefer a preview project unless the user chose prod.

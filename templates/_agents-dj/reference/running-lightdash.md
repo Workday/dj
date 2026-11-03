@@ -8,7 +8,7 @@ The `lightdash` CLI must be on `PATH` (commonly inside the same Python venv as d
 
 - `LIGHTDASH_URL` — instance base URL
 - `LIGHTDASH_API_KEY` — API token
-- `LIGHTDASH_PROJECT` — default project UUID
+- `LIGHTDASH_PROJECT` — default project slug or UUID
 - `LIGHTDASH_PREVIEW_NAME` — preview name (defaults to `DJ Preview`)
 - `LIGHTDASH_TRINO_HOST` — Trino host override (e.g. `host.docker.internal` under Docker)
 
@@ -24,8 +24,8 @@ If the URL / API key / project are not set in your terminal, ask the user for th
 
 - **Start a preview:** `lightdash start-preview --name "<name>" --profiles-dir ~/.dbt --project-dir <dir> -s <model> -y`. Do not pass `--defer` (it routes to `dbt ls`, which rejects it); `-y` skips the credential prompt. Capture the printed preview project UUID (`.../projects/<uuid>/tables`).
 - **Stop a preview:** `lightdash stop-preview --name "<name>"` (DJ runs it with `CI=true` in the environment). Tears down the named preview project.
-- **Download:** `lightdash download -p <dashboards-as-code-path> --project <uuid>` (add `-c <chart-slug>` / `-d <dashboard-slug>` to scope).
-- **Upload:** `lightdash upload --project <uuid> -c <chart-slug> -d <dashboard-slug> [--force] [--include-charts] [--validate]`. Net-new files require `--force`; always `--validate` (the only check that catches bad field IDs / missing slugs).
+- **Download:** `lightdash download -p <dashboards-as-code-path> --project <slug-or-uuid>` (add `-c <chart-slug>` / `-d <dashboard-slug>` to scope).
+- **Upload:** `lightdash upload --project <slug-or-uuid> -c <chart-slug> -d <dashboard-slug> [--force] [--include-charts] [--validate]`. Net-new files require `--force`; always `--validate` (the only check that catches bad field IDs / missing slugs).
 
 ## Preview registry (`.dj/lightdash/previews.json`)
 

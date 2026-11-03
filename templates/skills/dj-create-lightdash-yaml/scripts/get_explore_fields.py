@@ -13,7 +13,7 @@ specific to any one project:
 
   --url        / LIGHTDASH_URL       e.g. https://lightdash.example.com  (required)
   --api-key    / LIGHTDASH_API_KEY   personal access token               (required)
-  --project    / LIGHTDASH_PROJECT   project UUID                        (required)
+  --project    / LIGHTDASH_PROJECT   project slug or UUID                (required)
 
 Flags take precedence over env vars, so you can run this without exporting
 anything (e.g. when the values live elsewhere or you want to avoid env state).
@@ -29,6 +29,7 @@ Read-only: issues only HTTP GETs. Safe to run against prod or preview projects.
 import argparse
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -54,6 +55,34 @@ def _api_get(base, key, path):
 
 def _results(payload):
     return payload.get("results", payload) if isinstance(payload, dict) else payload
+
+
+UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
+)
+
+
+def resolve_project(base, key, project):
+    """Return the project UUID for a slug or UUID, matching the Lightdash CLI.
+
+    UUIDs are returned unchanged. A slug is matched exactly against the
+    organization's project list, and the script exits if it matches none or
+    more than one project.
+    """
+    if UUID_RE.match(project):
+        return project
+    data = _results(_api_get(base, key, "/api/v1/org/projects"))
+    matches = [
+        p for p in data if isinstance(p, dict) and p.get("slug") == project
+    ]
+    if len(matches) == 1:
+        return matches[0]["projectUuid"]
+    if not matches:
+        sys.exit(f'error: no project found with UUID or slug "{project}".')
+    sys.exit(
+        f'error: project slug "{project}" matches more than one project; '
+        "pass the project UUID instead."
+    )
 
 
 def list_spaces(base, key, project):
@@ -110,7 +139,7 @@ def main():
     parser.add_argument(
         "--project",
         default=os.environ.get("LIGHTDASH_PROJECT"),
-        help="Project UUID (defaults to LIGHTDASH_PROJECT).",
+        help="Project slug or UUID (defaults to LIGHTDASH_PROJECT).",
     )
     parser.add_argument("--explore", help="Explore (dbt model) name.")
     parser.add_argument(
@@ -124,12 +153,13 @@ def main():
     if not args.project:
         sys.exit("error: pass --project or set LIGHTDASH_PROJECT.")
 
+    project = resolve_project(args.url, args.api_key, args.project)
     if args.spaces:
-        list_spaces(args.url, args.api_key, args.project)
+        list_spaces(args.url, args.api_key, project)
         return
     if not args.explore:
         sys.exit("error: pass --explore <name> (or --spaces).")
-    show_explore(args.url, args.api_key, args.project, args.explore, args.json)
+    show_explore(args.url, args.api_key, project, args.explore, args.json)
 
 
 if __name__ == "__main__":
