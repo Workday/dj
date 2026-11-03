@@ -5,6 +5,7 @@ import { ModelLineage } from '@services/modelLineage';
 import type { ApiEnabledService } from '@services/types';
 import { getHtml } from '@services/webview/utils';
 import type { ApiMessage, ApiPayload, ApiResponse } from '@shared/api/types';
+import { isDjDraftPath } from '@shared/querydraft/utils';
 import * as fs from 'fs';
 import * as _ from 'lodash';
 import * as path from 'path';
@@ -807,6 +808,10 @@ export class DataExplorer
     }
 
     const fileName = editor.document.fileName.toLowerCase();
+    // Query drafts are not dbt models and have no model graph to show.
+    if (isDjDraftPath(fileName)) {
+      return false;
+    }
 
     // Only auto-refresh for dbt model files
     // Given the framework structure: .sql, .model.json, and .yml files

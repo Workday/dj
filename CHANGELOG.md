@@ -18,6 +18,10 @@
 
 - **Persistent Iceberg `development` catalog via Docker Compose.** Start a local Trino 484 + Postgres Iceberg JDBC catalog with `docker compose -f docs/setup/trino/docker-compose.yml up -d` so partitioned models build and table data survives container restarts. **DJ: Start Lightdash Preview** also automatically detects `profiles.yml` inside a dbt project subdirectory when `dj.lightdashProfilesPath` is unset.
 
+### Query drafts
+
+- **Fixed Convert to DJ Model from the right-click menu.** Cursor opens a new chat with the prompt prefilled. Claude copies the prompt to your clipboard to paste, as does Cursor when the prompt is too long to prefill.
+
 ## 2.5.0
 
 ### Python models

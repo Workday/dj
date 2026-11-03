@@ -35,6 +35,7 @@ import {
   SQL_KEYWORDS,
   STRING_LITERAL_PATTERN,
 } from '@shared/lineage';
+import { isDjDraftPath } from '@shared/querydraft/utils';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -328,6 +329,9 @@ export class ColumnLineageService implements DJService {
    * Determine the file type for column lineage purposes
    */
   private getFileType(filePath: string): 'model' | 'source' | null {
+    if (isDjDraftPath(filePath)) {
+      return null;
+    }
     if (filePath.endsWith('.model.json')) {
       return 'model';
     }
@@ -372,6 +376,9 @@ export class ColumnLineageService implements DJService {
    * Check if a file is supported for column lineage
    */
   public isSupportedFile(filePath: string): boolean {
+    if (isDjDraftPath(filePath)) {
+      return false;
+    }
     return (
       filePath.endsWith('.sql') ||
       filePath.endsWith('.model.json') ||
@@ -540,6 +547,16 @@ export class ColumnLineageService implements DJService {
       tableName,
       selectedColumn,
     } = options ?? {};
+    // Query drafts have no model JSON to lineage from; skip them without
+    // logging or retrying.
+    if (isDjDraftPath(filePath)) {
+      if (showErrors) {
+        vscode.window.showWarningMessage(
+          'Column lineage works on .model.json, .source.json, or dbt .sql/.yml files, not query drafts.',
+        );
+      }
+      return false;
+    }
     try {
       const fileType = this.getFileType(filePath);
 
