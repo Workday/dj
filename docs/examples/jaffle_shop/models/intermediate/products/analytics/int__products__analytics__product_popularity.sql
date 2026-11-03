@@ -1,6 +1,9 @@
 {{
   config(
-    materialized="ephemeral"
+    materialized="incremental",
+    incremental_strategy="delete+insert",
+    unique_key=["item_id","product_sku","product_type"],
+    pre_hook="set session iterative_optimizer_timeout='60m'; set session query_max_planning_time='60m'"
   )
 }}
 
