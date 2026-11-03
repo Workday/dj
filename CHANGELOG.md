@@ -22,6 +22,10 @@
 
 - **Fixed Convert to DJ Model from the right-click menu.** Cursor opens a new chat with the prompt prefilled. Claude copies the prompt to your clipboard to paste, as does Cursor when the prompt is too long to prefill.
 
+### Query Control Center
+
+- **Live queries list newest first.** The Live tab orders active queries from most recent to oldest, so the list stays in a consistent order across auto-refresh.
+
 ## 2.5.0
 
 ### Python models
