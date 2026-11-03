@@ -17,6 +17,7 @@
 ### Local Trino & Lightdash
 
 - **Persistent Iceberg `development` catalog via Docker Compose.** Start a local Trino 484 + Postgres Iceberg JDBC catalog with `docker compose -f docs/setup/trino/docker-compose.yml up -d` so partitioned models build and table data survives container restarts. **DJ: Start Lightdash Preview** also automatically detects `profiles.yml` inside a dbt project subdirectory when `dj.lightdashProfilesPath` is unset.
+- **Project slugs in Dashboards as Code.** The Download and Upload tabs accept a Lightdash project slug as well as a UUID. Restricted-project rules in `dj.lightdash.restrictedProjects` apply to the project a slug resolves to.
 
 ### Query drafts
 

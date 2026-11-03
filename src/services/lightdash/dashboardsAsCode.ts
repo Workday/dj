@@ -4,6 +4,7 @@ import {
   LIGHTDASH_DASHBOARD_SCHEMA_URL,
 } from '@services/constants';
 import type { DJLogger } from '@services/djLogger';
+import { resolveLightdashProjectUuid } from '@services/lightdash/projectResolver';
 import { buildProcessEnv, safeSpawn } from '@services/utils/process';
 import type { LightdashRestrictionStatus } from '@shared/lightdash/restrictions';
 import {
@@ -135,8 +136,8 @@ type StreamLogFn = (log: LightdashYamlLog) => void;
 
 /**
  * Spawn the Lightdash CLI and stream its stdout/stderr line-by-line into
- * the webview's LogPanel. The download/upload flows always pass
- * `--project <uuid>` (UI requires the field), so the CLI never reaches
+ * the webview's LogPanel. The download/upload flows always pass a resolved
+ * project UUID to `--project` (UI requires the field), so the CLI never reaches
  * its interactive project-selection prompt on these codepaths.
  */
 function runLightdash(
@@ -221,7 +222,7 @@ export function resolveAbsoluteWorkingDir(rawPath?: string): string {
  * dashboard via `-d <id>` and each chart via `-c <id>` (flags repeat).
  *
  * `project` is mandatory (UI enforces non-empty input via inline
- * validation). The CLI is invoked with `--project <uuid>` on every run
+ * validation). The CLI is invoked with the resolved `--project <uuid>` on every run
  * so we never fall through to the Lightdash CLI's interactive
  * project-selection prompt - that prompt would hang forever in a
  * spawned process with no TTY.
@@ -240,13 +241,15 @@ export async function executeLightdashDownload(
   success: boolean;
   tree?: LightdashYamlNode[];
   absolutePath: string;
+  /** Resolved project UUID the download ran against (set on success). */
+  project?: string;
   error?: string;
 }> {
   const absolutePath = resolveAbsoluteWorkingDir(request.path);
-  const project = request.project.trim();
-  if (!project) {
+  const requestedProject = request.project.trim();
+  if (!requestedProject) {
     const error =
-      'Project UUID is required (production or preview). Set the project field and run again.';
+      'Project slug or UUID is required (production or preview). Set the project field and run again.';
     onLog({
       level: 'error',
       message: error,
@@ -254,6 +257,17 @@ export async function executeLightdashDownload(
     });
     return { success: false, error, absolutePath };
   }
+
+  const resolution = await resolveLightdashProjectUuid(requestedProject);
+  if (!resolution.ok) {
+    onLog({
+      level: 'error',
+      message: resolution.error,
+      timestamp: new Date().toISOString(),
+    });
+    return { success: false, error: resolution.error, absolutePath };
+  }
+  const project = resolution.uuid;
 
   const args: string[] = ['download', '-p', absolutePath, '--project', project];
   if (request.scope === 'specific') {
@@ -285,6 +299,7 @@ export async function executeLightdashDownload(
       success: true,
       tree: listLightdashFiles(absolutePath),
       absolutePath,
+      project,
     };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -326,10 +341,10 @@ export async function executeLightdashUpload(
   restriction?: LightdashRestrictionStatus;
 }> {
   const absolutePath = resolveAbsoluteWorkingDir(request.path);
-  const project = request.project.trim();
-  if (!project) {
+  const requestedProject = request.project.trim();
+  if (!requestedProject) {
     const error =
-      'Project UUID is required (production or preview). Set the project field and run again.';
+      'Project slug or UUID is required (production or preview). Set the project field and run again.';
     onLog({
       level: 'error',
       message: error,
@@ -337,6 +352,19 @@ export async function executeLightdashUpload(
     });
     return { success: false, error };
   }
+
+  // The restricted-projects list is keyed by UUID, so a slug must be resolved
+  // before the policy check. An unresolvable project is refused, not allowed.
+  const resolution = await resolveLightdashProjectUuid(requestedProject);
+  if (!resolution.ok) {
+    onLog({
+      level: 'error',
+      message: resolution.error,
+      timestamp: new Date().toISOString(),
+    });
+    return { success: false, error: resolution.error };
+  }
+  const project = resolution.uuid;
 
   // Defense-in-depth: re-check the restricted-projects policy here even
   // though the UI pre-flights via `lightdash-yaml-check-upload-policy`.

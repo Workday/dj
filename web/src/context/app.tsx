@@ -566,6 +566,15 @@ export function AppProvider() {
                     apiResponse<typeof payloadType>({ project: undefined }),
                   );
                 }
+                case 'lightdash-yaml-resolve-project': {
+                  // No Lightdash org to look slugs up in during dev; treat the
+                  // entered value as the UUID.
+                  const project = (payload.request as { project: string })
+                    .project;
+                  return resolve(
+                    apiResponse<typeof payloadType>({ uuid: project.trim() }),
+                  );
+                }
                 case 'lightdash-yaml-get-download-defaults': {
                   return resolve(
                     apiResponse<typeof payloadType>({

@@ -197,7 +197,7 @@ Takes effect on next `DJ: Sync to SQL and YML`.
 }
 ```
 
-- `mode: "block"` — the Upload tab refuses to spawn `lightdash upload` and shows an inline error on the Project UUID field.
+- `mode: "block"` — the Upload tab refuses to spawn `lightdash upload` and shows an inline error on the project field.
 - `mode: "warn"` — the Upload tab shows a confirmation dialog; the upload only runs after explicit acknowledgement.
 - `label` is optional and surfaces in the error / confirmation message alongside the UUID.
 - Unlisted UUIDs are allowed. Matching is case-insensitive and whitespace-tolerant.

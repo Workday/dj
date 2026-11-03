@@ -27,6 +27,7 @@ import {
   resolveAbsoluteWorkingDir,
   syncYamlSchemasSetting,
 } from '@services/lightdash/dashboardsAsCode';
+import { resolveLightdashProjectUuid } from '@services/lightdash/projectResolver';
 import { getHtml } from '@services/webview/utils';
 import {
   describeLightdashRestriction,
@@ -308,10 +309,12 @@ export class Lightdash implements ApiEnabledService<'lightdash'> {
             await syncYamlSchemasSetting(this.log);
             // Record which project now owns this folder so a later
             // different-project download can prompt to replace.
-            await this.rememberProjectForPath(
-              result.absolutePath,
-              payload.request.project.trim(),
-            );
+            if (result.project) {
+              await this.rememberProjectForPath(
+                result.absolutePath,
+                result.project,
+              );
+            }
             // Re-scan the reverse-lineage index so the Lightdash Lineage
             // panel reflects the newly downloaded content on its next read.
             await this.refreshReverseLineageIndex();
@@ -357,9 +360,21 @@ export class Lightdash implements ApiEnabledService<'lightdash'> {
         }
       }
       case 'lightdash-yaml-check-upload-policy': {
-        const project = payload.request.project.trim();
+        const resolution = await resolveLightdashProjectUuid(
+          payload.request.project,
+        );
+        if (!resolution.ok) {
+          // Unresolvable projects are reported as blocked so the upload never
+          // spawns against a project the policy could not be checked for.
+          return apiResponse<typeof payload.type>({
+            status: 'block',
+            mode: 'block',
+            uuid: payload.request.project.trim(),
+            message: resolution.error,
+          });
+        }
         const status = resolveLightdashUploadRestriction(
-          project,
+          resolution.uuid,
           getDjConfig().lightdashRestrictedProjects ?? [],
         );
         if (status.status === 'allow') {
@@ -393,6 +408,16 @@ export class Lightdash implements ApiEnabledService<'lightdash'> {
         return apiResponse<typeof payload.type>({
           project: this.getProjectForPath(absolutePath),
         });
+      }
+      case 'lightdash-yaml-resolve-project': {
+        const resolution = await resolveLightdashProjectUuid(
+          payload.request.project,
+        );
+        return apiResponse<typeof payload.type>(
+          resolution.ok
+            ? { uuid: resolution.uuid }
+            : { error: resolution.error },
+        );
       }
       case 'lightdash-yaml-get-download-defaults': {
         return apiResponse<typeof payload.type>({
