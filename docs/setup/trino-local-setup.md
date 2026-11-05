@@ -1,132 +1,93 @@
 # Local Trino Setup Guide
 
-This guide covers how to set up Trino locally for development with the DJ (Data JSON) Framework. If you already have Trino running (cloud or on-premises), return to the [main setup guide](setup.md#2-install-trino-cli) instead.
+This guide runs a local Trino with a persistent Iceberg `development` catalog for the DJ (Data JSON) Framework. If you already have Trino running (cloud or on-premises), return to the [main setup guide](setup.md#2-install-trino-cli) instead.
 
 **Related Documentation:**
 
 - [Setup Guide - Trino](setup.md#2-install-trino-cli) - Trino CLI installation and connection setup
 - [Integrations Guide - Trino](../integrations/trino-integration.md) - Using Query Engine, browsing catalogs, and executing queries
+- [Lightdash Local Setup](lightdash-local-setup.md) - Connecting Lightdash to this Trino
 
 ---
 
 ## Table of Contents
 
 1. [Prerequisites](#prerequisites)
-2. [Install](#install)
-   - [Using Docker](#using-docker)
-   - [Verify](#verify)
-   - [Configure](#configure)
-3. [Troubleshooting](#troubleshooting)
+2. [Start Trino](#start-trino)
+3. [Verify](#verify)
+4. [Stop, Restart, and Reset](#stop-restart-and-reset)
+5. [Troubleshooting](#troubleshooting)
+6. [Next Steps](#next-steps)
 
 ## Prerequisites
 
-- **Docker** (recommended for easy setup)
+- **Docker** with Docker Compose (nothing else is needed)
+- **Lightdash** running, if you use it. Start Lightdash first, because the Trino compose file joins its network. See [Lightdash Local Setup](lightdash-local-setup.md).
 
-## Install
+## Start Trino
 
-### Using Docker
-
-This guide uses Docker to run Trino locally. If you prefer other installation methods, refer to the [official Trino installation guide](https://trino.io/docs/current/installation.html).
+From the repository root:
 
 ```bash
-# Set the catalog directory path (customize if needed)
-TRINO_CATALOG_DIR=~/trino-catalogs
-
-# Create a local directory for Trino catalog configurations
-mkdir -p $TRINO_CATALOG_DIR
-
-# Create the development catalog configuration
-cat > $TRINO_CATALOG_DIR/development.properties << EOF
-connector.name=memory
-memory.max-data-per-node=128MB
-EOF
-
-# Pull Trino image
-docker pull trinodb/trino
-
-# Run Trino with catalog directory mounted
-docker run --name trino_default -d -p 8080:8080 \
-  -v $TRINO_CATALOG_DIR:/etc/trino/catalog \
-  trinodb/trino
+docker compose -f docs/setup/trino/docker-compose.yml up -d
 ```
 
-> **Note**: This approach mounts your local `$TRINO_CATALOG_DIR` directory to the container, making catalog configurations persistent and easy to modify.
+This starts two containers:
 
-### Verify
+- `trino_default`: Trino 484 on port `8080`, with the `development` Iceberg catalog.
+- `dj-trino-postgres-1`: Postgres 15, which stores the Iceberg catalog metadata. Its tables are created automatically on first start.
+
+Trino stores table files in a Docker volume (`dj-trino_trino-warehouse`), so the catalog and its data survive restarts. No environment variables or config files need to be edited. The `jaffle_shop` example's `dbt` profile and the extension already point at `localhost:8080`.
+
+## Verify
 
 ```bash
-# Test Trino server directly
+# Trino is up (returns JSON with "state":"ACTIVE")
 curl http://localhost:8080/v1/info
 
-# Verify the development catalog exists
-docker exec trino_default trino --execute "SHOW CATALOGS;"
-
-# Or test with Trino CLI (Requires CLI to be installed. See main setup guide)
-trino-cli --server localhost:8080 --execute "SHOW CATALOGS;"
-
-# You should see: development, system
+# The development catalog is available
+docker exec trino_default trino --execute "SHOW CATALOGS"
+# "development", "system"
 ```
 
-Or access the Trino web UI at [http://localhost:8080](http://localhost:8080) (enter any username).
+## Stop, Restart, and Reset
 
-### Configure Environment (Optional)
-
-Once Trino is running locally, configure your environment variables for trino CLI:
-
-```bash
-# Add to your shell profile (.bashrc, .zshrc, etc.)
-export TRINO_HOST=localhost
-export TRINO_PORT=8080
-export TRINO_USERNAME=admin
-export TRINO_CATALOG=development
-export TRINO_SCHEMA=jaffle_shop
-```
+| Command                                                         | Effect                                                                               |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `docker compose -f docs/setup/trino/docker-compose.yml stop`    | Stops the containers. Tables and data are kept.                                      |
+| `docker compose -f docs/setup/trino/docker-compose.yml start`   | Starts them again with the same data.                                                |
+| `docker compose -f docs/setup/trino/docker-compose.yml down`    | Removes the containers. Volumes and data are kept.                                   |
+| `docker compose -f docs/setup/trino/docker-compose.yml down -v` | **Deletes the catalog and all data.** Run `dbt seed` and `dbt run` again afterwards. |
 
 ## Troubleshooting
 
-### Catalog not found error
+### Port 8080 is already in use
 
-If you see errors like `Catalog 'development' not found`, follow the steps in the [Using Docker](#using-docker) section to create the catalog configuration file.
-
-### Connection refused
+If you ran Trino before with `docker run --name trino_default`, that old container still holds port `8080`. Remove it once, then start the compose stack:
 
 ```bash
-# Check if Trino is running
-curl http://localhost:8080/v1/info
-
-# Check if Docker container exists and is running
-docker ps -a | grep trino_default
-
-# Start the container if it's stopped
-docker start trino_default
-
-# Restart Trino if needed
-docker restart trino_default
-
-# Check logs if there are issues
-docker logs trino_default
+docker rm -f trino_default
+docker compose -f docs/setup/trino/docker-compose.yml up -d
 ```
 
-#### Port already in use
+### `network lightdash_default declared as external, but could not be found`
+
+The Trino compose file joins the Lightdash network. Start Lightdash first (`docker compose up -d` in the Lightdash directory), then start Trino again.
+
+### `Catalog 'development' not found`
+
+Check that the stack is running (`docker ps | grep trino_default`) and that the Trino logs show `SERVER STARTED`:
 
 ```bash
-# Check if port 8080 is available
-lsof -i :8080
-
-# Use a different port if port 8080 is already in use
-docker run --name trino_default -d -p 8081:8080 \
-  -v $TRINO_CATALOG_DIR:/etc/trino/catalog \
-  trinodb/trino
-
-# Update your environment variables
-export TRINO_PORT=8081
+docker logs trino_default 2>&1 | tail -20
 ```
 
----
+### Trino does not respond after a restart
+
+Trino can take about 30 seconds to start. Wait, then run `curl http://localhost:8080/v1/info` again.
 
 ## Next Steps
 
-Once Trino is running:
-
 - **[Return to Setup Guide](setup.md)** - Continue with extension configuration
+- **[Lightdash Local Setup](lightdash-local-setup.md)** - Connect Lightdash to Trino
 - **[Integrations Guide - Trino](../integrations/trino-integration.md)** - Learn how to use Query Engine, browse catalogs, and execute queries

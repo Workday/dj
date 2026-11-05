@@ -29,7 +29,7 @@ vars:
   # Date range for lookback models (format: YYYY-MM-DD~YYYY-MM-DD or comma-separated dates)
   event_dates: '2017-08-01~2017-08-31'
   # Storage format: 'delta_lake' (Delta Lake + Hive) or 'iceberg' (Iceberg + Glue/Polaris)
-  storage_type: 'delta_lake'
+  storage_type: 'iceberg'
   # ETL metadata schema name (default: source_etl for Delta Lake, dj_etl for Iceberg)
   etl_schema: 'source_etl'
 

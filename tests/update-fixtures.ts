@@ -69,6 +69,20 @@ function main() {
     );
   }
 
+  // Shared fragments and templates are required to resolve composed models.
+  const sharedFiles = glob.sync(
+    `${dbtProjectPath}/**/*.{fragment,template}.json`,
+    { ignore: ['**/target/**', '**/dbt_packages/**', '**/node_modules/**'] },
+  );
+  for (const pathShared of sharedFiles) {
+    fs.writeFileSync(
+      path.join(fixturesDir, path.basename(pathShared)),
+      Buffer.from(fs.readFileSync(pathShared, 'utf8')),
+      'utf8',
+    );
+  }
+  console.info(`Found ${sharedFiles.length} shared fragment/template files...`);
+
   console.info(`Copying manifest.json...`);
   const { macros: _macros, ...manifest } = JSON.parse(
     fs.readFileSync(manifestPath, 'utf8'),

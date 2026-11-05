@@ -1,0 +1,7 @@
+{
+  "$id": "fragment.name.schema.json",
+  "title": "Schema Fragment Name",
+  "description": "Name of a fragment or template, unique within its dbt project",
+  "type": "string",
+  "pattern": "^(?!_)(?!.*_$)([a-z]|[0-9]|_)+$"
+}

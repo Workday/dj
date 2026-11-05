@@ -12,6 +12,11 @@ import type {
   DbtProjectManifest,
   DbtResourceType,
 } from '@shared/dbt/types';
+import type {
+  CompositionDependencies,
+  CompositionRegistry,
+  ProvenanceEntry,
+} from '@shared/framework/composition';
 import type { FrameworkModel, FrameworkSyncOp } from '@shared/framework/types';
 import type { Ajv, ValidateFunction } from 'ajv';
 import type * as vscode from 'vscode';
@@ -199,6 +204,19 @@ export interface CacheUpdateInfo {
 }
 
 /**
+ * Fragment and template resolution for one model, handed from the sync
+ * engine to the model processor alongside the raw file text.
+ */
+export interface ModelComposition {
+  provenance: ProvenanceEntry[];
+  dependencies: CompositionDependencies;
+  /** Non-blocking resolver issues, already positioned in the model file. */
+  warnings: ValidationErrorDetail[];
+  /** Appended to the raw text to form the cache key. */
+  fingerprint: string;
+}
+
+/**
  * Result of processing a single model resource.
  */
 export interface ModelProcessingResult {
@@ -347,6 +365,12 @@ export interface SyncExecuteParams {
   /** Optional auto-test generation configuration */
   autoGenerateTestsConfig?: AutoGenerateTestsConfig;
   /**
+   * The project's fragments and templates. Models that use them are resolved
+   * against it before validation and generation; their usage is recorded in
+   * its reverse index during discovery.
+   */
+  compositionRegistry?: CompositionRegistry;
+  /**
    * Function to parse the manifest.
    * Injected to avoid coupling sync engine to API layer.
    */
@@ -429,6 +453,15 @@ export interface ValidationErrorDetail {
    * to render it as a red squiggle without overwriting sibling warnings.
    */
   severity?: 'error' | 'warning';
+  /**
+   * Location in a fragment or template file the problem originates from.
+   * `instancePath` is a JSON pointer into that file.
+   */
+  related?: {
+    filePath: string;
+    instancePath: string;
+    message: string;
+  };
 }
 
 /**

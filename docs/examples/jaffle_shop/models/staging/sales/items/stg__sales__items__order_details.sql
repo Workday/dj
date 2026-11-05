@@ -1,3 +1,4 @@
+-- DJ composed from fragments: jaffle_item_line_dims
 {{
   config(
     materialized="ephemeral"

@@ -3,6 +3,8 @@ import { COMMAND_ID, VIEW_ID } from '@services/constants';
 import { frameworkGetModelName } from '@services/framework/utils';
 import type { DJService } from '@services/types';
 import { getHtml } from '@services/webview/utils';
+import { usesComposition } from '@shared/framework/composition';
+import type { FrameworkAuthoredModel } from '@shared/framework/types';
 import * as vscode from 'vscode';
 
 /**
@@ -163,10 +165,33 @@ export class ModelEditService implements DJService {
           originalModelPath: info.filePath, // Track original file path for updates
         };
 
+        const rawModel = info.modelJson as FrameworkAuthoredModel;
+        let body: Record<string, unknown> = {
+          ...(rawModel as unknown as Record<string, unknown>),
+        };
+        if (project && usesComposition(rawModel)) {
+          await this.coder.framework.compositionHandlers.ensureLoaded(project);
+          const resolved = this.coder.framework.sharedCompositionStore.resolve(
+            project,
+            rawModel,
+            { mode: 'merged' },
+          ).resolved;
+          const raw = rawModel as unknown as Record<string, unknown>;
+          body = {
+            ...resolved,
+            extends: raw.extends,
+            with: raw.with,
+            fragments: raw.fragments,
+            select_exclude: raw.select_exclude,
+            ctes_exclude: raw.ctes_exclude,
+            select_mode: raw.select_mode,
+            ctes_mode: raw.ctes_mode,
+          };
+        }
         modelData = JSON.parse(
           JSON.stringify({
             ...baseData,
-            ...info.modelJson,
+            ...body,
           }),
         );
 

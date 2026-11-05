@@ -8,6 +8,11 @@ import { sqlFormat } from '@services/utils/sql';
 import type { DJ } from '@shared';
 import { jsonParse } from '@shared';
 import type { DbtProject } from '@shared/dbt/types';
+import {
+  compositionHeader,
+  CompositionRegistry,
+  resolveModelComposition,
+} from '@shared/framework/composition';
 import type { FrameworkModel } from '@shared/framework/types';
 import * as fs from 'fs';
 import { glob } from 'glob';
@@ -33,6 +38,19 @@ describe('framework fixtures', () => {
       targetPath: 'target',
     };
 
+    const compositionRegistry = new CompositionRegistry();
+    for (const pathShared of glob.sync(
+      `${pathSystem}/*.{fragment,template}.json`,
+    )) {
+      const text = fs.readFileSync(pathShared, 'utf8');
+      const { error } = compositionRegistry.upsert({
+        filePath: pathShared,
+        text,
+        definition: jsonParse(text),
+      });
+      expect(error).toBeUndefined();
+    }
+
     const pathsModelJson = glob.sync(`${pathSystem}/*.model.json`);
     for (const pathModelJson of pathsModelJson) {
       const pathSql = pathModelJson.replace(/\.model\.json$/, '.sql');
@@ -42,12 +60,22 @@ describe('framework fixtures', () => {
       const fileSql = fs.readFileSync(pathSql, 'utf8');
       const fileYml = fs.readFileSync(pathYml, 'utf8');
 
-      const { sql: generatedSql, yml: generatedYml } =
-        frameworkGenerateModelOutput({
-          dj: createTestDJ(),
-          modelJson: fileModelJson,
-          project,
-        });
+      // Resolve fragments and templates the same way sync does before generating output.
+      const composition = resolveModelComposition<FrameworkModel>(
+        fileModelJson,
+        compositionRegistry,
+      );
+
+      const generated = frameworkGenerateModelOutput({
+        dj: createTestDJ(),
+        modelJson: composition.resolved,
+        project,
+      });
+      // Sync prepends the composition header after generation (see ModelProcessor).
+      const generatedSql =
+        compositionHeader(composition.dependencies, '--') + generated.sql;
+      const generatedYml =
+        compositionHeader(composition.dependencies, '#') + generated.yml;
 
       expect(generatedSql).toBe(fileSql);
       expect(generatedYml).toBe(fileYml);

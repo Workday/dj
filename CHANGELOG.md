@@ -1,5 +1,23 @@
 # Change Log
 
+## 2.6.0
+
+### Shared fragments and templates
+
+- **Reuse column sets and model config with `*.fragment.json`.** Define `kind: "select"` or `kind: "config"` fragments; reference them from models via `*_from_fragment` in `select` and optional root `fragments`. Sync resolves fragments in memory and never rewrites your authored `.model.json`.
+- **Template models with `extends` / `with`.** Author `*.template.json` bodies with `params`; child models inherit and override via `with`, optional `fragments`, and merge/replace modes for `select` and `ctes`.
+- **IDE and CLI support.** JSON Schema and diagnostics for fragment/template files; go to definition and “Used by N models” on shared files; **DJ: Preview Resolved Model JSON** on `.model.json`; CLI `fragment.*`, `template.*`, and `model.get` with `raw` + `resolved`. “Used by” CodeLens opens a model picker; go-to-definition resolves fragment/template names after the composition registry loads.
+- **Documentation and examples.** Multi-page guide under `docs/fragments-and-templates/` and a working demo in `docs/examples/jaffle_shop/` (config fragment, select fragment with overrides, and a template child mart).
+
+### Model Wizard
+
+- **Attach config fragments in Additional Fields** when the project defines `kind: "config"` fragments, and **add select fragments** from the Data Modeling column panel. Duplicate output column names are highlighted on the Columns step and block advancing the wizard until you remove one source.
+- **Create or edit template children** from Basic Information (template + `with` parameters). The editor works on the merged model; save runs `diffAgainstTemplate` so only deltas stay on disk.
+
+### Local Trino & Lightdash
+
+- **Persistent Iceberg `development` catalog via Docker Compose.** Start a local Trino 484 + Postgres Iceberg JDBC catalog with `docker compose -f docs/setup/trino/docker-compose.yml up -d` so partitioned models build and table data survives container restarts. **DJ: Start Lightdash Preview** also automatically detects `profiles.yml` inside a dbt project subdirectory when `dj.lightdashProfilesPath` is unset.
+
 ## 2.5.0
 
 ### Python models

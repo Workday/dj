@@ -1,0 +1,61 @@
+{
+  "$id": "template.schema.json",
+  "title": "Schema Template",
+  "description": "A reusable model shape. Models use it with `extends` and supply parameters with `with`. `${param}` is substituted into string values of `model`; write `$${` for a literal `${`. Templates never produce SQL or YAML of their own.",
+  "allowTrailingCommas": true,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "model"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "name": { "$ref": "fragment.name.schema.json" },
+    "description": { "type": "string" },
+    "params": {
+      "type": "object",
+      "propertyNames": { "$ref": "column.name.schema.json" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type"],
+        "properties": {
+          "type": {
+            "enum": ["model_ref", "string"],
+            "description": "`model_ref` values must name an existing model and create a dependency; `string` values are substituted as-is."
+          },
+          "default": { "type": "string" },
+          "description": { "type": "string" }
+        }
+      }
+    },
+    "model": {
+      "type": "object",
+      "description": "The model body. Identity fields (`group`, `topic`, `name`) belong to the model that extends the template; `type` is required and must match it.",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "enum": [
+            "stg_select_source",
+            "stg_select_model",
+            "stg_union_sources",
+            "int_select_model",
+            "int_join_column",
+            "int_join_models",
+            "int_lookback_model",
+            "int_rollup_model",
+            "int_union_models",
+            "mart_select_model",
+            "mart_join_models"
+          ]
+        },
+        "group": false,
+        "topic": false,
+        "name": false,
+        "extends": { "$ref": "fragment.name.schema.json" },
+        "with": { "$ref": "model.with.schema.json" },
+        "fragments": { "$ref": "model.fragments.schema.json" },
+        "select": { "type": "array" },
+        "ctes": { "type": "array" }
+      }
+    }
+  }
+}

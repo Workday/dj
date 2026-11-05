@@ -1,3 +1,4 @@
+-- DJ composed from fragments: jaffle_lightdash_explore
 {{
   config(
     materialized="view"

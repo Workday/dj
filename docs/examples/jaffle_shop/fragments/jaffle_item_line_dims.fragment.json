@@ -1,0 +1,43 @@
+{
+    "kind": "select",
+    "name": "jaffle_item_line_dims",
+    "description": "Core line-item dimensions shared across item-level staging models",
+    "select": [
+        {
+            "name": "item_id",
+            "type": "dim",
+            "expr": "item_id",
+            "description": "Unique identifier for each order item",
+            "lightdash": {
+                "dimension": {
+                    "group_label": "Product Fields",
+                    "label": "Order ID"
+                }
+            }
+        },
+        {
+            "name": "order_id",
+            "type": "dim",
+            "expr": "order_id",
+            "description": "Foreign key to orders table",
+            "lightdash": {
+                "dimension": {
+                    "group_label": "Product Fields",
+                    "label": "Order ID"
+                }
+            }
+        },
+        {
+            "name": "product_sku",
+            "type": "dim",
+            "expr": "product_sku",
+            "description": "Product SKU identifier",
+            "lightdash": {
+                "dimension": {
+                    "group_label": "Product Fields",
+                    "label": "Product SKU"
+                }
+            }
+        }
+    ]
+}

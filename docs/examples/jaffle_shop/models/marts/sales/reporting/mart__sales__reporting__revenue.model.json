@@ -4,8 +4,10 @@
     "topic": "reporting",
     "name": "revenue",
     "tags": [
-        "lightdash",
-        "lightdash-explore"
+        "lightdash"
+    ],
+    "fragments": [
+        "jaffle_lightdash_explore"
     ],
     "from": {
         "model": "int__sales__orders__enriched"

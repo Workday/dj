@@ -25,6 +25,7 @@ import type { StateManager } from '@services/statemanager';
 import type { Ajv, ValidateFunction } from 'ajv';
 import type * as vscode from 'vscode';
 
+import type { CompositionStore } from './composition-store';
 import type { FrameworkState } from './FrameworkState';
 import type { Framework } from './index';
 
@@ -85,6 +86,18 @@ export class FrameworkContext {
 
   get diagnosticSourceJson(): vscode.DiagnosticCollection {
     return this.frameworkInstance['diagnosticSourceJson'];
+  }
+
+  get diagnosticFragmentJson(): vscode.DiagnosticCollection {
+    return this.frameworkInstance['diagnosticFragmentJson'];
+  }
+
+  get diagnosticTemplateJson(): vscode.DiagnosticCollection {
+    return this.frameworkInstance['diagnosticTemplateJson'];
+  }
+
+  get compositionStore(): CompositionStore {
+    return this.frameworkInstance['compositionStore'];
   }
 
   // ========================================
