@@ -136,17 +136,18 @@ function applyListDiff(
 }
 
 /**
- * Compute the smallest template child that resolves (in `merged` mode) to
- * `edited`. `edited` is a template child's full body as shown in an editor:
- * identity, `extends`, `with`, optional root `fragments`, and every inherited
- * or overridden key.
+ * Compute the smallest child that resolves (in `merged` mode) to `edited`.
+ * `edited` is a model's full body as shown in an editor: identity, `extends`
+ * and `with` for a template child, optional root `fragments`, and every
+ * inherited or overridden key. Keys the base already provides are dropped, so
+ * a child with root `fragments` and no `extends` is diffed against its fragments.
  */
 export function diffAgainstTemplate(
   edited: JsonObject,
   registry: CompositionRegistry | undefined,
   options: ResolveOptions = {},
 ): DiffAgainstTemplateResult {
-  if (typeof edited.extends !== 'string') {
+  if (typeof edited.extends !== 'string' && edited.fragments === undefined) {
     return { child: edited, exact: true, warnings: [] };
   }
   const warnings: string[] = [];

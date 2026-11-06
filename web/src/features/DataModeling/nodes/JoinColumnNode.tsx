@@ -12,6 +12,7 @@ import {
   extractColumnsFromNode,
   findModelNode,
 } from '../utils/manifestColumns';
+import { pickModelProject } from '../utils/projectSelection';
 import type { AvailableModel, Column } from './SelectNode';
 
 export const JoinColumnNode: React.FC<NodeProps> = () => {
@@ -122,8 +123,11 @@ export const JoinColumnNode: React.FC<NodeProps> = () => {
         const projects = projectsResponse || [];
 
         if (projects.length > 0) {
-          const project = projects[0];
-          setCurrentProject(project);
+          const project = pickModelProject(
+            projects,
+            useModelStore.getState().basicFields.projectName,
+          );
+          setCurrentProject(project ?? null);
         }
       } catch (err) {
         setError('Failed to fetch project data');

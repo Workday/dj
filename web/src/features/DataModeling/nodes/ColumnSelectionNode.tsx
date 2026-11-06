@@ -123,6 +123,10 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<boolean>(false);
   const [columnToDelete, setColumnToDelete] = useState<Column | null>(null);
   const [showFragmentPicker, setShowFragmentPicker] = useState(false);
+  // Fragment whose entry the picker edits; undefined adds a new entry.
+  const [fragmentPickerInitial, setFragmentPickerInitial] = useState<
+    string | undefined
+  >(undefined);
 
   const columnsContainerRef = useRef<HTMLDivElement>(null);
   const previousColumnsLengthRef = useRef<number>(0);
@@ -1392,6 +1396,27 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
                                           </div>
                                         )}
                                       </Popover>
+                                    ) : column.modelName.startsWith(
+                                        'fragment:',
+                                      ) ? (
+                                      /* Fragment rows open the picker to change which columns the entry takes */
+                                      <Button
+                                        label=""
+                                        className="cursor-pointer"
+                                        icon={
+                                          <Cog8ToothIcon className="h-4 w-4" />
+                                        }
+                                        variant="iconButton"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setFragmentPickerInitial(
+                                            column.modelName.slice(
+                                              'fragment:'.length,
+                                            ),
+                                          );
+                                          setShowFragmentPicker(true);
+                                        }}
+                                      />
                                     ) : (
                                       /* Configure button for non-Derived Columns */
                                       <Button
@@ -1476,9 +1501,18 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
       {showFragmentPicker && !editingColumn && isAddColumnAllowed && (
         <div className="border-t border-neutral p-4">
           <h4 className="text-sm font-semibold text-foreground mb-4">
-            Add from fragment
+            {fragmentPickerInitial
+              ? `Edit fragment: ${fragmentPickerInitial}`
+              : 'Add from fragment'}
           </h4>
-          <FragmentSelectPicker onClose={() => setShowFragmentPicker(false)} />
+          <FragmentSelectPicker
+            key={fragmentPickerInitial ?? 'new-fragment'}
+            initialFragment={fragmentPickerInitial}
+            onClose={() => {
+              setShowFragmentPicker(false);
+              setFragmentPickerInitial(undefined);
+            }}
+          />
         </div>
       )}
 
@@ -1525,6 +1559,7 @@ export const ColumnSelectionNode: React.FC<NodeProps> = () => {
               label="Add from fragment"
               onClick={() => {
                 setShowAddColumnModal(false);
+                setFragmentPickerInitial(undefined);
                 setShowFragmentPicker(true);
               }}
             />

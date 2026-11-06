@@ -747,6 +747,46 @@ describe('diffAgainstTemplate', () => {
   });
 });
 
+describe('diffAgainstTemplate for models with root fragments', () => {
+  const registry = registryWith(files);
+  const merged = (model: Json) =>
+    resolveModelComposition<Json>(model, registry, { mode: 'merged' }).resolved;
+
+  test('an unedited model diffs to its own keys plus fragments', () => {
+    const edited = merged(awsModel);
+    const { child, exact } = diffAgainstTemplate(edited, registry);
+    expect(exact).toBe(true);
+    expect(child.fragments).toEqual(['billing_daily_incremental']);
+    expect(child.extends).toBeUndefined();
+    expect(child).not.toHaveProperty('materialization');
+    expect(child).not.toHaveProperty('meta');
+    expect(child).not.toHaveProperty('tags');
+  });
+
+  test('an extra tag is written as a tag delta', () => {
+    const edited = merged(awsModel);
+    edited.tags = [...edited.tags, 'extra'];
+    const { child, exact } = diffAgainstTemplate(edited, registry);
+    expect(exact).toBe(true);
+    expect(child.tags).toEqual(['extra']);
+  });
+
+  test('a changed fragment-provided value is written', () => {
+    const edited = merged(awsModel);
+    edited.materialization = { type: 'table' };
+    const { child, exact } = diffAgainstTemplate(edited, registry);
+    expect(exact).toBe(true);
+    expect(child.materialization).toEqual({ type: 'table' });
+  });
+
+  test('a model without composition is returned unchanged', () => {
+    const plain = { type: 'stg_select_source', name: 'plain', select: ['a'] };
+    const { child, exact } = diffAgainstTemplate(plain, registry);
+    expect(exact).toBe(true);
+    expect(child).toBe(plain);
+  });
+});
+
 describe('composition registry usage', () => {
   test('clearAllUsage resets the reverse index', () => {
     const registry = new CompositionRegistry();

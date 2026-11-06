@@ -79,16 +79,17 @@ export class ModelCrudHandlers {
   }
 
   /**
-   * Shrinks a template child edited in merged form to the smallest on-disk
-   * shape (`extends`, `with`, deltas). No-op when `extends` is absent.
+   * Shrinks a model edited in merged form to the smallest on-disk shape: for a
+   * template child, `extends`, `with` and deltas; for a model with root
+   * `fragments`, only the keys the fragments don't already provide. No-op for
+   * models with neither.
    */
   private async compressTemplateChildForDisk(
     project: DbtProject,
     model: FrameworkModel,
   ): Promise<FrameworkModel> {
-    if (
-      typeof (model as unknown as Record<string, unknown>).extends !== 'string'
-    ) {
+    const record = model as unknown as Record<string, unknown>;
+    if (typeof record.extends !== 'string' && record.fragments === undefined) {
       return model;
     }
     await this.ctx.framework.compositionHandlers.ensureLoaded(project);

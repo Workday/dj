@@ -3,7 +3,11 @@ import { COMMAND_ID, VIEW_ID } from '@services/constants';
 import { frameworkGetModelName } from '@services/framework/utils';
 import type { DJService } from '@services/types';
 import { getHtml } from '@services/webview/utils';
-import { usesComposition } from '@shared/framework/composition';
+import type { DbtProject } from '@shared/dbt/types';
+import {
+  buildEditorBody,
+  usesComposition,
+} from '@shared/framework/composition';
 import type { FrameworkAuthoredModel } from '@shared/framework/types';
 import * as vscode from 'vscode';
 
@@ -82,27 +86,18 @@ export class ModelEditService implements DJService {
           await this.coder.stateManager.clearModelEditDraft(modelName);
           await this.coder.stateManager.createModelEditTempFile(modelName);
 
+          const body = await this.resolveForEditor(
+            this.findProjectForPath(info.filePath),
+            info.modelJson,
+          );
           const modelData: any = {
-            ...info.modelJson,
-            name: info.modelJson.name,
-            group: info.modelJson.group,
-            topic: info.modelJson.topic,
-            type: info.modelJson.type,
+            ...body,
+            name: body.name,
+            group: body.group,
+            topic: body.topic,
+            type: body.type,
             originalModelPath: info.filePath,
             projectName: info.project.name,
-            // Include all model configuration for data modeling prefill
-            // Use safe property access to avoid TypeScript errors
-            from: (info.modelJson as any).from,
-            select: (info.modelJson as any).select,
-            join: (info.modelJson as any).join,
-            rollup: (info.modelJson as any).rollup,
-            lookback: (info.modelJson as any).lookback,
-            union: (info.modelJson as any).union,
-            where: (info.modelJson as any).where,
-            group_by: (info.modelJson as any).group_by,
-            having: (info.modelJson as any).having,
-            materialized: (info.modelJson as any).materialized,
-            materialization: (info.modelJson as any).materialization,
           };
 
           // Derive source from type for UI compatibility
@@ -165,29 +160,10 @@ export class ModelEditService implements DJService {
           originalModelPath: info.filePath, // Track original file path for updates
         };
 
-        const rawModel = info.modelJson as FrameworkAuthoredModel;
-        let body: Record<string, unknown> = {
-          ...(rawModel as unknown as Record<string, unknown>),
-        };
-        if (project && usesComposition(rawModel)) {
-          await this.coder.framework.compositionHandlers.ensureLoaded(project);
-          const resolved = this.coder.framework.sharedCompositionStore.resolve(
-            project,
-            rawModel,
-            { mode: 'merged' },
-          ).resolved;
-          const raw = rawModel as unknown as Record<string, unknown>;
-          body = {
-            ...resolved,
-            extends: raw.extends,
-            with: raw.with,
-            fragments: raw.fragments,
-            select_exclude: raw.select_exclude,
-            ctes_exclude: raw.ctes_exclude,
-            select_mode: raw.select_mode,
-            ctes_mode: raw.ctes_mode,
-          };
-        }
+        const body = await this.resolveForEditor(
+          project ?? undefined,
+          info.modelJson,
+        );
         modelData = JSON.parse(
           JSON.stringify({
             ...baseData,
@@ -256,28 +232,19 @@ export class ModelEditService implements DJService {
             info.filePath.split('/').pop()?.replace('.model.json', '') ??
             'Unknown';
 
+          const body = await this.resolveForEditor(
+            this.findProjectForPath(info.filePath),
+            info.modelJson,
+          );
           const modelData: any = {
-            ...info.modelJson,
+            ...body,
             projectName: info.project.name,
             // Clear the name so user can provide a new one
             name: '',
-            topic: '',
-            materialization: '',
             // Flag to indicate this is a clone operation
             isCloningModel: true,
             // Store the source model name for display
             sourceModelName: sourceModelName,
-            // Include all model configuration for data modeling prefill
-            from: (info.modelJson as any).from,
-            select: (info.modelJson as any).select,
-            join: (info.modelJson as any).join,
-            rollup: (info.modelJson as any).rollup,
-            lookback: (info.modelJson as any).lookback,
-            union: (info.modelJson as any).union,
-            where: (info.modelJson as any).where,
-            group_by: (info.modelJson as any).group_by,
-            having: (info.modelJson as any).having,
-            materialized: (info.modelJson as any).materialized,
           };
 
           // Derive source from type for UI compatibility
@@ -350,9 +317,13 @@ export class ModelEditService implements DJService {
           info.filePath.split('/').pop()?.replace('.model.json', '') ??
           model.name;
 
+        const body = await this.resolveForEditor(
+          project ?? undefined,
+          info.modelJson,
+        );
         modelData = JSON.parse(
           JSON.stringify({
-            ...info.modelJson,
+            ...body,
             projectName: project?.name ?? '',
             // Clear the name so user can provide a new one
             name: '',
@@ -612,6 +583,41 @@ export class ModelEditService implements DJService {
     });
 
     return panel;
+  }
+
+  /**
+   * Find the dbt project whose root contains the given file.
+   */
+  private findProjectForPath(filePath: string): DbtProject | undefined {
+    for (const [, project] of this.coder.framework.dbt.projects) {
+      if (filePath.startsWith(project.pathSystem)) {
+        return project;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Build the editor body for a model file. Template and fragment values are
+   * resolved in merged mode so they prefill, while column fragment entries stay
+   * as authored so the editor can toggle them. Files without composition, or
+   * without a known project, are returned unchanged.
+   */
+  private async resolveForEditor(
+    project: DbtProject | undefined,
+    rawModel: FrameworkAuthoredModel,
+  ): Promise<Record<string, unknown>> {
+    const raw = rawModel as unknown as Record<string, unknown>;
+    if (!project || !usesComposition(rawModel)) {
+      return raw;
+    }
+    await this.coder.framework.compositionHandlers.ensureLoaded(project);
+    const { resolved } = this.coder.framework.sharedCompositionStore.resolve(
+      project,
+      rawModel,
+      { mode: 'merged' },
+    );
+    return buildEditorBody(raw, resolved);
   }
 
   /**

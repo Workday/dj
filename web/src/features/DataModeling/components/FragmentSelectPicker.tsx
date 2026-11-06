@@ -5,27 +5,53 @@ import { useModelStore } from '@web/stores/useModelStore';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { SelectionType } from '../types';
+import { upsertFragmentSelect } from '../utils/fragmentSelection';
 import { ModelColumns } from './ModelColumns';
 
 interface FragmentSelectPickerProps {
   onClose: () => void;
+  /** Fragment to open with already selected, when editing an existing entry. */
+  initialFragment?: string;
+  /**
+   * Select list to edit and the writer for it. Defaults to the model's
+   * `modelingState.select`; CTE editors pass their own `select`.
+   */
+  select?: unknown[];
+  onSelectChange?: (next: unknown[]) => void;
 }
 
 /**
- * Adds a `{ all|dims|fcts }_from_fragment` entry to the model `select` array.
+ * Adds or edits a `{ all|dims|fcts }_from_fragment` entry in a `select` array.
+ * Editing keeps the entry at its position and keeps its `overrides`.
  */
 export const FragmentSelectPicker: React.FC<FragmentSelectPickerProps> = ({
   onClose,
+  initialFragment,
+  select: selectProp,
+  onSelectChange,
 }) => {
   const { api } = useApp();
   const projectName = useModelStore((s) => s.basicFields.projectName);
-  const modelingState = useModelStore((s) => s.modelingState);
+  const storeSelect = useModelStore((s) => s.modelingState.select);
   const updateSelectState = useModelStore((s) => s.updateSelectState);
+  const select: unknown[] = selectProp ?? storeSelect ?? [];
+  const writeSelect = useCallback(
+    (next: unknown[]) => {
+      if (onSelectChange) {
+        onSelectChange(next);
+      } else {
+        updateSelectState(next as SchemaSelect[]);
+      }
+    },
+    [onSelectChange, updateSelectState],
+  );
 
   const [fragmentOptions, setFragmentOptions] = useState<
     { label: string; value: string }[]
   >([]);
-  const [selectedFragment, setSelectedFragment] = useState<string>('');
+  const [selectedFragment, setSelectedFragment] = useState<string>(
+    initialFragment ?? '',
+  );
   const [columns, setColumns] = useState<
     {
       name: string;
@@ -86,32 +112,30 @@ export const FragmentSelectPicker: React.FC<FragmentSelectPickerProps> = ({
   }, [api, projectName, selectedFragment]);
 
   const existingEntry = useMemo(() => {
-    return modelingState.select?.find(
-      (item) =>
-        typeof item !== 'string' &&
+    return select.find(
+      (item): item is Record<string, unknown> =>
+        typeof item === 'object' &&
+        item !== null &&
         'fragment' in item &&
-        item.fragment === selectedFragment,
+        (item as { fragment?: unknown }).fragment === selectedFragment,
     );
-  }, [modelingState.select, selectedFragment]);
+  }, [select, selectedFragment]);
 
   const defaultValue = useMemo(() => {
-    if (!existingEntry || typeof existingEntry === 'string') {
+    if (!existingEntry) {
       return { filterType: SelectionType.ALL_FROM_FRAGMENT };
     }
-    const type =
-      'type' in existingEntry && existingEntry.type
-        ? (existingEntry.type as SelectionType)
-        : SelectionType.ALL_FROM_FRAGMENT;
+    const type = existingEntry.type
+      ? (existingEntry.type as SelectionType)
+      : SelectionType.ALL_FROM_FRAGMENT;
     return {
       filterType: type,
-      include:
-        'include' in existingEntry && existingEntry.include
-          ? existingEntry.include
-          : undefined,
-      exclude:
-        'exclude' in existingEntry && existingEntry.exclude
-          ? existingEntry.exclude
-          : undefined,
+      include: Array.isArray(existingEntry.include)
+        ? (existingEntry.include as string[])
+        : undefined,
+      exclude: Array.isArray(existingEntry.exclude)
+        ? (existingEntry.exclude as string[])
+        : undefined,
     };
   }, [existingEntry]);
 
@@ -121,27 +145,20 @@ export const FragmentSelectPicker: React.FC<FragmentSelectPickerProps> = ({
       result: { include?: string[]; exclude?: string[] },
       shouldClear?: boolean,
     ) => {
-      if (!selectedFragment) return;
-      const current = modelingState.select ?? [];
-      const without = current.filter(
-        (item) =>
-          typeof item === 'string' ||
-          !('fragment' in item) ||
-          item.fragment !== selectedFragment,
-      );
-      if (shouldClear) {
-        updateSelectState(without);
+      if (!selectedFragment) {
         return;
       }
-      const entry = {
-        fragment: selectedFragment,
-        type: selectionType,
-        ...(result.include?.length ? { include: result.include } : {}),
-        ...(result.exclude?.length ? { exclude: result.exclude } : {}),
-      } as unknown as SchemaSelect;
-      updateSelectState([...without, entry]);
+      writeSelect(
+        upsertFragmentSelect(
+          select,
+          selectedFragment,
+          selectionType,
+          result,
+          shouldClear,
+        ),
+      );
     },
-    [modelingState.select, selectedFragment, updateSelectState],
+    [select, selectedFragment, writeSelect],
   );
 
   const handleApply = () => {

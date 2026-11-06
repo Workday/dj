@@ -30,6 +30,7 @@ import type {
 } from '../types';
 import { ActionType, supportsColumnName, supportsExprOnly } from '../types';
 import { extractColumnsFromNode } from '../utils/manifestColumns';
+import { pickModelProject } from '../utils/projectSelection';
 import { buildUpdatedSelections } from '../utils/selectionUtils';
 
 export interface AvailableModel {
@@ -97,8 +98,12 @@ export const SelectNode: React.FC<NodeProps> = ({ data: _data }) => {
   // hard-locked by model type; everything else picks between `model` and
   // `cte` based on whether the chosen identifier matches a draft CTE name.
   const sourceKind: SelectionSourceKind = useMemo(() => {
-    if (isTypeSource) return 'source';
-    if (selectedModel && cteNames.has(selectedModel.value)) return 'cte';
+    if (isTypeSource) {
+      return 'source';
+    }
+    if (selectedModel && cteNames.has(selectedModel.value)) {
+      return 'cte';
+    }
     return 'model';
   }, [isTypeSource, selectedModel, cteNames]);
 
@@ -121,7 +126,9 @@ export const SelectNode: React.FC<NodeProps> = ({ data: _data }) => {
 
     // CTEs only appear for non-source flows. Source-typed models can never
     // FROM a CTE (the schema rejects it; sources are upstream-only).
-    if (isTypeSource) return baseOptions;
+    if (isTypeSource) {
+      return baseOptions;
+    }
 
     // Prefix CTE labels so users can distinguish them at a glance from
     // manifest-resolved models. The value remains the bare CTE name so the
@@ -309,7 +316,15 @@ export const SelectNode: React.FC<NodeProps> = ({ data: _data }) => {
         return;
       }
 
-      const project = projects[0];
+      const project = pickModelProject(
+        projects,
+        useModelStore.getState().basicFields.projectName,
+      );
+      if (!project) {
+        setCurrentProject(null);
+        setModels([]);
+        return;
+      }
       setCurrentProject(project);
 
       if (!project.manifest?.nodes) {
@@ -361,7 +376,9 @@ export const SelectNode: React.FC<NodeProps> = ({ data: _data }) => {
   // result for the currently-selected CTE. Manifest-sourced columns never
   // change without a project refresh, so we only re-derive in the CTE case.
   useEffect(() => {
-    if (!selectedModel?.value || !cteNames.has(selectedModel.value)) return;
+    if (!selectedModel?.value || !cteNames.has(selectedModel.value)) {
+      return;
+    }
     const cteCols = cteAnalysisColumns[selectedModel.value] ?? [];
     setColumns(
       cteCols.map((c) => ({
@@ -392,18 +409,21 @@ export const SelectNode: React.FC<NodeProps> = ({ data: _data }) => {
               if (
                 'model' in existingSelection &&
                 existingSelection.model === previousModel
-              )
+              ) {
                 return true;
+              }
               if (
                 'source' in existingSelection &&
                 existingSelection.source === previousModel
-              )
+              ) {
                 return true;
+              }
               if (
                 'cte' in existingSelection &&
                 (existingSelection as { cte: string }).cte === previousModel
-              )
+              ) {
                 return true;
+              }
             }
             return false;
           },
