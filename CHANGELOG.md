@@ -31,6 +31,10 @@
 
 - **Incremental models default to `delete+insert`.** Models that set `materialization: "incremental"` without a `strategy` now use `delete+insert` instead of `overwrite_existing_partitions`, which needs a custom dbt macro. To keep the old behavior, set `dj.materialization.defaultIncrementalStrategy` to `overwrite_existing_partitions` or set `materialization.strategy` on each model. Re-sync to regenerate existing SQL.
 
+## 2.5.1
+
+- **Generated runtime files no longer block `git pull` or branch switches.** `_trino_io.py`, `_config.py`, `_model_tasks.py`, and the `dags/_ext_/` etl helper bundle open read-only in the editor (`files.readonlyInclude`) instead of being reverted on disk, so git can update them. DJ stamps each with a `# dj-generated:` version header, regenerates only outdated or hand-edited copies, never downgrades files from a newer DJ, and adds `eol=lf linguist-generated=true` entries to `.gitattributes`.
+
 ## 2.5.0
 
 ### Python models
