@@ -87,8 +87,10 @@ export type ResolveMode =
 
 export interface ResolveOptions {
   mode?: ResolveMode;
-  /** Used to validate `model_ref` template parameters when provided. */
+  /** Used to validate `model` template parameters when provided. */
   modelExists?: (modelName: string) => boolean;
+  /** Used to validate `source` template parameters when provided. */
+  sourceExists?: (sourceName: string) => boolean;
   /** Maximum nesting of fragments and templates. Defaults to 5. */
   maxDepth?: number;
 }

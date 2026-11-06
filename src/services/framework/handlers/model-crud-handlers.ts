@@ -1,5 +1,8 @@
 import { getDjConfig } from '@services/config';
-import { modelExistsFor } from '@services/framework/composition-store';
+import {
+  modelExistsFor,
+  sourceExistsFor,
+} from '@services/framework/composition-store';
 import {
   frameworkBuildColumns,
   frameworkBuildCteColumnRegistry,
@@ -92,7 +95,10 @@ export class ModelCrudHandlers {
     const { child, warnings } = diffAgainstTemplate(
       model as unknown as JsonObject,
       this.ctx.compositionStore.registryFor(project),
-      { modelExists: modelExistsFor(project) },
+      {
+        modelExists: modelExistsFor(project),
+        sourceExists: sourceExistsFor(project),
+      },
     );
     for (const warning of warnings) {
       this.ctx.log.warn(`Template child diff: ${warning}`);

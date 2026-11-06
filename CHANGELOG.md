@@ -27,6 +27,10 @@
 
 - **Live queries list newest first.** The Live tab orders active queries from most recent to oldest, so the list stays in a consistent order across auto-refresh.
 
+### Materialization defaults
+
+- **Incremental models default to `delete+insert`.** Models that set `materialization: "incremental"` without a `strategy` now use `delete+insert` instead of `overwrite_existing_partitions`, which needs a custom dbt macro. To keep the old behavior, set `dj.materialization.defaultIncrementalStrategy` to `overwrite_existing_partitions` or set `materialization.strategy` on each model. Re-sync to regenerate existing SQL.
+
 ## 2.5.0
 
 ### Python models

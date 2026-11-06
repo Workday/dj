@@ -75,7 +75,7 @@ const awsModel = {
 const monthlyTemplate = {
   name: 'focus_monthly_cost',
   params: {
-    upstream: { type: 'model_ref' },
+    upstream: { type: 'model' },
     provider: { type: 'string' },
   },
   model: {
@@ -504,10 +504,50 @@ describe('resolveModelComposition: templates', () => {
     expect(unknown.issues[0].message).toContain('Unknown template');
   });
 
+  test('source params are checked against sourceExists only when provided', () => {
+    const sourceTemplate = {
+      name: 'raw_orders_mart',
+      params: { raw: { type: 'source' } },
+      model: {
+        type: 'mart_select_model',
+        from: { source: '${raw}' },
+        select: [{ name: 'id', type: 'dim', expr: 'id' }],
+      },
+    };
+    const registry = registryWith({
+      '/p/raw_orders.template.json': sourceTemplate,
+    });
+    const child = {
+      type: 'mart_select_model',
+      group: 'g',
+      topic: 't',
+      name: 'n',
+      extends: 'raw_orders_mart',
+      with: { raw: 'shop.orders' },
+    };
+    const sourceIssues = (issues: { message: string }[]) =>
+      issues.filter((i) => i.message.includes('names source'));
+
+    const valid = resolveModelComposition<Json>(child, registry, {
+      sourceExists: (name) => name === 'shop.orders',
+    });
+    expect(sourceIssues(valid.issues)).toEqual([]);
+
+    const missing = resolveModelComposition<Json>(child, registry, {
+      sourceExists: () => false,
+    });
+    expect(sourceIssues(missing.issues).map((i) => i.message)).toEqual([
+      'Parameter "raw" names source "shop.orders", which does not exist.',
+    ]);
+
+    const unchecked = resolveModelComposition<Json>(child, registry);
+    expect(sourceIssues(unchecked.issues)).toEqual([]);
+  });
+
   test('templates can extend templates; cycles and identity keys are reported', () => {
     const base = {
       name: 'base_mart',
-      params: { upstream: { type: 'model_ref' } },
+      params: { upstream: { type: 'model' } },
       model: {
         type: 'mart_select_model',
         from: { model: '${upstream}' },
@@ -516,7 +556,7 @@ describe('resolveModelComposition: templates', () => {
     };
     const derived = {
       name: 'derived_mart',
-      params: { src: { type: 'model_ref' } },
+      params: { src: { type: 'model' } },
       model: {
         type: 'mart_select_model',
         extends: 'base_mart',

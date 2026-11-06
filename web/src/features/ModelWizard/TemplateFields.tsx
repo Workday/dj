@@ -147,9 +147,11 @@ export function TemplateFields({ mode }: TemplateFieldsProps) {
             });
           }}
           placeholder={
-            paramDefs[param]?.type === 'model_ref'
+            paramDefs[param]?.type === 'model'
               ? 'model name (e.g. stg__…)'
-              : 'value'
+              : paramDefs[param]?.type === 'source'
+                ? 'source table (e.g. raw_orders.orders)'
+                : 'value'
           }
         />
       ))}

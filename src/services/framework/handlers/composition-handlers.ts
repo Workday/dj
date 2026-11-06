@@ -21,9 +21,13 @@ import {
   modelExistsFor,
   modelNameFromPath,
   type SharedFileChange,
+  sourceExistsFor,
 } from '../composition-store';
 import type { FrameworkContext } from '../context';
-import { buildPositionedDiagnostics } from '../utils/json-diagnostics';
+import {
+  buildPositionedDiagnostics,
+  jsoncSyntaxDetails,
+} from '../utils/json-diagnostics';
 
 const SHARED_FILE_GLOB = '**/*.{fragment,template}.json';
 const MODEL_JSON_GLOB = '**/*.model.json';
@@ -183,11 +187,11 @@ export class CompositionHandlers {
       new vscode.RelativePattern(project.pathSystem, MODEL_JSON_GLOB),
       SHARED_FILE_EXCLUDE,
     );
-    const modelExists = await this.modelExistsForProject(project);
+    const lookups = await this.lookupsForProject(project);
     registry.clearAllUsage();
     await Promise.all(
       modelUris.map((uri) =>
-        this.indexModelUsageAtPath(project, uri.fsPath, registry, modelExists),
+        this.indexModelUsageAtPath(project, uri.fsPath, registry, lookups),
       ),
     );
     this.store.markIndexed(project);
@@ -207,25 +211,20 @@ export class CompositionHandlers {
       return;
     }
     const registry = this.store.registryFor(project);
-    const modelExists = await this.modelExistsForProject(project);
+    const lookups = await this.lookupsForProject(project);
     if (rawModel !== undefined) {
       try {
         const composition = resolveModelComposition<FrameworkModel>(
           rawModel,
           registry,
-          { modelExists },
+          lookups,
         );
         registry.recordUsage(modelPath, composition.dependencies);
       } catch {
         registry.clearUsage(modelPath);
       }
     } else {
-      await this.indexModelUsageAtPath(
-        project,
-        modelPath,
-        registry,
-        modelExists,
-      );
+      await this.indexModelUsageAtPath(project, modelPath, registry, lookups);
     }
     this.store.markIndexed(project);
   }
@@ -237,24 +236,31 @@ export class CompositionHandlers {
     this.store.registryFor(project).clearUsage(modelPath);
   }
 
-  private async modelExistsForProject(
-    project: DbtProject,
-  ): Promise<(name: string) => boolean> {
+  private async lookupsForProject(project: DbtProject): Promise<{
+    modelExists: (name: string) => boolean;
+    sourceExists: (name: string) => boolean;
+  }> {
     const modelUris = await vscode.workspace.findFiles(
       new vscode.RelativePattern(project.pathSystem, MODEL_JSON_GLOB),
       SHARED_FILE_EXCLUDE,
     );
-    return modelExistsFor(
-      project,
-      modelUris.map((uri) => modelNameFromPath(uri.fsPath)),
-    );
+    return {
+      modelExists: modelExistsFor(
+        project,
+        modelUris.map((uri) => modelNameFromPath(uri.fsPath)),
+      ),
+      sourceExists: sourceExistsFor(project),
+    };
   }
 
   private async indexModelUsageAtPath(
     _project: DbtProject,
     modelPath: string,
     registry: CompositionRegistry,
-    modelExists: (name: string) => boolean,
+    lookups: {
+      modelExists: (name: string) => boolean;
+      sourceExists: (name: string) => boolean;
+    },
   ): Promise<void> {
     try {
       const raw = jsonParse(
@@ -265,9 +271,7 @@ export class CompositionHandlers {
       const composition = resolveModelComposition<FrameworkModel>(
         raw,
         registry,
-        {
-          modelExists,
-        },
+        lookups,
       );
       registry.recordUsage(modelPath, composition.dependencies);
     } catch {
@@ -407,17 +411,11 @@ export class CompositionHandlers {
     if (!kind) {
       return [];
     }
-    let definition: unknown;
-    try {
-      definition = jsonParse(text);
-    } catch (err: unknown) {
-      return [
-        {
-          message: `Invalid JSON: ${err instanceof Error ? err.message : String(err)}`,
-          instancePath: '',
-        },
-      ];
+    const syntaxDetails = jsoncSyntaxDetails(text);
+    if (syntaxDetails.length > 0) {
+      return syntaxDetails;
     }
+    const definition: unknown = jsonParse(text);
     const details: ValidationErrorDetail[] = [];
     const validator = this.ctx.ajv.getSchema(SCHEMA_FOR_KIND[kind]);
     if (validator && !validator(definition)) {

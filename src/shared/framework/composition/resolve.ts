@@ -495,7 +495,7 @@ class Resolver {
         continue;
       }
       if (
-        param.type === 'model_ref' &&
+        param.type === 'model' &&
         this.options.modelExists &&
         !this.options.modelExists(value)
       ) {
@@ -503,6 +503,17 @@ class Resolver {
           level,
           reportPath,
           `Parameter "${key}" names model "${value}", which does not exist.`,
+        );
+      }
+      if (
+        param.type === 'source' &&
+        this.options.sourceExists &&
+        !this.options.sourceExists(value)
+      ) {
+        this.report(
+          level,
+          reportPath,
+          `Parameter "${key}" names source "${value}", which does not exist.`,
         );
       }
       values[key] = value;

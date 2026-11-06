@@ -3,7 +3,7 @@
     "description": "Store-level reporting mart skeleton over an enriched orders model",
     "params": {
         "upstream": {
-            "type": "model_ref",
+            "type": "model",
             "description": "Intermediate model with store and order attributes (e.g. int__sales__orders__enriched)"
         }
     },

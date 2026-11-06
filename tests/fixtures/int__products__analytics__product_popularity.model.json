@@ -3,6 +3,17 @@
     "group": "products",
     "topic": "analytics",
     "name": "product_popularity",
+    "materialization": {
+        "type": "incremental",
+        "strategy": {
+            "type": "delete+insert",
+            "unique_key": [
+                "item_id",
+                "product_sku",
+                "product_type"
+            ]
+        }
+    },
     "from": {
         "model": "stg__sales__items__order_details"
     },

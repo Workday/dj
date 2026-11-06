@@ -30,9 +30,9 @@ export interface SchemaTemplate {
     [k: string]:
       | {
           /**
-           * `model_ref` values must name an existing model and create a dependency; `string` values are substituted as-is.
+           * `model` values must name an existing model and create a dependency. `source` values must name an existing source table (`source_name.table_name`). `string` values are substituted as-is.
            */
-          type: 'model_ref' | 'string';
+          type: 'model' | 'source' | 'string';
           default?: string;
           description?: string;
         }

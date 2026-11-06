@@ -4,11 +4,11 @@ DJ supports reusable **fragments** (`*.fragment.json`) and **templates** (`*.tem
 
 ## Raw vs resolved
 
-| | **Raw (on disk)** | **Resolved (in memory)** |
-|---|-------------------|---------------------------|
-| Purpose | What you commit in `.model.json` | What sync, validation, lineage, and preview use |
-| Contains | `extends`, `with`, `fragments`, `*_from_fragment`, your deltas | Fragments expanded; templates merged; `${param}` substituted |
-| Persistence | Always keep authored JSON | Never written back to the model file |
+|             | **Raw (on disk)**                                              | **Resolved (in memory)**                                     |
+| ----------- | -------------------------------------------------------------- | ------------------------------------------------------------ |
+| Purpose     | What you commit in `.model.json`                               | What sync, validation, lineage, and preview use              |
+| Contains    | `extends`, `with`, `fragments`, `*_from_fragment`, your deltas | Fragments expanded; templates merged; `${param}` substituted |
+| Persistence | Always keep authored JSON                                      | Never written back to the model file                         |
 
 Generated `.sql` / `.yml` come from the resolved model. Do not edit generated files.
 
@@ -22,9 +22,9 @@ Generated `.sql` / `.yml` come from the resolved model. Do not edit generated fi
 { "type": "all_from_fragment", "fragment": "focus_cost_columns" }
 ```
 
-| `type` | Includes |
-|--------|----------|
-| `all_from_fragment` | All columns |
+| `type`               | Includes           |
+| -------------------- | ------------------ |
+| `all_from_fragment`  | All columns        |
 | `dims_from_fragment` | `type: "dim"` only |
 | `fcts_from_fragment` | `type: "fct"` only |
 
@@ -36,8 +36,8 @@ Optional `include` / `exclude` on the bulk row. **Overrides** when source column
   "fragment": "jaffle_item_line_dims",
   "overrides": {
     "item_id": { "expr": "id" },
-    "product_sku": { "expr": "sku" }
-  }
+    "product_sku": { "expr": "sku" },
+  },
 }
 ```
 
@@ -51,11 +51,11 @@ Optional `include` / `exclude` on the bulk row. **Overrides** when source column
 "fragments": ["billing_daily_incremental", "shared_tags"]
 ```
 
-| Merge | Behavior |
-|-------|----------|
+| Merge                  | Behavior                                                          |
+| ---------------------- | ----------------------------------------------------------------- |
 | Scalars / most objects | Later fragment wins; **model-authored values beat all fragments** |
-| `tags` | Merged across fragments and model |
-| `meta` | Deep-merge; model wins on conflict |
+| `tags`                 | Merged across fragments and model                                 |
+| `meta`                 | Deep-merge; model wins on conflict                                |
 
 Select columns use `*_from_fragment` in `select`, not root `fragments`.
 
@@ -63,7 +63,7 @@ Select columns use `*_from_fragment` in `select`, not root `fragments`.
 
 `*.template.json` holds `params` plus a `model` body. Templates do not emit their own SQL/YAML — only child `.model.json` files do.
 
-**Parameter types:** `model_ref` (must name an existing model) and `string`. Substitute with `${param}` in strings; literal `${` → `$${` in the template.
+**Parameter types:** `model` (must name an existing model), `source` (must name an existing source table as `source.table`), and `string`. Substitute with `${param}` in strings; literal `${` → `$${` in the template.
 
 **Child model** keeps identity (`type`, `group`, `topic`, `name`):
 
@@ -72,11 +72,11 @@ Select columns use `*_from_fragment` in `select`, not root `fragments`.
 "with": { "upstream": "stg__billing__costs__aws", "provider": "aws" }
 ```
 
-| Field | Behavior |
-|-------|----------|
-| `select` / `ctes` | Default **merge** with template; `select_mode` / `ctes_mode`: `"replace"` to replace entirely |
-| `select_exclude` / `ctes_exclude` | Drop inherited items by name |
-| `fragments` on child | Extra config fragments |
+| Field                             | Behavior                                                                                      |
+| --------------------------------- | --------------------------------------------------------------------------------------------- |
+| `select` / `ctes`                 | Default **merge** with template; `select_mode` / `ctes_mode`: `"replace"` to replace entirely |
+| `select_exclude` / `ctes_exclude` | Drop inherited items by name                                                                  |
+| `fragments` on child              | Extra config fragments                                                                        |
 
 The wizard loads the **merged** model for template children; save keeps a **minimal** child (deltas + `extends` / `with`) when possible.
 

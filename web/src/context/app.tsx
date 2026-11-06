@@ -1562,7 +1562,7 @@ SELECT * FROM final`,
                       definition: {
                         name: 'focus_monthly_cost',
                         params: {
-                          source_model: { type: 'model_ref' },
+                          source_model: { type: 'model' },
                         },
                         model: { type: 'mart_select_model' },
                       },
