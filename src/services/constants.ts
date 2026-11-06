@@ -20,6 +20,10 @@ export const BASE_AGENTS_DJ_PATH = path.join(
   __dirname,
   '../../templates/_agents-dj',
 );
+export const BASE_PACKAGE_JSON_PATH = path.join(
+  __dirname,
+  '../../package.json',
+);
 
 // Extension constants
 export const OUTPUT_CHANNEL_NAME = 'DJ';
