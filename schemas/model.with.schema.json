@@ -1,0 +1,8 @@
+{
+  "$id": "model.with.schema.json",
+  "title": "Schema Model With",
+  "description": "Parameter values for the template named in `extends`",
+  "type": "object",
+  "propertyNames": { "$ref": "column.name.schema.json" },
+  "additionalProperties": { "type": "string" }
+}

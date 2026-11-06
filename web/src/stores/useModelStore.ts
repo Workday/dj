@@ -208,7 +208,9 @@ export function normalizeCte(input: unknown): CteState {
   ]);
   const out: Record<string, unknown> = {};
   for (const key of Object.keys(cte)) {
-    if (!allowed.has(key)) continue;
+    if (!allowed.has(key)) {
+      continue;
+    }
     out[key] = cte[key];
   }
 
@@ -218,7 +220,9 @@ export function normalizeCte(input: unknown): CteState {
   const fromOut: Record<string, unknown> = {};
   for (const key of Object.keys(fromIn)) {
     const v = fromIn[key];
-    if (typeof v === 'string' && v === '') continue;
+    if (typeof v === 'string' && v === '') {
+      continue;
+    }
     fromOut[key] = v;
   }
   out.from = fromOut;
@@ -274,8 +278,12 @@ function stripCteForSerialize(
 ): CteState {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(cte)) {
-    if (CTE_UI_ONLY_KEYS.has(k)) continue;
-    if (v === undefined) continue;
+    if (CTE_UI_ONLY_KEYS.has(k)) {
+      continue;
+    }
+    if (v === undefined) {
+      continue;
+    }
     out[k] = v;
   }
   if (Array.isArray(out.select) && (out.select as unknown[]).length === 0) {
@@ -303,8 +311,12 @@ function stripCteForSerialize(
             (e): e is string => typeof e === 'string' && e.length > 0,
           )
         : null;
-      if (ctesArr !== null) unionCopy.ctes = ctesArr;
-      if (modelsArr !== null) unionCopy.models = modelsArr;
+      if (ctesArr !== null) {
+        unionCopy.ctes = ctesArr;
+      }
+      if (modelsArr !== null) {
+        unionCopy.models = modelsArr;
+      }
       if (
         (ctesArr && ctesArr.length === 0) ||
         (modelsArr && modelsArr.length === 0)
@@ -322,8 +334,12 @@ function stripCteForSerialize(
   // JSON preview. Users can still toggle to a different value to override.
   if (inherited) {
     for (const key of CTE_INHERITED_FLAG_KEYS) {
-      if (!(key in out)) continue;
-      if (!(key in inherited)) continue;
+      if (!(key in out)) {
+        continue;
+      }
+      if (!(key in inherited)) {
+        continue;
+      }
       if (out[key] === inherited[key]) {
         delete out[key];
       }
@@ -355,6 +371,8 @@ export interface ModelingStateAdapter {
 
 export interface AdditionalFieldsSchema {
   description?: string;
+  /** Config fragment names applied at the model root (`fragments` in JSON). */
+  fragments?: string[];
   tags?: string[];
   incremental_strategy?: IncrementalStrategy;
   sql_hooks?: ModelSqlHooksSchemaJson;
@@ -437,6 +455,16 @@ export interface ModelStore {
   // lightdash?: SchemaModelLightdash;
 
   additionalFields: AdditionalFieldsSchema;
+
+  /** Template child authoring (`extends` / `with`); not part of merged editor body. */
+  templateAuthoring: {
+    extends?: string;
+    with?: Record<string, string>;
+  };
+
+  setTemplateAuthoring: (
+    patch: Partial<ModelStore['templateAuthoring']>,
+  ) => void;
 
   /** Nested materialization keys the wizard does not edit (format, bucket, …) */
   materializationExtras: MaterializationExtras;
@@ -533,6 +561,12 @@ export interface ModelStore {
   // Navigation management for validation errors
   navigationNodeType: string | null;
   setNavigationNodeType: (nodeType: string | null) => void;
+
+  /** Synced from Column Selection preview when output column names collide. */
+  columnSelectionDiagnostics: { duplicateNames: string[] };
+  setColumnSelectionDiagnostics: (diagnostics: {
+    duplicateNames: string[];
+  }) => void;
 
   // Column Configuration Node visibility
   showColumnConfiguration: boolean;
@@ -691,9 +725,11 @@ export const useModelStore = create<ModelStore>()(
     where: null,
     dataModeling: initialDataModeling,
     additionalFields: initialAdditionalFields,
+    templateAuthoring: {},
     materializationExtras: {},
     defaultIncrementalStrategy: undefined,
     navigationNodeType: null,
+    columnSelectionDiagnostics: { duplicateNames: [] },
     showColumnConfiguration: false,
     showAddColumnModal: false,
     editingColumn: null,
@@ -1051,10 +1087,18 @@ export const useModelStore = create<ModelStore>()(
       const state = get();
 
       // Load basic fields
-      if (data.name !== undefined) state.setBasicField('name', data.name);
-      if (data.group !== undefined) state.setBasicField('group', data.group);
-      if (data.topic !== undefined) state.setBasicField('topic', data.topic);
-      if (data.type !== undefined) state.setBasicField('type', data.type);
+      if (data.name !== undefined) {
+        state.setBasicField('name', data.name);
+      }
+      if (data.group !== undefined) {
+        state.setBasicField('group', data.group);
+      }
+      if (data.topic !== undefined) {
+        state.setBasicField('topic', data.topic);
+      }
+      if (data.type !== undefined) {
+        state.setBasicField('type', data.type);
+      }
       const materializationInput = data as {
         materialized?: SchemaModelMaterialized;
         materialization?: SchemaModelMaterialization;
@@ -1092,9 +1136,27 @@ export const useModelStore = create<ModelStore>()(
       } else {
         set({ materializationExtras: {} });
       }
-      if (data.projectName !== undefined)
+      if (data.projectName !== undefined) {
         state.setBasicField('projectName', data.projectName);
-      if (data.source !== undefined) state.setBasicField('source', data.source);
+      }
+      if (data.source !== undefined) {
+        state.setBasicField('source', data.source);
+      }
+
+      const authoring = data as {
+        extends?: string;
+        with?: Record<string, string>;
+      };
+      // Reset when the loaded model has no `extends`, so a template child
+      // loaded earlier doesn't leak its `extends` / `with` into this one.
+      set({
+        templateAuthoring: authoring.extends
+          ? {
+              extends: authoring.extends,
+              with: authoring.with ?? {},
+            }
+          : {},
+      });
 
       // Load original model path for edit mode
       if (data.originalModelPath) {
@@ -1112,69 +1174,73 @@ export const useModelStore = create<ModelStore>()(
           source: (fromData.source as string) || '',
           cte: (fromData.cte as string) || '',
         });
+      }
 
-        // Handle join data - could be nested in from.join or at data.join
-        const joinData = (fromData.join || data.join) as JoinState;
-        if (joinData) {
-          state.updateJoinState(joinData);
-        }
+      // Join, rollup, lookback and union load even when `from` names no model,
+      // source or CTE: a template or fragment child's resolved body can carry
+      // them without that identifier.
 
-        // Handle rollup data - extract from from.rollup
-        if (fromData.rollup && typeof fromData.rollup === 'object') {
-          const rollupObj = fromData.rollup as {
-            interval?: FrameworkInterval | '';
-            datetime_expr?: string;
-          };
-          state.updateRollupState({
-            interval: rollupObj.interval || '',
-            dateExpression: rollupObj.datetime_expr || '',
-          });
-        } else if (data.rollup) {
-          // Fallback to data.rollup if exists
-          state.updateRollupState({
-            interval: data.rollup.interval || '',
-            dateExpression: data.rollup.dateExpression || '',
-          });
-        }
+      // Handle join data - could be nested in from.join or at data.join
+      const joinData = (fromData.join || data.join) as JoinState;
+      if (joinData) {
+        state.updateJoinState(joinData);
+      }
 
-        // Handle lookback data - extract from from.lookback
-        if (fromData.lookback && typeof fromData.lookback === 'object') {
-          const lookbackObj = fromData.lookback as {
-            days?: number;
-            exclude_event_date?: boolean;
-          };
-          state.updateLookbackState({
-            days: lookbackObj.days || 0,
-            exclude_event_date: lookbackObj.exclude_event_date,
-          });
-        } else if (data.lookback) {
-          // Fallback to data.lookback if exists
-          state.updateLookbackState({
-            days: data.lookback.days || 0,
-            exclude_event_date: data.lookback.exclude_event_date,
-          });
-        }
+      // Handle rollup data - extract from from.rollup
+      if (fromData.rollup && typeof fromData.rollup === 'object') {
+        const rollupObj = fromData.rollup as {
+          interval?: FrameworkInterval | '';
+          datetime_expr?: string;
+        };
+        state.updateRollupState({
+          interval: rollupObj.interval || '',
+          dateExpression: rollupObj.datetime_expr || '',
+        });
+      } else if (data.rollup) {
+        // Fallback to data.rollup if exists
+        state.updateRollupState({
+          interval: data.rollup.interval || '',
+          dateExpression: data.rollup.dateExpression || '',
+        });
+      }
 
-        // Handle union data - extract from from.union
-        if (fromData.union && typeof fromData.union === 'object') {
-          const unionObj = fromData.union as {
-            type?: 'all';
-            models?: string[];
-            sources?: string[];
-          };
-          state.updateUnionState({
-            type: unionObj.type,
-            models: unionObj.models || [],
-            sources: unionObj.sources || [],
-          });
-        } else if (data.union) {
-          // Fallback to data.union if exists
-          state.updateUnionState({
-            type: data.union.type,
-            models: data.union.models || [],
-            sources: data.union.sources || [],
-          });
-        }
+      // Handle lookback data - extract from from.lookback
+      if (fromData.lookback && typeof fromData.lookback === 'object') {
+        const lookbackObj = fromData.lookback as {
+          days?: number;
+          exclude_event_date?: boolean;
+        };
+        state.updateLookbackState({
+          days: lookbackObj.days || 0,
+          exclude_event_date: lookbackObj.exclude_event_date,
+        });
+      } else if (data.lookback) {
+        // Fallback to data.lookback if exists
+        state.updateLookbackState({
+          days: data.lookback.days || 0,
+          exclude_event_date: data.lookback.exclude_event_date,
+        });
+      }
+
+      // Handle union data - extract from from.union
+      if (fromData.union && typeof fromData.union === 'object') {
+        const unionObj = fromData.union as {
+          type?: 'all';
+          models?: string[];
+          sources?: string[];
+        };
+        state.updateUnionState({
+          type: unionObj.type,
+          models: unionObj.models || [],
+          sources: unionObj.sources || [],
+        });
+      } else if (data.union) {
+        // Fallback to data.union if exists
+        state.updateUnionState({
+          type: data.union.type,
+          models: data.union.models || [],
+          sources: data.union.sources || [],
+        });
       }
 
       // Load CTEs if present. Defensive normalization drops empty `from`
@@ -1225,6 +1291,7 @@ export const useModelStore = create<ModelStore>()(
       // Load additional fields with validation
       const additionalFieldKeys: (keyof AdditionalFieldsSchema)[] = [
         'description',
+        'fragments',
         'tags',
         'incremental_strategy',
         'sql_hooks',
@@ -1242,7 +1309,11 @@ export const useModelStore = create<ModelStore>()(
           let value = data[key] as AdditionalFieldsSchema[typeof key];
 
           // Validate and sanitize array fields
-          if (key === 'tags' || key === 'partitioned_by') {
+          if (
+            key === 'fragments' ||
+            key === 'tags' ||
+            key === 'partitioned_by'
+          ) {
             // Models may use either `materialized: "incremental"` (string form) or
             // `materialization: { type: "incremental", ... }` (object form).
             // Both must be checked to avoid discarding partitioned_by.
@@ -1323,7 +1394,9 @@ export const useModelStore = create<ModelStore>()(
     // Internal function to flush the save queue
     _flushSaveQueue: async () => {
       const state = get();
-      if (!state.autoSaveEnabled || state._saveQueue.size === 0) return;
+      if (!state.autoSaveEnabled || state._saveQueue.size === 0) {
+        return;
+      }
 
       try {
         // Get all queued changes
@@ -1352,7 +1425,9 @@ export const useModelStore = create<ModelStore>()(
     // Centralized save field function with debouncing
     saveField: (field, value) => {
       const state = get();
-      if (!state.autoSaveEnabled) return Promise.resolve();
+      if (!state.autoSaveEnabled) {
+        return Promise.resolve();
+      }
 
       // Add to save queue
       set((currentState) => {
@@ -1631,6 +1706,12 @@ export const useModelStore = create<ModelStore>()(
       }));
     },
 
+    setColumnSelectionDiagnostics: (diagnostics) => {
+      set(() => ({
+        columnSelectionDiagnostics: diagnostics,
+      }));
+    },
+
     // Column Configuration Node visibility
     setShowColumnConfiguration: (show: boolean) => {
       set(() => ({
@@ -1691,6 +1772,7 @@ export const useModelStore = create<ModelStore>()(
         where: null,
         dataModeling: initialDataModeling,
         additionalFields: initialAdditionalFields,
+        templateAuthoring: {},
         materializationExtras: {},
         navigationNodeType: null,
         showColumnConfiguration: false,
@@ -1745,7 +1827,9 @@ export const useModelStore = create<ModelStore>()(
     },
     patchCte: (index: number, patch: Partial<CteState>) => {
       const oldCte = get().ctes[index];
-      if (!oldCte) return;
+      if (!oldCte) {
+        return;
+      }
       // Patch semantics: `undefined` deletes the key from the CTE,
       // anything else replaces it. A spread (`{ ...oldCte, ...patch }`)
       // would leave the key present with an `undefined` value, so the
@@ -1829,7 +1913,9 @@ export const useModelStore = create<ModelStore>()(
     duplicateCte: (index: number) => {
       set((state) => {
         const source = state.ctes[index];
-        if (!source) return {};
+        if (!source) {
+          return {};
+        }
         // Deep clone to avoid sharing nested references with the source CTE.
         const cloned: CteState = JSON.parse(JSON.stringify(source));
         // Suffix the copied CTE name to keep names unique within the model.
@@ -1852,7 +1938,9 @@ export const useModelStore = create<ModelStore>()(
       void get().saveField('ctes', get().ctes);
     },
     applyCteRename: (oldName: string, newName: string) => {
-      if (!oldName || !newName || oldName === newName) return;
+      if (!oldName || !newName || oldName === newName) {
+        return;
+      }
       set((state) => {
         const draft = visitCteRefs(
           {
@@ -1894,7 +1982,9 @@ export const useModelStore = create<ModelStore>()(
       // commit when the rounded value actually moves.
       const prev = get().cteNodeMeasuredHeight;
       const next = height === null ? null : Math.round(height);
-      if (prev === next) return;
+      if (prev === next) {
+        return;
+      }
       set({ cteNodeMeasuredHeight: next });
     },
     setManualPosition: (id: string, pos: { x: number; y: number }) => {
@@ -1909,11 +1999,15 @@ export const useModelStore = create<ModelStore>()(
         presentSet.has(id),
       );
       // Avoid a no-op set so we don't re-trigger consumers on every layout pass.
-      if (filteredEntries.length === Object.keys(current).length) return;
+      if (filteredEntries.length === Object.keys(current).length) {
+        return;
+      }
       set({ manualPositions: Object.fromEntries(filteredEntries) });
     },
     clearManualPositions: () => {
-      if (Object.keys(get().manualPositions).length === 0) return;
+      if (Object.keys(get().manualPositions).length === 0) {
+        return;
+      }
       set({ manualPositions: {} });
     },
 
@@ -1997,7 +2091,25 @@ export const useModelStore = create<ModelStore>()(
         modelJson.lightdash = lightdashConfig;
       }
 
+      const { templateAuthoring } = state;
+      if (templateAuthoring.extends) {
+        modelJson.extends = templateAuthoring.extends;
+        const withParams = templateAuthoring.with ?? {};
+        const cleanedWith = Object.fromEntries(
+          Object.entries(withParams).filter(([, v]) => v !== ''),
+        );
+        if (Object.keys(cleanedWith).length > 0) {
+          modelJson.with = cleanedWith;
+        }
+      }
+
       return modelJson;
+    },
+
+    setTemplateAuthoring: (patch) => {
+      set((state) => ({
+        templateAuthoring: { ...state.templateAuthoring, ...patch },
+      }));
     },
   })),
 );
@@ -2108,13 +2220,15 @@ function omitGeneratedPreHook(
 // dedicated null-coercion (e.g. `partitioned_by`, handled by buildModelJson)
 // must NOT be listed here: they rely on `[]` reaching that path to be
 // converted to `null` for backend deletion semantics.
-const DROP_EMPTY_ARRAY_FIELDS = new Set<string>(['tags']);
+const DROP_EMPTY_ARRAY_FIELDS = new Set<string>(['tags', 'fragments']);
 
 function buildAdditionalFields(additionalFields: AdditionalFieldsSchema) {
   return Object.fromEntries(
     Object.entries(additionalFields)
       .filter(([key, value]) => {
-        if (value === undefined) return false;
+        if (value === undefined) {
+          return false;
+        }
         if (
           DROP_EMPTY_ARRAY_FIELDS.has(key) &&
           Array.isArray(value) &&

@@ -13,6 +13,7 @@
     "description": { "$ref": "model.description.schema.json" },
     "tags": { "$ref": "model.tags.schema.json" },
     "meta": { "$ref": "model.meta.schema.json" },
+    "fragments": { "$ref": "model.fragments.schema.json" },
     "depends_on": { "$ref": "model.depends_on.schema.json" },
     "materialization": { "$ref": "model.materialization.schema.json" },
     "materialized": { "$ref": "model.materialized.schema.json" },
@@ -55,7 +56,8 @@
           { "$ref": "model.select.col.schema.json" },
           { "$ref": "model.select.expr.schema.json" },
           { "$ref": "model.select.interval.schema.json" },
-          { "$ref": "model.select.model.schema.json" }
+          { "$ref": "model.select.model.schema.json" },
+          { "$ref": "model.select.fragment.schema.json" }
         ]
       }
     }

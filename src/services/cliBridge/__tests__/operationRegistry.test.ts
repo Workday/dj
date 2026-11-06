@@ -87,6 +87,18 @@ describe('operationRegistry — read tier', () => {
     ]);
   });
 
+  it('forwards fragment.list to framework-fragment-list with flat payload', async () => {
+    const reg = createOperationRegistry();
+    const { ctx, calls } = makeCtx(['analytics']);
+    await dispatch(reg, 'fragment.list', { projectName: 'analytics' }, ctx);
+    expect(calls).toEqual([
+      {
+        type: 'framework-fragment-list',
+        request: { projectName: 'analytics' },
+      },
+    ]);
+  });
+
   it('honors an explicit projectName when provided', async () => {
     const reg = createOperationRegistry();
     const { ctx, calls } = makeCtx(['a', 'b']);

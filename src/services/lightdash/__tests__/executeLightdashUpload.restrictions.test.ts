@@ -9,8 +9,22 @@
  *   - allow              → CLI spawned (then we let it exit cleanly)
  */
 
-import { describe, expect, it, jest } from '@jest/globals';
+import {
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  jest,
+} from '@jest/globals';
+import { resolveLightdashProjectUuid } from '@services/lightdash/projectResolver';
 import { EventEmitter } from 'events';
+
+const AAA_UUID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const BBB_UUID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const mockResolveProject = resolveLightdashProjectUuid as jest.MockedFunction<
+  typeof resolveLightdashProjectUuid
+>;
 
 // Minimal vscode mock - `admin.ts` reads workspaceFolders at import time
 // and the dashboards-as-code module imports `vscode` for path helpers.
@@ -46,6 +60,19 @@ jest.mock('@services/config', () => ({
   updateDjSetting: jest.fn(),
 }));
 
+// Keep the real resolver by default; slug tests override it per call.
+jest.mock('@services/lightdash/projectResolver', () => {
+  const actual = jest.requireActual(
+    '@services/lightdash/projectResolver',
+  ) as typeof import('@services/lightdash/projectResolver');
+  return {
+    ...actual,
+    resolveLightdashProjectUuid: jest.fn((value: string) =>
+      actual.resolveLightdashProjectUuid(value),
+    ),
+  };
+});
+
 // Capture spawn() invocations and return a fake ChildProcess that
 // closes successfully so the upload "happy path" resolves.
 const mockSpawn = jest.fn();
@@ -79,7 +106,7 @@ const baseRequest = {
   path: 'lightdash',
   chartSlugs: ['orders-by-region'],
   dashboardSlugs: [],
-  project: 'AAA-111',
+  project: AAA_UUID,
 };
 
 // Defer import until after the mocks are set up.
@@ -100,7 +127,7 @@ describe('executeLightdashUpload restriction enforcement', () => {
   it('refuses block-mode uploads and never spawns the CLI', async () => {
     mockGetDjConfig.mockReturnValue({
       lightdashRestrictedProjects: [
-        { uuid: 'AAA-111', mode: 'block', label: 'production' },
+        { uuid: AAA_UUID, mode: 'block', label: 'production' },
       ],
     });
     const result = await executeLightdashUpload(
@@ -117,7 +144,7 @@ describe('executeLightdashUpload restriction enforcement', () => {
   it('refuses warn-mode uploads when acknowledgedWarning is missing', async () => {
     mockGetDjConfig.mockReturnValue({
       lightdashRestrictedProjects: [
-        { uuid: 'AAA-111', mode: 'warn', label: 'production' },
+        { uuid: AAA_UUID, mode: 'warn', label: 'production' },
       ],
     });
     const result = await executeLightdashUpload(
@@ -133,7 +160,7 @@ describe('executeLightdashUpload restriction enforcement', () => {
   it('proceeds with warn-mode uploads when acknowledgedWarning is true', async () => {
     mockGetDjConfig.mockReturnValue({
       lightdashRestrictedProjects: [
-        { uuid: 'AAA-111', mode: 'warn', label: 'production' },
+        { uuid: AAA_UUID, mode: 'warn', label: 'production' },
       ],
     });
     const result = await executeLightdashUpload(
@@ -146,13 +173,13 @@ describe('executeLightdashUpload restriction enforcement', () => {
     const spawnArgs = mockSpawn.mock.calls[0];
     expect(spawnArgs[0]).toBe('lightdash');
     expect(spawnArgs[1]).toEqual(
-      expect.arrayContaining(['upload', '--project', 'AAA-111']),
+      expect.arrayContaining(['upload', '--project', AAA_UUID]),
     );
   });
 
   it('proceeds when the project is not on the restricted list', async () => {
     mockGetDjConfig.mockReturnValue({
-      lightdashRestrictedProjects: [{ uuid: 'BBB-222', mode: 'block' }],
+      lightdashRestrictedProjects: [{ uuid: BBB_UUID, mode: 'block' }],
     });
     const result = await executeLightdashUpload(
       baseRequest,
@@ -184,7 +211,74 @@ describe('executeLightdashUpload restriction enforcement', () => {
       noopOnLog,
     );
     expect(result.success).toBe(false);
-    expect(result.error).toMatch(/project uuid is required/i);
+    expect(result.error).toMatch(/project slug or uuid is required/i);
     expect(mockSpawn).not.toHaveBeenCalled();
+  });
+
+  describe('slug input', () => {
+    it('applies the block policy to the UUID a slug resolves to', async () => {
+      mockGetDjConfig.mockReturnValue({
+        lightdashRestrictedProjects: [
+          { uuid: AAA_UUID, mode: 'block', label: 'production' },
+        ],
+      });
+      mockResolveProject.mockResolvedValueOnce({ ok: true, uuid: AAA_UUID });
+      const result = await executeLightdashUpload(
+        { ...baseRequest, project: 'jaffle-prod' },
+        noopLogger,
+        noopOnLog,
+      );
+      expect(mockResolveProject).toHaveBeenCalledWith('jaffle-prod');
+      expect(result.success).toBe(false);
+      expect(result.restriction?.status).toBe('block');
+      expect(mockSpawn).not.toHaveBeenCalled();
+    });
+
+    it('applies the warn policy to the UUID a slug resolves to', async () => {
+      mockGetDjConfig.mockReturnValue({
+        lightdashRestrictedProjects: [{ uuid: AAA_UUID, mode: 'warn' }],
+      });
+      mockResolveProject.mockResolvedValueOnce({ ok: true, uuid: AAA_UUID });
+      const result = await executeLightdashUpload(
+        { ...baseRequest, project: 'jaffle-prod' },
+        noopLogger,
+        noopOnLog,
+      );
+      expect(result.restriction?.status).toBe('warn');
+      expect(mockSpawn).not.toHaveBeenCalled();
+    });
+
+    it('refuses the upload when the slug cannot be resolved', async () => {
+      mockGetDjConfig.mockReturnValue({ lightdashRestrictedProjects: [] });
+      mockResolveProject.mockResolvedValueOnce({
+        ok: false,
+        error: 'No project found with UUID or slug "missing".',
+      });
+      const result = await executeLightdashUpload(
+        { ...baseRequest, project: 'missing' },
+        noopLogger,
+        noopOnLog,
+      );
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/no project found/i);
+      expect(mockSpawn).not.toHaveBeenCalled();
+    });
+
+    it('passes the resolved UUID to the CLI --project flag', async () => {
+      mockGetDjConfig.mockReturnValue({
+        lightdashRestrictedProjects: [{ uuid: BBB_UUID, mode: 'block' }],
+      });
+      mockResolveProject.mockResolvedValueOnce({ ok: true, uuid: AAA_UUID });
+      const result = await executeLightdashUpload(
+        { ...baseRequest, project: 'jaffle-dev' },
+        noopLogger,
+        noopOnLog,
+      );
+      expect(result.success).toBe(true);
+      const spawnArgs = mockSpawn.mock.calls[0];
+      expect(spawnArgs[1]).toEqual(
+        expect.arrayContaining(['--project', AAA_UUID]),
+      );
+    });
   });
 });

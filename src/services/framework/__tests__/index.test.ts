@@ -8,6 +8,11 @@ import { sqlFormat } from '@services/utils/sql';
 import type { DJ } from '@shared';
 import { jsonParse } from '@shared';
 import type { DbtProject } from '@shared/dbt/types';
+import {
+  compositionHeader,
+  CompositionRegistry,
+  resolveModelComposition,
+} from '@shared/framework/composition';
 import type { FrameworkModel } from '@shared/framework/types';
 import * as fs from 'fs';
 import { glob } from 'glob';
@@ -30,8 +35,24 @@ describe('framework fixtures', () => {
       pathRelative,
       pathSystem,
       properties: { vars: { event_dates: '2024-01-01' } },
+      // Mirrors docs/examples/jaffle_shop/dbt_project.yml `storage_type`, which the
+      // example's generated SQL was produced with.
+      variables: { storage_type: 'iceberg' },
       targetPath: 'target',
     };
+
+    const compositionRegistry = new CompositionRegistry();
+    for (const pathShared of glob.sync(
+      `${pathSystem}/*.{fragment,template}.json`,
+    )) {
+      const text = fs.readFileSync(pathShared, 'utf8');
+      const { error } = compositionRegistry.upsert({
+        filePath: pathShared,
+        text,
+        definition: jsonParse(text),
+      });
+      expect(error).toBeUndefined();
+    }
 
     const pathsModelJson = glob.sync(`${pathSystem}/*.model.json`);
     for (const pathModelJson of pathsModelJson) {
@@ -42,12 +63,22 @@ describe('framework fixtures', () => {
       const fileSql = fs.readFileSync(pathSql, 'utf8');
       const fileYml = fs.readFileSync(pathYml, 'utf8');
 
-      const { sql: generatedSql, yml: generatedYml } =
-        frameworkGenerateModelOutput({
-          dj: createTestDJ(),
-          modelJson: fileModelJson,
-          project,
-        });
+      // Resolve fragments and templates the same way sync does before generating output.
+      const composition = resolveModelComposition<FrameworkModel>(
+        fileModelJson,
+        compositionRegistry,
+      );
+
+      const generated = frameworkGenerateModelOutput({
+        dj: createTestDJ(),
+        modelJson: composition.resolved,
+        project,
+      });
+      // Sync prepends the composition header after generation (see ModelProcessor).
+      const generatedSql =
+        compositionHeader(composition.dependencies, '--') + generated.sql;
+      const generatedYml =
+        compositionHeader(composition.dependencies, '#') + generated.yml;
 
       expect(generatedSql).toBe(fileSql);
       expect(generatedYml).toBe(fileYml);
@@ -853,7 +884,7 @@ describe('materialization shorthand', () => {
     expect(config.incremental_strategy).toBe('delete+insert');
   });
 
-  test('defaults to overwrite_existing_partitions when config is unset', () => {
+  test('defaults to delete+insert when config is unset', () => {
     // Fallback must match the DEFAULT_INCREMENTAL_STRATEGY shared constant
     // (src/shared/framework/constants.ts) and the `default` in package.json,
     // so the extension behaves consistently when the user never touches the
@@ -878,7 +909,7 @@ describe('materialization shorthand', () => {
     });
 
     expect(config.materialized).toBe('incremental');
-    expect(config.incremental_strategy).toBe('overwrite_existing_partitions');
+    expect(config.incremental_strategy).toBe('delete+insert');
   });
 
   test('materialization object without strategy uses config default', () => {
@@ -1140,10 +1171,9 @@ describe('incremental strategy variants', () => {
     expect(config.unique_key).toBeUndefined();
   });
 
-  test('default fallback overwrite_existing_partitions omits unique_key', () => {
-    // When the extension default kicks in (no explicit strategy) and resolves
-    // to overwrite_existing_partitions, unique_key must NOT be emitted -- the
-    // consumer macro derives partitions from the new slice.
+  test('default fallback delete+insert derives unique_key from partitions', () => {
+    // With no explicit strategy, the extension default (delete+insert) applies.
+    // unique_key is auto-derived from the partition column in the select.
     const modelJson: FrameworkModel = {
       type: 'int_select_model',
       group: 'swh',
@@ -1163,8 +1193,8 @@ describe('incremental strategy variants', () => {
       project: partitionedProject,
     });
 
-    expect(config.incremental_strategy).toBe('overwrite_existing_partitions');
-    expect(config.unique_key).toBeUndefined();
+    expect(config.incremental_strategy).toBe('delete+insert');
+    expect(config.unique_key).toBe('portal_partition_daily');
   });
 
   test('Delta Lake / Hive partitioning uses properties.partitioned_by', () => {

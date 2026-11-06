@@ -4,6 +4,7 @@ import {
   FRAMEWORK_PARTITIONS,
 } from '@shared/framework/constants';
 import type { IncrementalStrategy } from '@shared/schema/types/model.schema';
+import { useApp } from '@web/context';
 import {
   Checkbox,
   EditableList,
@@ -18,7 +19,7 @@ import {
   useModelStore,
 } from '@web/stores/useModelStore';
 import type { ChangeEvent } from 'react';
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { Control, FieldError, FieldErrors } from 'react-hook-form';
 import { Controller } from 'react-hook-form';
 
@@ -68,6 +69,8 @@ export function AdditionalFields({
   setValue,
   watch,
 }: AdditionalFieldsProps) {
+  const { api } = useApp();
+  const projectName = useModelStore((state) => state.basicFields.projectName);
   const type = useModelStore((state) => state.basicFields.type);
   const materialization = useModelStore(
     (state) => state.basicFields.materialization,
@@ -79,6 +82,34 @@ export function AdditionalFields({
   const additionalFieldsSqlHooks = useModelStore(
     (state) => state.additionalFields.sql_hooks,
   );
+
+  const [configFragmentOptions, setConfigFragmentOptions] = useState<
+    { label: string; value: string }[]
+  >([]);
+
+  useEffect(() => {
+    if (!projectName) {
+      setConfigFragmentOptions([]);
+      return;
+    }
+    void api
+      .post({
+        type: 'framework-fragment-list',
+        request: { projectName },
+      })
+      .then((list) => {
+        if (!list) {
+          setConfigFragmentOptions([]);
+          return;
+        }
+        setConfigFragmentOptions(
+          list
+            .filter((entry) => entry.kind === 'config')
+            .map((entry) => ({ label: entry.name, value: entry.name })),
+        );
+      })
+      .catch(() => setConfigFragmentOptions([]));
+  }, [api, projectName]);
 
   // Watch incremental_strategy to show/hide merge fields
   const incrementalStrategy = watch('incremental_strategy') as
@@ -233,6 +264,40 @@ export function AdditionalFields({
           </div>
         )}
       />
+
+      {/* Config fragments (materialization, tags, meta, …) */}
+      {configFragmentOptions.length > 0 && (
+        <Controller
+          control={control}
+          name="fragments"
+          render={({ field }) => (
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-medium text-foreground flex gap-1 items-center">
+                Config fragments
+                <Tooltip
+                  content={
+                    'Apply shared *.fragment.json files (kind: config) to this model. Model-level values win; later fragments override earlier ones.'
+                  }
+                />
+              </label>
+              <SelectMulti
+                options={configFragmentOptions}
+                value={field.value ?? []}
+                placeholder="No config fragments"
+                onChange={(values) => {
+                  const next =
+                    values.length > 0
+                      ? (values as AdditionalFieldsSchema['fragments'])
+                      : undefined;
+                  field.onChange(next ?? []);
+                  setValue('fragments', next);
+                  setAdditionalField('fragments', next);
+                }}
+              />
+            </div>
+          )}
+        />
+      )}
 
       {/* 3. Incremental Strategy (only shown for incremental materialization) */}
       {showIncrementalStrategy && (

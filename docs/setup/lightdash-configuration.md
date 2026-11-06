@@ -169,22 +169,16 @@ code .
 
 #### Option B: Both Trino and Lightdash in Docker
 
-If both are running in Docker containers:
+If both are running in Docker containers (the recommended setup from [Trino Local Setup](trino-local-setup.md), which joins the `lightdash_default` network automatically):
 
-1. **Connect the Docker networks**:
-
-   ```bash
-   docker network connect lightdash_default trino_default
-   ```
-
-2. **Set the environment variable**:
+1. **Set the environment variable**:
 
    ```bash
    echo 'export LIGHTDASH_TRINO_HOST=trino_default' >> ~/.zshrc
    source ~/.zshrc
    ```
 
-3. **Verify and restart VS Code**:
+2. **Verify and restart VS Code**:
 
    ```bash
    # Verify it's set

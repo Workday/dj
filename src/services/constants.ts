@@ -20,6 +20,10 @@ export const BASE_AGENTS_DJ_PATH = path.join(
   __dirname,
   '../../templates/_agents-dj',
 );
+export const BASE_PACKAGE_JSON_PATH = path.join(
+  __dirname,
+  '../../package.json',
+);
 
 // Extension constants
 export const OUTPUT_CHANNEL_NAME = 'DJ';
@@ -92,6 +96,8 @@ export const COMMAND_ID = {
   FRAMEWORK_JUMP_MODEL: 'dj.command.frameworkJumpModel',
   FRAMEWORK_JUMP_YAML: 'dj.command.frameworkJumpYaml',
   JSON_SYNC: 'dj.command.jsonSync',
+  MODEL_PREVIEW_RESOLVED: 'dj.command.modelPreviewResolved',
+  COMPOSITION_SHOW_USED_BY: 'dj.command.compositionShowUsedBy',
   PYTHON_MODEL_CREATE: 'dj.command.pythonModelCreate',
   PYTHON_MODEL_OPEN_NOTEBOOK: 'dj.command.pythonModelOpenNotebook',
   DAG_CREATE: 'dj.command.dagCreate',

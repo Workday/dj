@@ -1,3 +1,4 @@
+# DJ composed from fragments: jaffle_lightdash_explore
 version: "2"
 models:
   - name: mart__sales__reporting__revenue
@@ -49,16 +50,16 @@ models:
             type: timestamp
             label: Datetime
             sql: portal_partition_hourly
-      - name: is_weekend_order
+      - name: day_type
         data_type: varchar
-        description: Boolean flag for weekend orders
+        description: Weekend or weekday classification of the order date
         meta:
           type: dim
           origin:
             id: model.jaffle_shop.mart__sales__reporting__revenue
           dimension:
             type: string
-            label: Is Weekend Order
+            label: Day Type
       - name: order_date
         data_type: varchar
         description: Date when order was placed

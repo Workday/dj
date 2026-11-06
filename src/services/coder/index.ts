@@ -39,6 +39,7 @@ import { sqlFormat } from '@services/utils/sql';
 import type { ApiMessage } from '@shared/api/types';
 import type { DbtProject, DbtProjectManifest } from '@shared/dbt/types';
 import { getDbtModelId, getDbtProperties } from '@shared/dbt/utils';
+import { sharedFileKindForPath } from '@shared/framework/composition';
 import type { WebviewMessage } from '@shared/webview/types';
 import {
   DJ_BIN_PATH,
@@ -939,6 +940,11 @@ export class Coder {
               this.log.error(`DEBOUNCE: No model ID found for ${filePath}`);
               return;
             }
+            await this.framework.compositionHandlers.indexModelUsageForFile(
+              info.project,
+              filePath,
+              info.modelJson,
+            );
             this.log.info(
               `DEBOUNCE: Enqueuing sync for ${id} (modelName=${modelName}, pathJson: ${filePath})`,
             );
@@ -1018,6 +1024,11 @@ export class Coder {
         this.log.info(
           `SUPPRESSED (within sync artifact window): ${type} - ${uri.fsPath}`,
         );
+        return;
+      }
+      if (action === 'debounce' && sharedFileKindForPath(uri.fsPath)) {
+        this.log.info(`DEBOUNCE: ${type} event for shared file: ${uri.fsPath}`);
+        this.framework.compositionHandlers.handleSharedFileEvent(uri, type);
         return;
       }
       if (action === 'debounce') {
@@ -1332,6 +1343,12 @@ export class Coder {
       }
       return this.handleWatcherEvent({ type: 'create', uri });
     });
+    watcher.onDidDelete(async (uri) => {
+      if (ignoreRegex.test(uri.fsPath) || !sharedFileKindForPath(uri.fsPath)) {
+        return;
+      }
+      return this.handleWatcherEvent({ type: 'delete', uri });
+    });
     return watcher;
   }
 
@@ -1451,8 +1468,8 @@ export class Coder {
     this.context.subscriptions.push(
       vscode.commands.registerCommand(
         COMMAND_ID.CONVERT_DRAFT_TO_MODEL,
-        async () => {
-          await this.queryDraft.convertDraftToModelAuto();
+        async (uri?: vscode.Uri) => {
+          await this.queryDraft.convertDraftToModelAuto(uri);
         },
       ),
     );
@@ -1461,8 +1478,8 @@ export class Coder {
     this.context.subscriptions.push(
       vscode.commands.registerCommand(
         COMMAND_ID.CONVERT_DRAFT_TO_MODEL_COPILOT,
-        async () => {
-          await this.queryDraft.convertDraftToModel('copilot');
+        async (uri?: vscode.Uri) => {
+          await this.queryDraft.convertDraftToModel('copilot', uri);
         },
       ),
     );
@@ -1471,8 +1488,8 @@ export class Coder {
     this.context.subscriptions.push(
       vscode.commands.registerCommand(
         COMMAND_ID.CONVERT_DRAFT_TO_MODEL_CURSOR,
-        async () => {
-          await this.queryDraft.convertDraftToModel('cursor');
+        async (uri?: vscode.Uri) => {
+          await this.queryDraft.convertDraftToModel('cursor', uri);
         },
       ),
     );
@@ -1481,17 +1498,20 @@ export class Coder {
     this.context.subscriptions.push(
       vscode.commands.registerCommand(
         COMMAND_ID.CONVERT_DRAFT_TO_MODEL_CLAUDE,
-        async () => {
-          await this.queryDraft.convertDraftToModel('claude');
+        async (uri?: vscode.Uri) => {
+          await this.queryDraft.convertDraftToModel('claude', uri);
         },
       ),
     );
 
     // Run query from draft SQL file
     this.context.subscriptions.push(
-      vscode.commands.registerCommand(COMMAND_ID.QUERY_DRAFT_RUN, async () => {
-        await this.queryDraft.runQueryFromEditor();
-      }),
+      vscode.commands.registerCommand(
+        COMMAND_ID.QUERY_DRAFT_RUN,
+        async (uri?: vscode.Uri) => {
+          await this.queryDraft.runQueryFromEditor(uri);
+        },
+      ),
     );
   }
 

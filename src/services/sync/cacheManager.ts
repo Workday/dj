@@ -11,6 +11,17 @@ import * as crypto from 'crypto';
 import type { ContentHashEntry } from './types';
 
 /**
+ * Cache key for a model: its raw text, plus the fingerprint of the fragments
+ * and templates it uses so editing a shared file invalidates its dependents.
+ */
+export function modelCacheKey(
+  jsonContent: string,
+  fingerprint?: string,
+): string {
+  return fingerprint ? `${jsonContent}\u0000${fingerprint}` : jsonContent;
+}
+
+/**
  * CacheManager handles content hashing and caching for change detection.
  *
  * It stores MD5 hashes of JSON, SQL, and YML files to detect changes

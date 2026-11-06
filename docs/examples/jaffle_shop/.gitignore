@@ -13,3 +13,7 @@ logs/
 .user.yml
 
 .DS_Store
+
+# dj
+/lightdash/
+# /dj
