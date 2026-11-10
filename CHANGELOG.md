@@ -17,6 +17,23 @@
 ### Local Trino & Lightdash
 
 - **Persistent Iceberg `development` catalog via Docker Compose.** Start a local Trino 484 + Postgres Iceberg JDBC catalog with `docker compose -f docs/setup/trino/docker-compose.yml up -d` so partitioned models build and table data survives container restarts. **DJ: Start Lightdash Preview** also automatically detects `profiles.yml` inside a dbt project subdirectory when `dj.lightdashProfilesPath` is unset.
+- **Project slugs in Dashboards as Code.** The Download and Upload tabs accept a Lightdash project slug as well as a UUID. Restricted-project rules in `dj.lightdash.restrictedProjects` apply to the project a slug resolves to.
+
+### Query drafts
+
+- **Fixed Convert to DJ Model from the right-click menu.** Cursor opens a new chat with the prompt prefilled. Claude copies the prompt to your clipboard to paste, as does Cursor when the prompt is too long to prefill.
+
+### Query Control Center
+
+- **Live queries list newest first.** The Live tab orders active queries from most recent to oldest, so the list stays in a consistent order across auto-refresh.
+
+### Materialization defaults
+
+- **Incremental models default to `delete+insert`.** Models that set `materialization: "incremental"` without a `strategy` now use `delete+insert` instead of `overwrite_existing_partitions`, which needs a custom dbt macro. To keep the old behavior, set `dj.materialization.defaultIncrementalStrategy` to `overwrite_existing_partitions` or set `materialization.strategy` on each model. Re-sync to regenerate existing SQL.
+
+## 2.5.1
+
+- **Generated runtime files no longer block `git pull` or branch switches.** `_trino_io.py`, `_config.py`, `_model_tasks.py`, and the `dags/_ext_/` etl helper bundle open read-only in the editor (`files.readonlyInclude`) instead of being reverted on disk, so git can update them. DJ stamps each with a `# dj-generated:` version header, regenerates only outdated or hand-edited copies, never downgrades files from a newer DJ, and adds `eol=lf linguist-generated=true` entries to `.gitattributes`.
 
 ## 2.5.0
 

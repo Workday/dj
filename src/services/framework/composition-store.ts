@@ -10,6 +10,8 @@ import {
 } from '@shared/framework/composition';
 import * as path from 'path';
 
+import { frameworkGetSourceId } from './utils/source-utils';
+
 export interface SharedFileChange {
   kind: SharedFileKind;
   /** Names whose models need re-syncing: the old and the new name. */
@@ -18,7 +20,7 @@ export interface SharedFileChange {
 }
 
 /**
- * Model names a template `model_ref` parameter may point at: every model in
+ * Model names a template `model` parameter may point at: every model in
  * the manifest plus every `.model.json` file on disk (new models are not in
  * the manifest until the next parse).
  */
@@ -30,6 +32,19 @@ export function modelExistsFor(
   const prefix = `model.${project.name}.`;
   return (name) =>
     names.has(name) || !!project.manifest?.nodes?.[`${prefix}${name}`];
+}
+
+/**
+ * Source tables a template `source` parameter may point at, resolved through
+ * the same manifest id that `from.source` uses.
+ */
+export function sourceExistsFor(
+  project: DbtProject,
+): (name: string) => boolean {
+  return (name) =>
+    !!project.manifest?.sources?.[
+      frameworkGetSourceId({ project, source: name })
+    ];
 }
 
 /** Model name implied by a `.model.json` path. */
@@ -160,6 +175,7 @@ export class CompositionStore {
   ): ResolveResult<TModel> {
     return resolveModelComposition<TModel>(model, this.registryFor(project), {
       modelExists: modelExistsFor(project),
+      sourceExists: sourceExistsFor(project),
       ...options,
     });
   }

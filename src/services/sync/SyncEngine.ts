@@ -9,9 +9,11 @@
 import {
   modelExistsFor,
   modelNameFromPath,
+  sourceExistsFor,
 } from '@services/framework/composition-store';
 import type { AutoGenerateTestsConfig } from '@services/framework/utils';
 import { frameworkGetModelName } from '@services/framework/utils';
+import { jsoncSyntaxDetails } from '@services/framework/utils/json-diagnostics';
 import { jsonParse } from '@shared';
 import type { DbtProject } from '@shared/dbt/types';
 import {
@@ -108,6 +110,7 @@ export class SyncEngine {
       project,
       modelJsonUris.map((uri) => modelNameFromPath(uri.fsPath)),
     );
+    const sourceExists = sourceExistsFor(project);
 
     compositionRegistry?.clearAllUsage();
 
@@ -123,7 +126,7 @@ export class SyncEngine {
           const composition = resolveModelComposition<FrameworkModel>(
             rawModel,
             compositionRegistry,
-            { modelExists },
+            { modelExists, sourceExists },
           );
           compositionRegistry?.recordUsage(
             uri.fsPath,
@@ -430,6 +433,7 @@ export class SyncEngine {
             .filter((uri) => uri.fsPath.endsWith('.model.json'))
             .map((uri) => modelNameFromPath(uri.fsPath)),
         ),
+        sourceExists: sourceExistsFor(project),
       });
 
       processedCount += levelResult.processedCount;
@@ -610,6 +614,7 @@ export class SyncEngine {
     autoGenerateTestsConfig?: AutoGenerateTestsConfig;
     compositionRegistry?: CompositionRegistry;
     modelExists?: (name: string) => boolean;
+    sourceExists?: (name: string) => boolean;
   }): Promise<{
     processedCount: number;
     skippedCount: number;
@@ -628,6 +633,7 @@ export class SyncEngine {
       changedParentIds,
       compositionRegistry,
       modelExists,
+      sourceExists,
     } = params;
     let { project } = params;
 
@@ -661,6 +667,25 @@ export class SyncEngine {
             const fileContent = await vscode.workspace.fs.readFile(jsonUri);
             let jsonContent = fileContent.toString();
 
+            // jsonParse is lenient: malformed JSON can still parse into a model
+            // (e.g. bare keys become column names), so report it and skip the file.
+            if (resource.type === 'model') {
+              const syntaxDetails = jsoncSyntaxDetails(jsonContent);
+              if (syntaxDetails.length > 0) {
+                this.callbacks.onModelValidationError?.(
+                  jsonUri,
+                  syntaxDetails[0].message,
+                  syntaxDetails,
+                  jsonContent,
+                );
+                errors.push({
+                  resourceId: resource.id,
+                  message: syntaxDetails[0].message,
+                });
+                return { resource, result: null };
+              }
+            }
+
             // `jsonContent` stays the raw file text (the only thing ever
             // written back); validation and generation use `resolvedModel`.
             const composition =
@@ -668,7 +693,7 @@ export class SyncEngine {
                 ? resolveModelComposition<FrameworkModel>(
                     jsonParse(jsonContent),
                     compositionRegistry,
-                    { modelExists },
+                    { modelExists, sourceExists },
                   )
                 : undefined;
             const fingerprint =

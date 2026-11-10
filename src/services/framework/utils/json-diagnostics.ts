@@ -1,4 +1,5 @@
 import type { ValidationErrorDetail } from '@services/sync/types';
+import { jsoncSyntaxProblems } from '@shared/framework/jsoncSyntax';
 import * as fs from 'fs';
 import { findNodeAtLocation, parseTree } from 'jsonc-parser';
 import * as vscode from 'vscode';
@@ -21,7 +22,7 @@ function instancePathToSegments(instancePath: string): (string | number)[] {
 /**
  * Convert a character offset in `text` to a zero-based { line, col } position.
  */
-function offsetToPosition(
+export function offsetToPosition(
   text: string,
   offset: number,
 ): { line: number; col: number } {
@@ -68,6 +69,17 @@ export function rangeForInstancePath(
     }
   }
   return new vscode.Range(0, 0, 0, 0);
+}
+
+/** Range covering `length` characters from `offset` in `text`. */
+export function rangeForOffset(
+  text: string,
+  offset: number,
+  length: number,
+): vscode.Range {
+  const start = offsetToPosition(text, offset);
+  const end = offsetToPosition(text, offset + length);
+  return new vscode.Range(start.line, start.col, end.line, end.col);
 }
 
 /** Reads a related (fragment or template) file's text for positioning. */
@@ -124,6 +136,22 @@ export function resolveValidationDiagnostics(
  * identically for both. Details with a `related` location (a fragment or
  * template file) get it attached as related information.
  */
+/**
+ * Details for JSON syntax problems in `jsonContent`, positioned by character
+ * offset. Returns an empty array when the text parses cleanly.
+ */
+export function jsoncSyntaxDetails(
+  jsonContent: string,
+): ValidationErrorDetail[] {
+  return jsoncSyntaxProblems(jsonContent).map((problem) => ({
+    message: problem.message,
+    instancePath: '',
+    severity: 'error',
+    offset: problem.offset,
+    length: problem.length,
+  }));
+}
+
 export function buildPositionedDiagnostics(
   details: ValidationErrorDetail[],
   jsonContent: string,
@@ -131,7 +159,10 @@ export function buildPositionedDiagnostics(
   readRelatedText: RelatedTextReader = readFromDisk,
 ): vscode.Diagnostic[] {
   return details.map((detail) => {
-    const range = rangeForInstancePath(jsonContent, detail.instancePath);
+    const range =
+      detail.offset !== undefined
+        ? rangeForOffset(jsonContent, detail.offset, detail.length ?? 0)
+        : rangeForInstancePath(jsonContent, detail.instancePath);
 
     // Per-detail severity wins so a single batched callback can carry a
     // mix of errors and warnings (e.g. validateDjIcebergPartitionOverwrite

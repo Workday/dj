@@ -4,6 +4,7 @@ import { useApp } from '@web/context';
 import { Button } from '@web/elements';
 import { WhereEditor } from '@web/features/DataModeling/components/WhereEditor';
 import { ActionType } from '@web/features/DataModeling/types';
+import { pickModelProject } from '@web/features/DataModeling/utils/projectSelection';
 import { useModelStore } from '@web/stores/useModelStore';
 import type { NodeProps } from '@xyflow/react';
 import { Handle, Position } from '@xyflow/react';
@@ -42,9 +43,17 @@ export const WhereClauseNode: React.FC<NodeProps> = () => {
           request: null,
         });
         const projects = projectsResponse || [];
-        if (projects.length === 0) return;
+        if (projects.length === 0) {
+          return;
+        }
 
-        const project = projects[0];
+        const project = pickModelProject(
+          projects,
+          useModelStore.getState().basicFields.projectName,
+        );
+        if (!project) {
+          return;
+        }
         if (project.manifest) {
           setManifest(project.manifest);
         }

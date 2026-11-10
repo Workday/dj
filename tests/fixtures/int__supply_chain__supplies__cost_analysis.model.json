@@ -3,6 +3,13 @@
     "group": "supply_chain",
     "topic": "supplies",
     "name": "cost_analysis",
+    "materialization": {
+        "type": "incremental",
+        "strategy": {
+            "type": "delete+insert",
+            "unique_key": "supply_id"
+        }
+    },
     "from": {
         "model": "stg__supply_chain__supplies__inventory",
         "join": [

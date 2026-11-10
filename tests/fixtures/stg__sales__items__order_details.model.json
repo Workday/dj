@@ -12,8 +12,12 @@
             "type": "all_from_fragment",
             "fragment": "jaffle_item_line_dims",
             "overrides": {
-                "item_id": { "expr": "id" },
-                "product_sku": { "expr": "sku" }
+                "item_id": {
+                    "expr": "id"
+                },
+                "product_sku": {
+                    "expr": "sku"
+                }
             }
         },
         {

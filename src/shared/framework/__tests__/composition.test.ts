@@ -75,7 +75,7 @@ const awsModel = {
 const monthlyTemplate = {
   name: 'focus_monthly_cost',
   params: {
-    upstream: { type: 'model_ref' },
+    upstream: { type: 'model' },
     provider: { type: 'string' },
   },
   model: {
@@ -504,10 +504,50 @@ describe('resolveModelComposition: templates', () => {
     expect(unknown.issues[0].message).toContain('Unknown template');
   });
 
+  test('source params are checked against sourceExists only when provided', () => {
+    const sourceTemplate = {
+      name: 'raw_orders_mart',
+      params: { raw: { type: 'source' } },
+      model: {
+        type: 'mart_select_model',
+        from: { source: '${raw}' },
+        select: [{ name: 'id', type: 'dim', expr: 'id' }],
+      },
+    };
+    const registry = registryWith({
+      '/p/raw_orders.template.json': sourceTemplate,
+    });
+    const child = {
+      type: 'mart_select_model',
+      group: 'g',
+      topic: 't',
+      name: 'n',
+      extends: 'raw_orders_mart',
+      with: { raw: 'shop.orders' },
+    };
+    const sourceIssues = (issues: { message: string }[]) =>
+      issues.filter((i) => i.message.includes('names source'));
+
+    const valid = resolveModelComposition<Json>(child, registry, {
+      sourceExists: (name) => name === 'shop.orders',
+    });
+    expect(sourceIssues(valid.issues)).toEqual([]);
+
+    const missing = resolveModelComposition<Json>(child, registry, {
+      sourceExists: () => false,
+    });
+    expect(sourceIssues(missing.issues).map((i) => i.message)).toEqual([
+      'Parameter "raw" names source "shop.orders", which does not exist.',
+    ]);
+
+    const unchecked = resolveModelComposition<Json>(child, registry);
+    expect(sourceIssues(unchecked.issues)).toEqual([]);
+  });
+
   test('templates can extend templates; cycles and identity keys are reported', () => {
     const base = {
       name: 'base_mart',
-      params: { upstream: { type: 'model_ref' } },
+      params: { upstream: { type: 'model' } },
       model: {
         type: 'mart_select_model',
         from: { model: '${upstream}' },
@@ -516,7 +556,7 @@ describe('resolveModelComposition: templates', () => {
     };
     const derived = {
       name: 'derived_mart',
-      params: { src: { type: 'model_ref' } },
+      params: { src: { type: 'model' } },
       model: {
         type: 'mart_select_model',
         extends: 'base_mart',
@@ -704,6 +744,46 @@ describe('diffAgainstTemplate', () => {
     const { warnings, exact } = diffAgainstTemplate(edited, registry);
     expect(exact).toBe(false);
     expect(warnings.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('diffAgainstTemplate for models with root fragments', () => {
+  const registry = registryWith(files);
+  const merged = (model: Json) =>
+    resolveModelComposition<Json>(model, registry, { mode: 'merged' }).resolved;
+
+  test('an unedited model diffs to its own keys plus fragments', () => {
+    const edited = merged(awsModel);
+    const { child, exact } = diffAgainstTemplate(edited, registry);
+    expect(exact).toBe(true);
+    expect(child.fragments).toEqual(['billing_daily_incremental']);
+    expect(child.extends).toBeUndefined();
+    expect(child).not.toHaveProperty('materialization');
+    expect(child).not.toHaveProperty('meta');
+    expect(child).not.toHaveProperty('tags');
+  });
+
+  test('an extra tag is written as a tag delta', () => {
+    const edited = merged(awsModel);
+    edited.tags = [...edited.tags, 'extra'];
+    const { child, exact } = diffAgainstTemplate(edited, registry);
+    expect(exact).toBe(true);
+    expect(child.tags).toEqual(['extra']);
+  });
+
+  test('a changed fragment-provided value is written', () => {
+    const edited = merged(awsModel);
+    edited.materialization = { type: 'table' };
+    const { child, exact } = diffAgainstTemplate(edited, registry);
+    expect(exact).toBe(true);
+    expect(child.materialization).toEqual({ type: 'table' });
+  });
+
+  test('a model without composition is returned unchanged', () => {
+    const plain = { type: 'stg_select_source', name: 'plain', select: ['a'] };
+    const { child, exact } = diffAgainstTemplate(plain, registry);
+    expect(exact).toBe(true);
+    expect(child).toBe(plain);
   });
 });
 

@@ -177,7 +177,7 @@ export function DownloadView() {
     const project = downloadOptions.project.trim();
     const nextErrors: typeof errors = {};
     if (!project) {
-      nextErrors.project = 'Project UUID is required.';
+      nextErrors.project = 'Project slug or UUID is required.';
     }
     if (
       isSpecific &&
@@ -196,11 +196,19 @@ export function DownloadView() {
     // confirm a replace before co-mingling two projects in one folder.
     if (localFileCount > 0) {
       try {
-        const resp = await api.post({
-          type: 'lightdash-yaml-get-path-project',
-          request: { path: currentPath.trim() || undefined },
-        });
-        if (resp.project && resp.project !== project) {
+        // The folder records the resolved UUID, so compare against the
+        // UUID the entered slug or UUID refers to.
+        const [resolved, resp] = await Promise.all([
+          api.post({
+            type: 'lightdash-yaml-resolve-project',
+            request: { project },
+          }),
+          api.post({
+            type: 'lightdash-yaml-get-path-project',
+            request: { path: currentPath.trim() || undefined },
+          }),
+        ]);
+        if (resolved.uuid && resp.project && resp.project !== resolved.uuid) {
           setConflictProject(resp.project);
           setShowReplaceConfirm(true);
           return;
@@ -309,14 +317,13 @@ export function DownloadView() {
         </Message>
 
         <div className="flex-1 min-h-0 overflow-y-auto px-1 flex flex-col gap-4">
-          {/* Project UUID is required so download/upload always targets
+          {/* The project is required so download/upload always targets
               an explicit project, never the Lightdash CLI's ambient
-              active-project default. Production and preview UUIDs are
-              both valid - copy from the project URL after `/projects/`
-              or from the project's settings page. */}
+              active-project default. Either a project slug or a UUID is
+              accepted, for production or preview projects. */}
           <InputText
-            label="Project UUID (required)"
-            tooltipText="Required. Lightdash project UUID — production or preview. Find it in the project URL after `/projects/`, or in the project's settings page."
+            label="Project slug or UUID (required)"
+            tooltipText="Required. Lightdash project slug or UUID, for production or preview. The UUID is in the project URL after `/projects/`, or on the project's settings page."
             value={downloadOptions.project}
             onChange={(e) => {
               setDownloadOption('project', e.target.value);
@@ -324,7 +331,7 @@ export function DownloadView() {
                 setErrors((prev) => ({ ...prev, project: undefined }));
               }
             }}
-            placeholder="production or preview UUID"
+            placeholder="project slug or UUID"
             error={errors.project}
           />
 

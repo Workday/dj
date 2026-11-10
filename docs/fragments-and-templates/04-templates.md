@@ -12,7 +12,7 @@ Templates do not generate their own SQL/YAML—only child `.model.json` files do
   "description": "Monthly cost mart from an upstream staging model",
   "params": {
     "upstream": {
-      "type": "model_ref",
+      "type": "model",
       "description": "Staging model with cost columns",
     },
     "provider": { "type": "string", "description": "Provider label column" },
@@ -43,7 +43,8 @@ Templates do not generate their own SQL/YAML—only child `.model.json` files do
 
 | `params.*.type` | Meaning                                               |
 | --------------- | ----------------------------------------------------- |
-| `model_ref`     | Must name an existing model; creates a dbt dependency |
+| `model`         | Must name an existing model; creates a dbt dependency |
+| `source`        | Must name an existing source table (`source.table`)   |
 | `string`        | Substituted into string values in the template body   |
 
 Substitution uses `${param_name}` in strings. For a literal `${` in output, write `$${` in the template.

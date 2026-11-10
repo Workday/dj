@@ -462,6 +462,13 @@ export interface ValidationErrorDetail {
     instancePath: string;
     message: string;
   };
+  /**
+   * Character range of the problem in the source text, used when the problem
+   * is not addressable by `instancePath` (for example a JSON syntax error).
+   * Takes precedence over `instancePath` for positioning.
+   */
+  offset?: number;
+  length?: number;
 }
 
 /**

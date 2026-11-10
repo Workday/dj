@@ -35,6 +35,9 @@ describe('framework fixtures', () => {
       pathRelative,
       pathSystem,
       properties: { vars: { event_dates: '2024-01-01' } },
+      // Mirrors docs/examples/jaffle_shop/dbt_project.yml `storage_type`, which the
+      // example's generated SQL was produced with.
+      variables: { storage_type: 'iceberg' },
       targetPath: 'target',
     };
 
@@ -881,7 +884,7 @@ describe('materialization shorthand', () => {
     expect(config.incremental_strategy).toBe('delete+insert');
   });
 
-  test('defaults to overwrite_existing_partitions when config is unset', () => {
+  test('defaults to delete+insert when config is unset', () => {
     // Fallback must match the DEFAULT_INCREMENTAL_STRATEGY shared constant
     // (src/shared/framework/constants.ts) and the `default` in package.json,
     // so the extension behaves consistently when the user never touches the
@@ -906,7 +909,7 @@ describe('materialization shorthand', () => {
     });
 
     expect(config.materialized).toBe('incremental');
-    expect(config.incremental_strategy).toBe('overwrite_existing_partitions');
+    expect(config.incremental_strategy).toBe('delete+insert');
   });
 
   test('materialization object without strategy uses config default', () => {
@@ -1168,10 +1171,9 @@ describe('incremental strategy variants', () => {
     expect(config.unique_key).toBeUndefined();
   });
 
-  test('default fallback overwrite_existing_partitions omits unique_key', () => {
-    // When the extension default kicks in (no explicit strategy) and resolves
-    // to overwrite_existing_partitions, unique_key must NOT be emitted -- the
-    // consumer macro derives partitions from the new slice.
+  test('default fallback delete+insert derives unique_key from partitions', () => {
+    // With no explicit strategy, the extension default (delete+insert) applies.
+    // unique_key is auto-derived from the partition column in the select.
     const modelJson: FrameworkModel = {
       type: 'int_select_model',
       group: 'swh',
@@ -1191,8 +1193,8 @@ describe('incremental strategy variants', () => {
       project: partitionedProject,
     });
 
-    expect(config.incremental_strategy).toBe('overwrite_existing_partitions');
-    expect(config.unique_key).toBeUndefined();
+    expect(config.incremental_strategy).toBe('delete+insert');
+    expect(config.unique_key).toBe('portal_partition_daily');
   });
 
   test('Delta Lake / Hive partitioning uses properties.partitioned_by', () => {

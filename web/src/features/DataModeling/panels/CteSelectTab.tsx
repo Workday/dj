@@ -33,6 +33,7 @@ import {
   ColumnSection,
   type ColumnSectionColumn,
 } from '../components/ColumnSection';
+import { FragmentSelectPicker } from '../components/FragmentSelectPicker';
 import {
   extractColumnsFromNode,
   findModelNode,
@@ -111,10 +112,14 @@ const INTERVAL_OPTIONS = [
  * console without a reload.
  */
 function debugCteSelect(label: string, payload: Record<string, unknown>): void {
-  if (typeof window === 'undefined') return;
+  if (typeof window === 'undefined') {
+    return;
+  }
   const flag = (window as unknown as Record<string, unknown>)
     .DJ_DEBUG_CTE_SELECT;
-  if (!flag) return;
+  if (!flag) {
+    return;
+  }
 
   console.log(`[CteSelectTab] ${label}`, payload);
 }
@@ -140,34 +145,66 @@ const MANUAL_KIND_OPTIONS: { label: string; value: SelectItemKind }[] = [
 ];
 
 function inferKind(item: unknown): SelectItemKind {
-  if (typeof item === 'string') return 'col_name';
-  if (!item || typeof item !== 'object') return 'col_name';
+  if (typeof item === 'string') {
+    return 'col_name';
+  }
+  if (!item || typeof item !== 'object') {
+    return 'col_name';
+  }
   const o = item as Record<string, unknown>;
   if (typeof o.type === 'string') {
-    if (o.type === 'all_from_model') return 'all_from_model';
-    if (o.type === 'dims_from_model') return 'dims_from_model';
-    if (o.type === 'fcts_from_model') return 'fcts_from_model';
-    if (o.type === 'all_from_cte') return 'all_from_cte';
-    if (o.type === 'dims_from_cte') return 'dims_from_cte';
-    if (o.type === 'fcts_from_cte') return 'fcts_from_cte';
-    if (o.type === 'all_from_fragment') return 'all_from_fragment';
-    if (o.type === 'dims_from_fragment') return 'dims_from_fragment';
-    if (o.type === 'fcts_from_fragment') return 'fcts_from_fragment';
+    if (o.type === 'all_from_model') {
+      return 'all_from_model';
+    }
+    if (o.type === 'dims_from_model') {
+      return 'dims_from_model';
+    }
+    if (o.type === 'fcts_from_model') {
+      return 'fcts_from_model';
+    }
+    if (o.type === 'all_from_cte') {
+      return 'all_from_cte';
+    }
+    if (o.type === 'dims_from_cte') {
+      return 'dims_from_cte';
+    }
+    if (o.type === 'fcts_from_cte') {
+      return 'fcts_from_cte';
+    }
+    if (o.type === 'all_from_fragment') {
+      return 'all_from_fragment';
+    }
+    if (o.type === 'dims_from_fragment') {
+      return 'dims_from_fragment';
+    }
+    if (o.type === 'fcts_from_fragment') {
+      return 'fcts_from_fragment';
+    }
   }
   if ('fragment' in o && typeof o.fragment === 'string' && o.type) {
     return o.type as SelectItemKind;
   }
-  if ('interval' in o && typeof o.interval === 'string') return 'interval';
-  if ('cte' in o && typeof o.cte === 'string') return 'from_cte';
+  if ('interval' in o && typeof o.interval === 'string') {
+    return 'interval';
+  }
+  if ('cte' in o && typeof o.cte === 'string') {
+    return 'from_cte';
+  }
   if ('model' in o && typeof o.model === 'string') {
-    if ('agg' in o || 'aggs' in o) return 'from_model_with_agg';
+    if ('agg' in o || 'aggs' in o) {
+      return 'from_model_with_agg';
+    }
     return 'from_model';
   }
   if ('expr' in o && typeof o.expr === 'string') {
-    if ('agg' in o || 'aggs' in o) return 'expr_with_agg';
+    if ('agg' in o || 'aggs' in o) {
+      return 'expr_with_agg';
+    }
     return 'expr';
   }
-  if ('agg' in o || 'aggs' in o) return 'col_with_agg';
+  if ('agg' in o || 'aggs' in o) {
+    return 'col_with_agg';
+  }
   return 'col';
 }
 
@@ -206,6 +243,14 @@ function makeNewItem(kind: SelectItemKind): unknown {
   }
 }
 
+function isFragmentKind(kind: SelectItemKind): boolean {
+  return (
+    kind === 'all_from_fragment' ||
+    kind === 'dims_from_fragment' ||
+    kind === 'fcts_from_fragment'
+  );
+}
+
 function isBulkKind(kind: SelectItemKind): boolean {
   return (
     kind === 'all_from_model' ||
@@ -218,9 +263,15 @@ function isBulkKind(kind: SelectItemKind): boolean {
 }
 
 function bulkModeFromKind(kind: SelectItemKind): BulkMode {
-  if (kind === 'all_from_model' || kind === 'all_from_cte') return 'all';
-  if (kind === 'dims_from_model' || kind === 'dims_from_cte') return 'dims';
-  if (kind === 'fcts_from_model' || kind === 'fcts_from_cte') return 'fcts';
+  if (kind === 'all_from_model' || kind === 'all_from_cte') {
+    return 'all';
+  }
+  if (kind === 'dims_from_model' || kind === 'dims_from_cte') {
+    return 'dims';
+  }
+  if (kind === 'fcts_from_model' || kind === 'fcts_from_cte') {
+    return 'fcts';
+  }
   return 'none';
 }
 
@@ -228,15 +279,25 @@ function kindForBulk(
   mode: BulkMode,
   upstream: BulkUpstream,
 ): SelectItemKind | null {
-  if (mode === 'none') return null;
+  if (mode === 'none') {
+    return null;
+  }
   const role = mode;
   if (upstream === 'cte') {
-    if (role === 'all') return 'all_from_cte';
-    if (role === 'dims') return 'dims_from_cte';
+    if (role === 'all') {
+      return 'all_from_cte';
+    }
+    if (role === 'dims') {
+      return 'dims_from_cte';
+    }
     return 'fcts_from_cte';
   }
-  if (role === 'all') return 'all_from_model';
-  if (role === 'dims') return 'dims_from_model';
+  if (role === 'all') {
+    return 'all_from_model';
+  }
+  if (role === 'dims') {
+    return 'dims_from_model';
+  }
   return 'fcts_from_model';
 }
 
@@ -248,7 +309,9 @@ function kindForBulk(
  */
 function inferBulkUpstream(from: CteState['from']): BulkUpstream {
   const f = from ?? {};
-  if (typeof f.cte === 'string') return 'cte';
+  if (typeof f.cte === 'string') {
+    return 'cte';
+  }
   return 'model';
 }
 
@@ -271,7 +334,9 @@ interface BulkItemView {
 function findBulkItem(items: unknown[]): BulkItemView | null {
   for (let i = 0; i < items.length; i++) {
     const kind = inferKind(items[i]);
-    if (!isBulkKind(kind)) continue;
+    if (!isBulkKind(kind)) {
+      continue;
+    }
     const o = items[i] as Record<string, unknown>;
     const upstream: BulkUpstream = kind.endsWith('_from_cte') ? 'cte' : 'model';
     return {
@@ -308,15 +373,31 @@ function findBulkItem(items: unknown[]): BulkItemView | null {
  * derived row that belongs in the "Manual rows" list.
  */
 function isPlainPassthroughItem(item: unknown): boolean {
-  if (typeof item === 'string') return true;
-  if (!item || typeof item !== 'object') return false;
+  if (typeof item === 'string') {
+    return true;
+  }
+  if (!item || typeof item !== 'object') {
+    return false;
+  }
   const o = item as Record<string, unknown>;
-  if (typeof o.name !== 'string' || !o.name) return false;
-  if (typeof o.expr === 'string') return false;
-  if ('agg' in o || 'aggs' in o) return false;
-  if (typeof o.interval === 'string') return false;
-  if (typeof o.model === 'string') return false;
-  if (typeof o.cte === 'string') return false;
+  if (typeof o.name !== 'string' || !o.name) {
+    return false;
+  }
+  if (typeof o.expr === 'string') {
+    return false;
+  }
+  if ('agg' in o || 'aggs' in o) {
+    return false;
+  }
+  if (typeof o.interval === 'string') {
+    return false;
+  }
+  if (typeof o.model === 'string') {
+    return false;
+  }
+  if (typeof o.cte === 'string') {
+    return false;
+  }
   return true;
 }
 
@@ -334,17 +415,25 @@ function isPlainPassthroughForColumn(
   item: unknown,
   columnName: string,
 ): boolean {
-  if (!isPlainPassthroughItem(item)) return false;
-  if (typeof item === 'string') return item === columnName;
+  if (!isPlainPassthroughItem(item)) {
+    return false;
+  }
+  if (typeof item === 'string') {
+    return item === columnName;
+  }
   const o = item as Record<string, unknown>;
   return o.name === columnName;
 }
 
 function hasInvalidLightdashMetrics(item: unknown): boolean {
-  if (!item || typeof item !== 'object') return false;
+  if (!item || typeof item !== 'object') {
+    return false;
+  }
   const o = item as Record<string, unknown>;
   const ld = o.lightdash as Record<string, unknown> | undefined;
-  if (!ld) return false;
+  if (!ld) {
+    return false;
+  }
   return (
     ('metrics' in ld && ld.metrics != null) ||
     ('metrics_merge' in ld && ld.metrics_merge != null)
@@ -429,7 +518,9 @@ export const CteSelectTab: React.FC<CteSelectTabProps> = ({ cte, onPatch }) => {
     const seen = new Set<string>();
     const out: typeof raw = [];
     for (const col of raw) {
-      if (seen.has(col.name)) continue;
+      if (seen.has(col.name)) {
+        continue;
+      }
       seen.add(col.name);
       out.push(col);
     }
@@ -449,6 +540,9 @@ export const CteSelectTab: React.FC<CteSelectTabProps> = ({ cte, onPatch }) => {
    * them in the Manual rows section would suggest two independent edits
    * for the same row and confuse the "resolved N of M" counters.
    */
+  // Index (in `cte.select`) of the fragment row whose column picker is open.
+  const [openFragmentRow, setOpenFragmentRow] = useState<number | null>(null);
+
   const manualItems = useMemo(
     () =>
       items
@@ -498,7 +592,9 @@ export const CteSelectTab: React.FC<CteSelectTabProps> = ({ cte, onPatch }) => {
   // mirror it without manual intervention. We patch only when the value
   // actually drifts so this effect doesn't loop on itself.
   useEffect(() => {
-    if (!bulk) return;
+    if (!bulk) {
+      return;
+    }
     const fromObj = cte.from ?? {};
     const desired =
       bulk.upstream === 'cte'
@@ -508,7 +604,9 @@ export const CteSelectTab: React.FC<CteSelectTabProps> = ({ cte, onPatch }) => {
         : typeof fromObj.model === 'string'
           ? fromObj.model
           : '';
-    if (desired === bulk.upstreamValue) return;
+    if (desired === bulk.upstreamValue) {
+      return;
+    }
     const existing = items[bulk.index] as Record<string, unknown>;
     const next: Record<string, unknown> = { ...existing };
     if (bulk.upstream === 'cte') {
@@ -555,7 +653,9 @@ export const CteSelectTab: React.FC<CteSelectTabProps> = ({ cte, onPatch }) => {
   const handleBulkModeChange = useCallback(
     (nextMode: BulkMode) => {
       if (nextMode === 'none') {
-        if (!bulk) return;
+        if (!bulk) {
+          return;
+        }
         const dropBulk = () => {
           lastRemovedBulkRef.current = {
             role: bulk.mode,
@@ -582,7 +682,9 @@ export const CteSelectTab: React.FC<CteSelectTabProps> = ({ cte, onPatch }) => {
         return;
       }
       const nextKind = kindForBulk(nextMode, bulkUpstream);
-      if (!nextKind) return;
+      if (!nextKind) {
+        return;
+      }
       if (bulk) {
         const roleSwap = bulk.mode !== nextMode;
         const swapBulk = () => {
@@ -629,11 +731,15 @@ export const CteSelectTab: React.FC<CteSelectTabProps> = ({ cte, onPatch }) => {
         if (bulkUpstream === 'cte') {
           const fromCte = (cte.from as Record<string, unknown> | undefined)
             ?.cte;
-          if (typeof fromCte === 'string') fresh.cte = fromCte;
+          if (typeof fromCte === 'string') {
+            fresh.cte = fromCte;
+          }
         } else {
           const fromModel = (cte.from as Record<string, unknown> | undefined)
             ?.model;
-          if (typeof fromModel === 'string') fresh.model = fromModel;
+          if (typeof fromModel === 'string') {
+            fresh.model = fromModel;
+          }
         }
         // Restore from the most recent removed/role-swapped bulk if it
         // matches the (role, upstream) the user is re-enabling now. Empty
@@ -645,8 +751,12 @@ export const CteSelectTab: React.FC<CteSelectTabProps> = ({ cte, onPatch }) => {
           cached.role === nextMode &&
           cached.upstream === bulkUpstream
         ) {
-          if (cached.include.length > 0) fresh.include = [...cached.include];
-          if (cached.exclude.length > 0) fresh.exclude = [...cached.exclude];
+          if (cached.include.length > 0) {
+            fresh.include = [...cached.include];
+          }
+          if (cached.exclude.length > 0) {
+            fresh.exclude = [...cached.exclude];
+          }
         }
         debugCteSelect('prepend-fresh-bulk', {
           fresh,
@@ -731,13 +841,19 @@ export const CteSelectTab: React.FC<CteSelectTabProps> = ({ cte, onPatch }) => {
   // is preserved (the bulk row never participates in the drag).
   const handleManualDragEnd = useCallback(
     (result: DropResult) => {
-      if (!result.destination) return;
+      if (!result.destination) {
+        return;
+      }
       const fromIdx = result.source.index;
       const toIdx = result.destination.index;
-      if (fromIdx === toIdx) return;
+      if (fromIdx === toIdx) {
+        return;
+      }
       const fromOriginal = manualItems[fromIdx]?.originalIndex;
       const toOriginal = manualItems[toIdx]?.originalIndex;
-      if (fromOriginal === undefined || toOriginal === undefined) return;
+      if (fromOriginal === undefined || toOriginal === undefined) {
+        return;
+      }
       const copy = [...items];
       const [moved] = copy.splice(fromOriginal, 1);
       copy.splice(toOriginal, 0, moved);
@@ -863,7 +979,9 @@ export const CteSelectTab: React.FC<CteSelectTabProps> = ({ cte, onPatch }) => {
   const [columnSearch, setColumnSearch] = useState('');
   const filteredColumns = useMemo(() => {
     const q = columnSearch.trim().toLowerCase();
-    if (!q) return resolvedColumns;
+    if (!q) {
+      return resolvedColumns;
+    }
     return resolvedColumns.filter((c) => c.name.toLowerCase().includes(q));
   }, [resolvedColumns, columnSearch]);
   const dimColumns = useMemo(
@@ -914,7 +1032,9 @@ export const CteSelectTab: React.FC<CteSelectTabProps> = ({ cte, onPatch }) => {
   const handleColumnSectionToggle = useCallback(
     (columnName: string) => {
       const col = resolvedColumns.find((c) => c.name === columnName);
-      if (!col) return;
+      if (!col) {
+        return;
+      }
       const coverage = coverageForBulkAndColumn(bulk, col);
       const isExcluded = bulk?.exclude.includes(columnName) ?? false;
       handleResolvedColumnToggle(
@@ -929,7 +1049,9 @@ export const CteSelectTab: React.FC<CteSelectTabProps> = ({ cte, onPatch }) => {
 
   const resetColumnFilters = useCallback(() => {
     setColumnSearch('');
-    if (bulk) handleBulkModeChange('none');
+    if (bulk) {
+      handleBulkModeChange('none');
+    }
   }, [bulk, handleBulkModeChange]);
 
   // `ColumnSection` accepts a stricter `dataType: string`; resolved CTE
@@ -1146,6 +1268,11 @@ export const CteSelectTab: React.FC<CteSelectTabProps> = ({ cte, onPatch }) => {
                   {manualItems.map(({ item, originalIndex }, manualIdx) => {
                     const kind = inferKind(item);
                     const draggableId = `manual-${originalIndex}-${kind}`;
+                    const rawFragment = isFragmentKind(kind)
+                      ? (item as { fragment?: unknown }).fragment
+                      : undefined;
+                    const fragmentName =
+                      typeof rawFragment === 'string' ? rawFragment : undefined;
                     return (
                       <Draggable
                         key={draggableId}
@@ -1182,6 +1309,34 @@ export const CteSelectTab: React.FC<CteSelectTabProps> = ({ cte, onPatch }) => {
                                 }
                                 onRemove={() => removeItemAt(originalIndex)}
                               />
+                              {isFragmentKind(kind) && (
+                                <div className="mt-2 flex flex-col gap-2">
+                                  <Button
+                                    variant="link"
+                                    label={
+                                      openFragmentRow === originalIndex
+                                        ? 'Hide fragment columns'
+                                        : 'Edit fragment columns'
+                                    }
+                                    onClick={() =>
+                                      setOpenFragmentRow((current) =>
+                                        current === originalIndex
+                                          ? null
+                                          : originalIndex,
+                                      )
+                                    }
+                                    className="text-xs text-primary self-start"
+                                  />
+                                  {openFragmentRow === originalIndex && (
+                                    <FragmentSelectPicker
+                                      initialFragment={fragmentName}
+                                      select={items}
+                                      onSelectChange={writeItems}
+                                      onClose={() => setOpenFragmentRow(null)}
+                                    />
+                                  )}
+                                </div>
+                              )}
                             </li>
                           );
                           return snapshot.isDragging
@@ -1253,10 +1408,18 @@ function coverageForBulkAndColumn(
   bulk: BulkItemView | null,
   col: { name: string; type?: string },
 ): 'covered' | 'uncovered' | 'no-bulk' {
-  if (!bulk) return 'no-bulk';
-  if (bulk.mode === 'all') return 'covered';
-  if (bulk.mode === 'dims') return col.type === 'fct' ? 'uncovered' : 'covered';
-  if (bulk.mode === 'fcts') return col.type === 'fct' ? 'covered' : 'uncovered';
+  if (!bulk) {
+    return 'no-bulk';
+  }
+  if (bulk.mode === 'all') {
+    return 'covered';
+  }
+  if (bulk.mode === 'dims') {
+    return col.type === 'fct' ? 'uncovered' : 'covered';
+  }
+  if (bulk.mode === 'fcts') {
+    return col.type === 'fct' ? 'covered' : 'uncovered';
+  }
   return 'no-bulk';
 }
 
@@ -1386,7 +1549,9 @@ const ManualRowFields: React.FC<ManualRowFieldsProps> = ({
   const update = (patch: Record<string, unknown>) => {
     const next = { ...obj, ...patch };
     for (const k of Object.keys(next)) {
-      if (next[k] === '') delete next[k];
+      if (next[k] === '') {
+        delete next[k];
+      }
     }
     onChange(next);
   };
@@ -1596,7 +1761,9 @@ const CteAddColumnConfigure: React.FC<CteAddColumnConfigureProps> = ({
   const set = (patch: Record<string, unknown>) => {
     const next = { ...value, ...patch };
     for (const k of Object.keys(next)) {
-      if (next[k] === '' || next[k] === undefined) delete next[k];
+      if (next[k] === '' || next[k] === undefined) {
+        delete next[k];
+      }
     }
     onChange(next);
   };
@@ -1658,8 +1825,11 @@ const CteAddColumnConfigure: React.FC<CteAddColumnConfigureProps> = ({
             value={typeof value.round === 'number' ? String(value.round) : ''}
             onChange={(e) => {
               const v = e.target.value.trim();
-              if (v === '') set({ round: undefined });
-              else if (/^\d+$/.test(v)) set({ round: Number(v) });
+              if (v === '') {
+                set({ round: undefined });
+              } else if (/^\d+$/.test(v)) {
+                set({ round: Number(v) });
+              }
             }}
             placeholder="e.g. 2"
           />

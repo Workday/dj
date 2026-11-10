@@ -566,6 +566,15 @@ export function AppProvider() {
                     apiResponse<typeof payloadType>({ project: undefined }),
                   );
                 }
+                case 'lightdash-yaml-resolve-project': {
+                  // No Lightdash org to look slugs up in during dev; treat the
+                  // entered value as the UUID.
+                  const project = (payload.request as { project: string })
+                    .project;
+                  return resolve(
+                    apiResponse<typeof payloadType>({ uuid: project.trim() }),
+                  );
+                }
                 case 'lightdash-yaml-get-download-defaults': {
                   return resolve(
                     apiResponse<typeof payloadType>({
@@ -1553,7 +1562,7 @@ SELECT * FROM final`,
                       definition: {
                         name: 'focus_monthly_cost',
                         params: {
-                          source_model: { type: 'model_ref' },
+                          source_model: { type: 'model' },
                         },
                         model: { type: 'mart_select_model' },
                       },

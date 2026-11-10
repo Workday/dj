@@ -132,9 +132,9 @@ export type LightdashApi =
         dashboardIds?: string[];
         chartIds?: string[];
         /**
-         * Required Lightdash project UUID. Accepts a production or
-         * preview project UUID; the CLI is invoked with `--project
-         * <uuid>` on every run so we never fall through to the
+         * Required Lightdash project slug or UUID, for production or
+         * preview projects. Slugs are resolved to the project UUID, and the
+         * CLI is invoked with `--project <uuid>` on every run so we never fall through to the
          * Lightdash CLI's ambient active-project default. UI guards
          * non-empty input via inline validation; backend defends
          * against direct callers that bypass the UI.
@@ -197,6 +197,17 @@ export type LightdashApi =
       service: 'lightdash';
       request: null;
       response: { path: string; absolutePath: string };
+    }
+  | {
+      /**
+       * Resolve a project slug or UUID to the project UUID. UUIDs pass through
+       * unchanged; a slug is matched against the organization's projects. On
+       * failure `error` explains why and no UUID is returned.
+       */
+      type: 'lightdash-yaml-resolve-project';
+      service: 'lightdash';
+      request: { project: string };
+      response: { uuid?: string; error?: string };
     }
   | {
       /**

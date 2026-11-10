@@ -108,10 +108,10 @@
             "description": "Revenue tier classification"
         },
         {
-            "name": "is_weekend_order",
-            "expr": "day_of_week(order_date) IN (6, 7)",
+            "name": "day_type",
+            "expr": "CASE WHEN day_of_week(order_date) IN (6, 7) THEN 'Weekend' ELSE 'Weekday' END",
             "type": "dim",
-            "description": "Boolean flag for weekend orders"
+            "description": "Weekend or weekday classification of the order date"
         }
     ]
 }

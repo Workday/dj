@@ -19,7 +19,16 @@ class Uri {
   static file(fsPath) {
     return { fsPath };
   }
+
+  static parse(value) {
+    return { toString: () => value };
+  }
 }
+
+const env = {
+  openExternal: async () => true,
+  clipboard: { writeText: async () => undefined },
+};
 
 const configuration = {
   get: (_key, defaultValue) => defaultValue,
@@ -63,4 +72,5 @@ module.exports = {
   workspace,
   window,
   commands,
+  env,
 };

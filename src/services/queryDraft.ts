@@ -1,6 +1,13 @@
 import type { Coder } from '@services/coder';
 import type { ApiPayload, ApiResponse } from '@shared/api/types';
 import { apiResponse } from '@shared/api/utils';
+import {
+  buildCursorPromptDeeplink,
+  findDraftPathInTabs,
+  isDraftSqlPath,
+  NO_DRAFT_FOUND_MESSAGE,
+  pickNewestDraft,
+} from '@shared/querydraft/utils';
 import { WORKSPACE_ROOT } from 'admin';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -47,9 +54,7 @@ export class QueryDraftService {
           if (!sql || sql.trim() === '') {
             const content = await this.getCurrentDraftContent();
             if (!content) {
-              throw new Error(
-                'No SQL content found. Please open a .draft.sql file.',
-              );
+              throw new Error(NO_DRAFT_FOUND_MESSAGE);
             }
             sql = content;
           }
@@ -152,21 +157,75 @@ SELECT 1
   }
 
   /**
-   * Get content of the current draft file from the active editor
+   * Resolve the SQL of a draft. Lookup order: the file the caller passed in
+   * (for example the right-clicked Explorer item), the active editor, visible
+   * draft editors, draft editor tabs, then the newest file in `.dj/drafts/`.
    */
-  async getCurrentDraftContent(): Promise<string | null> {
+  async getCurrentDraftContent(uri?: vscode.Uri): Promise<string | null> {
+    const passedPath = uri?.fsPath;
+    if (isDraftSqlPath(passedPath)) {
+      return this.readDraftText(passedPath!);
+    }
+
     const editor = vscode.window.activeTextEditor;
-    if (!editor) {
-      return null;
+    if (isDraftSqlPath(editor?.document.uri.fsPath)) {
+      return editor!.document.getText();
     }
 
-    const filePath = editor.document.uri.fsPath;
-    // Support .draft.sql files in the .dj/drafts/ folder
-    if (!filePath.endsWith('.draft.sql')) {
-      return null;
+    const visible = vscode.window.visibleTextEditors?.find((e) =>
+      isDraftSqlPath(e.document.uri.fsPath),
+    );
+    if (visible) {
+      return visible.document.getText();
     }
 
-    return editor.document.getText();
+    const tabPath = findDraftPathInTabs(vscode.window.tabGroups?.all ?? []);
+    if (tabPath) {
+      return this.readDraftText(tabPath);
+    }
+
+    const newestPath = this.findNewestDraftPath();
+    if (newestPath) {
+      this.coder.log.info(
+        `[QueryDraft] No open draft found, using newest draft: ${newestPath}`,
+      );
+      return this.readDraftText(newestPath);
+    }
+
+    return null;
+  }
+
+  /**
+   * Read a draft's text, preferring an open document so unsaved edits are used.
+   */
+  private readDraftText(filePath: string): string | null {
+    const openDoc = vscode.workspace.textDocuments?.find(
+      (doc) => doc.uri.fsPath === filePath,
+    );
+    if (openDoc) {
+      return openDoc.getText();
+    }
+    try {
+      return fs.readFileSync(filePath, 'utf8');
+    } catch (error: unknown) {
+      this.coder.log.error(`[QueryDraft] Could not read ${filePath}:`, error);
+      return null;
+    }
+  }
+
+  /** Path of the most recently modified `.draft.sql` in `.dj/drafts/`. */
+  private findNewestDraftPath(): string | undefined {
+    if (!fs.existsSync(DJ_DRAFTS_PATH)) {
+      return undefined;
+    }
+    const entries = fs
+      .readdirSync(DJ_DRAFTS_PATH)
+      .filter((name) => isDraftSqlPath(name))
+      .map((name) => {
+        const fullPath = path.join(DJ_DRAFTS_PATH, name);
+        return { path: fullPath, mtimeMs: fs.statSync(fullPath).mtimeMs };
+      });
+    return pickNewestDraft(entries);
   }
 
   /**
@@ -213,7 +272,7 @@ SELECT 1
       vscode.extensions.getExtension('GitHub.copilot-chat') !== undefined;
     const cursorAvailable = this.isCursorEnvironment();
     const claudeAvailable =
-      vscode.extensions.getExtension('anthropics.claude-code') !== undefined;
+      vscode.extensions.getExtension('anthropic.claude-code') !== undefined;
 
     this.coder.log.info(
       `[QueryDraft] AI assistants detected - Copilot: ${copilotAvailable}, Cursor: ${cursorAvailable}, Claude: ${claudeAvailable}`,
@@ -258,14 +317,34 @@ Convert this SQL query into a DJ .model.json file.`;
   }
 
   /**
+   * Prefill a new Cursor chat through its prompt deep link. When the link can't
+   * carry the prompt, copy the prompt to the clipboard and open the chat.
+   */
+  private async openCursorWithPrompt(prompt: string): Promise<void> {
+    const link = buildCursorPromptDeeplink(prompt);
+    if (link) {
+      await vscode.env.openExternal(vscode.Uri.parse(link));
+      this.coder.log.info('[QueryDraft] Opened cursor chat with prompt link');
+      return;
+    }
+
+    await vscode.env.clipboard.writeText(prompt);
+    await vscode.commands.executeCommand('composer.startComposerPrompt');
+    this.coder.log.info(
+      '[QueryDraft] Prompt too long or rejected by deep link; copied to clipboard',
+    );
+    vscode.window.showInformationMessage(
+      'Prompt copied. Paste it into the Cursor chat.',
+    );
+  }
+
+  /**
    * Run query from editor and show results in Query Results panel
    */
-  async runQueryFromEditor(): Promise<void> {
-    const sql = await this.getCurrentDraftContent();
+  async runQueryFromEditor(uri?: vscode.Uri): Promise<void> {
+    const sql = await this.getCurrentDraftContent(uri);
     if (!sql) {
-      vscode.window.showWarningMessage(
-        'No query draft content found. Please open a .draft.sql file.',
-      );
+      vscode.window.showWarningMessage(NO_DRAFT_FOUND_MESSAGE);
       return;
     }
 
@@ -307,7 +386,7 @@ Convert this SQL query into a DJ .model.json file.`;
   /**
    * Auto-detect available AI assistants and let user pick one, then convert
    */
-  async convertDraftToModelAuto(): Promise<void> {
+  async convertDraftToModelAuto(uri?: vscode.Uri): Promise<void> {
     const agents: { label: string; id: 'copilot' | 'cursor' | 'claude' }[] = [];
 
     if (this.isCursorEnvironment()) {
@@ -316,7 +395,7 @@ Convert this SQL query into a DJ .model.json file.`;
     if (vscode.extensions.getExtension('GitHub.copilot-chat')) {
       agents.push({ label: 'GitHub Copilot', id: 'copilot' });
     }
-    if (vscode.extensions.getExtension('anthropics.claude-code')) {
+    if (vscode.extensions.getExtension('anthropic.claude-code')) {
       agents.push({ label: 'Claude', id: 'claude' });
     }
 
@@ -328,7 +407,7 @@ Convert this SQL query into a DJ .model.json file.`;
     }
 
     if (agents.length === 1) {
-      await this.convertDraftToModel(agents[0].id);
+      await this.convertDraftToModel(agents[0].id, uri);
       return;
     }
 
@@ -342,7 +421,7 @@ Convert this SQL query into a DJ .model.json file.`;
 
     const agent = agents.find((a) => a.label === picked);
     if (agent) {
-      await this.convertDraftToModel(agent.id);
+      await this.convertDraftToModel(agent.id, uri);
     }
   }
 
@@ -351,12 +430,11 @@ Convert this SQL query into a DJ .model.json file.`;
    */
   async convertDraftToModel(
     assistant: 'copilot' | 'cursor' | 'claude',
+    uri?: vscode.Uri,
   ): Promise<void> {
-    const sql = await this.getCurrentDraftContent();
+    const sql = await this.getCurrentDraftContent(uri);
     if (!sql) {
-      vscode.window.showWarningMessage(
-        'No query draft content found. Please open a .draft.sql file.',
-      );
+      vscode.window.showWarningMessage(NO_DRAFT_FOUND_MESSAGE);
       return;
     }
 
@@ -365,19 +443,24 @@ Convert this SQL query into a DJ .model.json file.`;
     try {
       switch (assistant) {
         case 'copilot':
-          await vscode.commands.executeCommand(
-            'workbench.action.chat.open',
-            prompt,
-          );
+          // VS Code's chat commands take an options object, not a bare string.
+          // isPartialQuery pre-fills the input without submitting it.
+          await vscode.commands.executeCommand('workbench.action.chat.open', {
+            query: prompt,
+            isPartialQuery: true,
+          });
           break;
         case 'cursor':
-          await vscode.commands.executeCommand(
-            'composer.startComposerPrompt',
-            prompt,
-          );
+          await this.openCursorWithPrompt(prompt);
           break;
         case 'claude':
-          await vscode.commands.executeCommand('claude.openChat', prompt);
+          // The Claude Code extension has no command that takes a prompt, so
+          // copy it and open a new conversation for the user to paste into.
+          await vscode.env.clipboard.writeText(prompt);
+          await vscode.commands.executeCommand('claude-vscode.newConversation');
+          vscode.window.showInformationMessage(
+            'Prompt copied. Paste it into the Claude conversation.',
+          );
           break;
       }
       this.coder.log.info(

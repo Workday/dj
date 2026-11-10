@@ -55,8 +55,8 @@ When `.dj/bin/dj system.ping` succeeds, use `model.lineage`, `model.compiled-sql
 
 1. **Resolve the explore + exact field IDs.** This is read-only, so just run the
    helper yourself:
-   `scripts/get_explore_fields.py --project <uuid> --explore <model_name>`.
-   It needs the Lightdash base URL, an API token, and the project UUID -- pass
+   `scripts/get_explore_fields.py --project <slug-or-uuid> --explore <model_name>`.
+   It needs the Lightdash base URL, an API token, and the project slug or UUID -- pass
    them as `--url` / `--api-key` / `--project` flags, or rely on the standard
    `LIGHTDASH_URL` / `LIGHTDASH_API_KEY` / `LIGHTDASH_PROJECT` env vars (the same
    names the Lightdash CLI and DJ extension use). If those are not set, ask the
@@ -65,7 +65,7 @@ When `.dj/bin/dj system.ping` succeeds, use `model.lineage`, `model.compiled-sql
    upload, so settle it up front. Lay out the choices and let the user pick: a
    **preview** project you found or just created (usually the safe choice), the
    configured `LIGHTDASH_PROJECT` / settings project (say whether it's prod or
-   listed in `dj.lightdash.restrictedProjects`), or another project UUID they name.
+   listed in `dj.lightdash.restrictedProjects`), or another project slug or UUID they name.
    Pass the chosen `--project <uuid>`
    explicitly rather than the env default. It prints the
    `baseTable` (= `exploreName`/`tableName`), every dimension/metric field ID
@@ -85,7 +85,7 @@ When `.dj/bin/dj system.ping` succeeds, use `model.lineage`, `model.compiled-sql
    `properties.chartSlug`. Add a `markdown` tile for context if helpful.
 5. **Upload.** Do not instruct the user to run the upload CLI directly. Offer one
    of two paths: (a) they upload from the `DJ: Lightdash - Dashboards as Code`
-   webview Upload tab (paste the chosen project UUID, enable `--force`, and
+   webview Upload tab (paste the chosen project slug or UUID, enable `--force`, and
    `--include-charts` for the dashboard), or (b) you **offer to run the command
    yourself** after confirming the target project UUID. The equivalent command is
    `lightdash upload --force --include-charts --validate --project <uuid> -c <chart-slug> -d <dashboard-slug>`.

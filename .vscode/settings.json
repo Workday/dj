@@ -15,6 +15,18 @@
     {
       "fileMatch": ["*.source.json"],
       "url": ".dj/schemas/source.schema.json"
+    },
+    {
+      "fileMatch": ["*.python.json"],
+      "url": ".dj/schemas/python-model.schema.json"
+    },
+    {
+      "fileMatch": ["*.fragment.json"],
+      "url": ".dj/schemas/fragment.schema.json"
+    },
+    {
+      "fileMatch": ["*.template.json"],
+      "url": ".dj/schemas/template.schema.json"
     }
   ],
   "dj.dbtProjectNames": ["jaffle_shop"],

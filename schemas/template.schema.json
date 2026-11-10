@@ -19,8 +19,8 @@
         "required": ["type"],
         "properties": {
           "type": {
-            "enum": ["model_ref", "string"],
-            "description": "`model_ref` values must name an existing model and create a dependency; `string` values are substituted as-is."
+            "enum": ["model", "source", "string"],
+            "description": "`model` values must name an existing model and create a dependency. `source` values must name an existing source table (`source_name.table_name`). `string` values are substituted as-is."
           },
           "default": { "type": "string" },
           "description": { "type": "string" }

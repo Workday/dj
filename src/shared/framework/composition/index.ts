@@ -5,6 +5,7 @@ export {
   mapDetailsToModelFile,
 } from './diagnostics';
 export { diffAgainstTemplate } from './diff';
+export { buildEditorBody } from './editorBody';
 export {
   cloneJson,
   hashText,

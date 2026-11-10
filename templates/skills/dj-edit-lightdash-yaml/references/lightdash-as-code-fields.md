@@ -76,4 +76,4 @@ lightdash upload --force --include-charts --validate \
   `.vscode/settings.json`) only makes the DJ **Upload tab** refuse the push -- a
   guardrail against editing prod by mistake. A direct `lightdash upload` still
   works if you have Lightdash access, so target the intended (usually preview)
-  project UUID deliberately.
+  project (slug or UUID) deliberately.

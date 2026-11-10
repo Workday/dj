@@ -33,6 +33,7 @@ import {
   assertSqlIdentifier,
   quoteTrinoIdentifier,
 } from '@shared/sql/identifier';
+import { sortQueriesByRecency } from '@shared/trino/activeQueries';
 import { buildTrinoCliArgs } from '@shared/trino/cli';
 import type {
   TrinoActiveQueriesResponse,
@@ -1000,9 +1001,12 @@ export class Trino implements ApiEnabledService<'trino'> {
       /\bsystem\.runtime\.queries\b/i.test(q.query);
     const applyFilters = (rows: TrinoQuerySummary[]): TrinoQuerySummary[] => {
       const dropSelf = rows.filter((q) => !isSelfQuery(q));
-      return filter === 'dbt-trino-only'
-        ? dropSelf.filter((q) => (q.source ?? '').startsWith('dbt-trino-'))
-        : dropSelf;
+      const scoped =
+        filter === 'dbt-trino-only'
+          ? dropSelf.filter((q) => (q.source ?? '').startsWith('dbt-trino-'))
+          : dropSelf;
+      // REST returns coordinator memory order, so sort for both sources.
+      return sortQueriesByRecency(scoped);
     };
 
     if (profile) {

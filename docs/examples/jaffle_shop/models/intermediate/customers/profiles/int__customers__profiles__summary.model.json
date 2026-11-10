@@ -3,6 +3,13 @@
     "group": "customers",
     "topic": "profiles",
     "name": "summary",
+    "materialization": {
+        "type": "incremental",
+        "strategy": {
+            "type": "delete+insert",
+            "unique_key": "customer_id"
+        }
+    },
     "from": {
         "model": "stg__customers__profiles__clean",
         "join": [

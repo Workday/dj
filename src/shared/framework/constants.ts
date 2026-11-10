@@ -20,7 +20,7 @@ import type {
  * this constant, so those two edits are the full surface area.
  */
 export const DEFAULT_INCREMENTAL_STRATEGY: DefaultIncrementalStrategy =
-  'overwrite_existing_partitions';
+  'delete+insert';
 
 /**
  * Session pre-hook DJ adds for incremental models when `sql_hooks.pre` is

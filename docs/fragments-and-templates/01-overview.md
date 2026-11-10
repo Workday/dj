@@ -49,7 +49,7 @@ We call this merge step **model composition** (or **composition resolution**). U
 
 - A single model with unique logic — a fragment adds indirection without benefit.
 - Highly volatile columns that change independently per model — overrides help, but a fragment may not pay off.
-- Replacing normal dbt `ref()` — templates use `model_ref` params for upstream names; they do not replace the dependency graph.
+- Replacing normal dbt `ref()` — templates use `model` params for upstream names; they do not replace the dependency graph.
 
 ## Next steps
 

@@ -26,6 +26,7 @@ import { ModelColumns } from '../components/ModelColumns';
 import type { JoinConditionRow, SelectionType } from '../types';
 import { supportsColumnName, supportsExprOnly } from '../types';
 import { extractColumnsFromNode } from '../utils/manifestColumns';
+import { pickModelProject } from '../utils/projectSelection';
 import { buildUpdatedSelections } from '../utils/selectionUtils';
 import type { AvailableModel, Column } from './SelectNode';
 
@@ -59,8 +60,12 @@ export const JoinNode: React.FC<NodeProps> = ({ data, id }) => {
   const { modelingState, updateJoinState, updateSelectState } = useModelStore();
 
   const currentJoin = useMemo(() => {
-    if (!Array.isArray(modelingState.join)) return null;
-    if (!nodeData.joinId) return null;
+    if (!Array.isArray(modelingState.join)) {
+      return null;
+    }
+    if (!nodeData.joinId) {
+      return null;
+    }
     return (
       modelingState.join.find(
         (j) => (j as JoinWithUUID)._uuid === nodeData.joinId,
@@ -664,7 +669,9 @@ export const JoinNode: React.FC<NodeProps> = ({ data, id }) => {
     ];
     const seen = new Set<string>();
     return combined.filter((o) => {
-      if (seen.has(o.value)) return false;
+      if (seen.has(o.value)) {
+        return false;
+      }
       seen.add(o.value);
       return true;
     });
@@ -766,7 +773,9 @@ export const JoinNode: React.FC<NodeProps> = ({ data, id }) => {
 
   const buildAndExpressions = useCallback(
     (conds: JoinConditionRow[], joinTypeVal: string) => {
-      if (joinTypeVal === 'cross') return [];
+      if (joinTypeVal === 'cross') {
+        return [];
+      }
       return conds
         .filter((c) => {
           if (c.type === 'subquery') {
@@ -884,7 +893,15 @@ export const JoinNode: React.FC<NodeProps> = ({ data, id }) => {
           return;
         }
 
-        const project = projects[0];
+        const project = pickModelProject(
+          projects,
+          useModelStore.getState().basicFields.projectName,
+        );
+        if (!project) {
+          setCurrentProject(null);
+          setModels([]);
+          return;
+        }
         setCurrentProject(project);
 
         if (!project.manifest?.nodes) {
@@ -963,7 +980,9 @@ export const JoinNode: React.FC<NodeProps> = ({ data, id }) => {
       }
 
       const joinModelName = getJoinModel(join);
-      if (!joinModelName) return;
+      if (!joinModelName) {
+        return;
+      }
 
       const joinAlias =
         ((join as Record<string, unknown>).override_alias as string) ||
@@ -1075,7 +1094,9 @@ export const JoinNode: React.FC<NodeProps> = ({ data, id }) => {
 
       // Get model-based selection (all_from_model, dims_from_model, etc.)
       const currentSelection = currentModelingState.select.find((s) => {
-        if (typeof s === 'string') return false;
+        if (typeof s === 'string') {
+          return false;
+        }
         return 'model' in s && s.model === selectedModel.value;
       });
 
@@ -1294,7 +1315,9 @@ export const JoinNode: React.FC<NodeProps> = ({ data, id }) => {
           from: string,
           to: string,
         ): string => {
-          if (!v) return v || '';
+          if (!v) {
+            return v || '';
+          }
           return v.startsWith(`${from}.`)
             ? `${to}.${v.slice(from.length + 1)}`
             : v;
@@ -1403,7 +1426,9 @@ export const JoinNode: React.FC<NodeProps> = ({ data, id }) => {
       selection: { include?: string[]; exclude?: string[] },
       shouldClear?: boolean,
     ) => {
-      if (!selectedModel) return;
+      if (!selectedModel) {
+        return;
+      }
 
       const { basicFields, modelingState: ms } = useModelStore.getState();
       const updated = buildUpdatedSelections(ms.select, {
@@ -1423,7 +1448,9 @@ export const JoinNode: React.FC<NodeProps> = ({ data, id }) => {
 
   // Handler for opening Data Explorer with the selected model
   const handleOpenDataExplorer = useCallback(() => {
-    if (!selectedModel || !currentProject) return;
+    if (!selectedModel || !currentProject) {
+      return;
+    }
 
     void api.post({
       type: 'data-explorer-open-with-model',
@@ -1437,7 +1464,9 @@ export const JoinNode: React.FC<NodeProps> = ({ data, id }) => {
   // Handler for opening Column Lineage with a specific column
   const handleColumnLineageClick = useCallback(
     (columnName: string) => {
-      if (!selectedModel || !currentProject?.manifest) return;
+      if (!selectedModel || !currentProject?.manifest) {
+        return;
+      }
 
       // Find the model in manifest to get file path
       const modelKey = Object.keys(currentProject.manifest.nodes || {}).find(
