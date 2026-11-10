@@ -79,7 +79,22 @@ export class CteAnalysisHandlers {
       });
     }
 
-    const modelJsonTyped = modelJson as FrameworkModel;
+    // The draft may reference fragments or templates; analyze the resolved
+    // model so shared columns validate like inline ones. Writes never happen
+    // here, so the raw draft needs no handling.
+    const resolved = this.ctx.compositionStore.resolve<FrameworkModel>(
+      project,
+      modelJson,
+    );
+    const modelJsonTyped = resolved.resolved;
+    const diagnostics: AnalysisDiagnostic[] = [];
+    for (const issue of resolved.issues) {
+      diagnostics.push({
+        severity: issue.severity,
+        path: issue.path.join('.'),
+        message: issue.message,
+      });
+    }
     const ctes =
       'ctes' in modelJsonTyped && Array.isArray(modelJsonTyped.ctes)
         ? modelJsonTyped.ctes
@@ -129,7 +144,6 @@ export class CteAnalysisHandlers {
     // 2. Run the CTE validators. Each accumulates into `diagnostics`. Both
     // string-returning legacy validators and `ValidationErrorDetail`-returning
     // structured validators are normalized through `pushString` / `pushDetail`.
-    const diagnostics: AnalysisDiagnostic[] = [];
     if (registryError) {
       diagnostics.push({
         severity: 'error',

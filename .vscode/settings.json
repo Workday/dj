@@ -7,9 +7,6 @@
   "[jsonc]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
-  "[python]": {
-    "editor.defaultFormatter": "ms-python.black-formatter"
-  },
   "json.schemas": [
     {
       "fileMatch": ["*.model.json"],
@@ -18,8 +15,32 @@
     {
       "fileMatch": ["*.source.json"],
       "url": ".dj/schemas/source.schema.json"
+    },
+    {
+      "fileMatch": ["*.python.json"],
+      "url": ".dj/schemas/python-model.schema.json"
+    },
+    {
+      "fileMatch": ["*.fragment.json"],
+      "url": ".dj/schemas/fragment.schema.json"
+    },
+    {
+      "fileMatch": ["*.template.json"],
+      "url": ".dj/schemas/template.schema.json"
     }
   ],
   "dj.dbtProjectNames": ["jaffle_shop"],
-  "dj.dataExplorer.autoRefresh": false
+  "dj.dataExplorer.autoRefresh": false,
+  "dj.materialization.defaultIncrementalStrategy": "delete+insert",
+  "dj.pythonVenvPath": "./docs/examples/jaffle_shop/.venv",
+  "dj.trino.profiles": [
+    {
+      "name": "local",
+      "coordinatorUrl": "http://localhost:8080",
+      "user": "admin",
+      "authMethod": "none",
+      "authSource": "secret-storage",
+      "verifyTls": true
+    }
+  ]
 }

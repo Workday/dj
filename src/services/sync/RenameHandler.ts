@@ -14,6 +14,11 @@ import { frameworkGenerateModelOutput } from '@services/framework/utils';
 import type { CoderConfig } from '@services/types/config';
 import { jsonParse } from '@shared';
 import type { DbtProject } from '@shared/dbt/types';
+import {
+  compositionHeader,
+  type CompositionRegistry,
+  resolveModelComposition,
+} from '@shared/framework/composition';
 import type { FrameworkModel, FrameworkSyncOp } from '@shared/framework/types';
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -170,6 +175,8 @@ export class RenameHandler {
    * @param params.jsonUris - All JSON file URIs in workspace (fallback only)
    * @param params.project - Current dbt project
    * @param params.extensionConfig - Extension config for SQL generation
+   * @param params.compositionRegistry - The project's fragments and
+   *   templates; template files that name a renamed model are rewritten too
    * @returns File operations to update referencing files
    */
   async propagateRenames(params: {
@@ -177,8 +184,9 @@ export class RenameHandler {
     jsonUris: vscode.Uri[];
     project: DbtProject;
     extensionConfig: CoderConfig;
+    compositionRegistry?: CompositionRegistry;
   }): Promise<FrameworkSyncOp[]> {
-    const { renames, project, extensionConfig } = params;
+    const { renames, project, extensionConfig, compositionRegistry } = params;
     const operations: FrameworkSyncOp[] = [];
 
     if (renames.length === 0) {
@@ -258,6 +266,59 @@ export class RenameHandler {
       ],
     }));
 
+    const applyRenames = (text: string, filePath: string) => {
+      let updated = text;
+      for (const { pathJson: renamePath, replacements } of renamePatterns) {
+        if (filePath === renamePath) {
+          continue;
+        }
+        for (const { regex, replacement } of replacements) {
+          updated = updated.replaceAll(regex, replacement);
+        }
+      }
+      return updated;
+    };
+
+    // Templates can name models directly (rather than through a parameter).
+    // Rewrite those files first and register the new text so the children
+    // below regenerate against it.
+    const changedTemplates = new Set<string>();
+    for (const template of compositionRegistry?.listTemplates() ?? []) {
+      try {
+        const text = (
+          await vscode.workspace.fs.readFile(vscode.Uri.file(template.filePath))
+        ).toString();
+        const updated = applyRenames(text, template.filePath);
+        if (updated === text) {
+          continue;
+        }
+        compositionRegistry!.upsert({
+          filePath: template.filePath,
+          text: updated,
+          definition: jsonParse(updated),
+        });
+        changedTemplates.add(template.name);
+        operations.push({
+          type: 'write',
+          path: template.filePath,
+          text: updated,
+        });
+        this.logger.info(
+          `Updated references in: ${path.basename(template.filePath)}`,
+        );
+      } catch (err: unknown) {
+        this.logger.error(
+          `Failed to process template during rename propagation: ${template.filePath}`,
+          err,
+        );
+      }
+    }
+    for (const name of changedTemplates) {
+      for (const modelPath of compositionRegistry!.usedBy('template', name)) {
+        filesToProcess.add(modelPath);
+      }
+    }
+
     // Process files in parallel batches to optimize performance
     const fileArray = Array.from(filesToProcess);
     const batchSize = SYNC_BATCH_SIZES.RENAME_PROPAGATION;
@@ -273,36 +334,23 @@ export class RenameHandler {
             // Read the model file
             const modelJsonFileOld =
               await vscode.workspace.fs.readFile(uriJson);
-            let modelJsonString = modelJsonFileOld.toString();
-            let hasChanges = false;
-
-            // Check each rename and apply replacements
-            for (const {
-              pathJson: renamePath,
-              replacements,
-            } of renamePatterns) {
-              // Skip the file being renamed itself
-              if (pathJson === renamePath) {
-                continue;
-              }
-
-              // Apply all replacements for this rename
-              for (const { regex, replacement } of replacements) {
-                const updated = modelJsonString.replaceAll(regex, replacement);
-                if (updated !== modelJsonString) {
-                  hasChanges = true;
-                  modelJsonString = updated;
-                }
-              }
-            }
+            const originalText = modelJsonFileOld.toString();
+            const modelJsonString = applyRenames(originalText, pathJson);
+            const hasChanges = modelJsonString !== originalText;
+            const composition = resolveModelComposition<FrameworkModel>(
+              jsonParse(modelJsonString),
+              compositionRegistry,
+            );
+            const usesChangedTemplate = composition.dependencies.templates.some(
+              (name) => changedTemplates.has(name),
+            );
 
             // If changes were made, regenerate SQL and return operations
-            if (hasChanges) {
-              const modelJsonNew = jsonParse(modelJsonString) as FrameworkModel;
+            if ((hasChanges || usesChangedTemplate) && !composition.hasErrors) {
               const generated = frameworkGenerateModelOutput({
                 dj: { config: extensionConfig },
                 project,
-                modelJson: modelJsonNew,
+                modelJson: composition.resolved,
               });
 
               const pathSql = pathJson.replace(/\.model\.json$/, '.sql');
@@ -311,16 +359,24 @@ export class RenameHandler {
                 `Updated references in: ${path.basename(pathJson)}`,
               );
 
+              const sql = composition.composed
+                ? compositionHeader(composition.dependencies, '--') +
+                  generated.sql
+                : generated.sql;
               return [
-                {
-                  type: 'write' as const,
-                  path: pathJson,
-                  text: modelJsonString,
-                },
+                ...(hasChanges
+                  ? [
+                      {
+                        type: 'write' as const,
+                        path: pathJson,
+                        text: modelJsonString,
+                      },
+                    ]
+                  : []),
                 {
                   type: 'write' as const,
                   path: pathSql,
-                  text: generated.sql,
+                  text: sql,
                 },
               ];
             }

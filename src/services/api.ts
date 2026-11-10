@@ -98,6 +98,11 @@ export class Api {
       case 'framework-check-model-exists':
       case 'framework-preferences':
       case 'framework-model-cte-analysis':
+      case 'framework-fragment-list':
+      case 'framework-fragment-get':
+      case 'framework-fragment-columns':
+      case 'framework-template-list':
+      case 'framework-template-get':
       case 'framework-python-model-create':
       case 'framework-dag-create':
       case 'framework-get-available-dags':
@@ -122,6 +127,7 @@ export class Api {
       case 'lightdash-yaml-get-download-defaults':
       case 'lightdash-yaml-set-default-path':
       case 'lightdash-yaml-get-path-project':
+      case 'lightdash-yaml-resolve-project':
       case 'lightdash-yaml-ensure-gitignore':
         // Lazy resolution - gets handler only when needed
         return (await this.getLightdashHandler()(

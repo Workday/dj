@@ -566,6 +566,15 @@ export function AppProvider() {
                     apiResponse<typeof payloadType>({ project: undefined }),
                   );
                 }
+                case 'lightdash-yaml-resolve-project': {
+                  // No Lightdash org to look slugs up in during dev; treat the
+                  // entered value as the UUID.
+                  const project = (payload.request as { project: string })
+                    .project;
+                  return resolve(
+                    apiResponse<typeof payloadType>({ uuid: project.trim() }),
+                  );
+                }
                 case 'lightdash-yaml-get-download-defaults': {
                   return resolve(
                     apiResponse<typeof payloadType>({
@@ -1509,6 +1518,57 @@ SELECT * FROM final`,
                 }
                 case 'framework-get-model-data': {
                   return resolve(apiResponse<typeof payloadType>(null));
+                }
+                case 'framework-fragment-list': {
+                  return resolve(
+                    apiResponse<typeof payloadType>([
+                      {
+                        name: 'focus_cost_columns',
+                        kind: 'select',
+                        filePath: '/mock/focus_cost_columns.fragment.json',
+                      },
+                    ]),
+                  );
+                }
+                case 'framework-fragment-get': {
+                  return resolve(apiResponse<typeof payloadType>(null));
+                }
+                case 'framework-fragment-columns': {
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      columns: [
+                        { name: 'billed_cost', type: 'fct' },
+                        { name: 'charge_period_start', type: 'dim' },
+                      ],
+                    }),
+                  );
+                }
+                case 'framework-template-list': {
+                  return resolve(
+                    apiResponse<typeof payloadType>([
+                      {
+                        name: 'focus_monthly_cost',
+                        filePath: '/mock/focus_monthly_cost.template.json',
+                        paramNames: ['source_model'],
+                      },
+                    ]),
+                  );
+                }
+                case 'framework-template-get': {
+                  return resolve(
+                    apiResponse<typeof payloadType>({
+                      name: 'focus_monthly_cost',
+                      filePath: '/mock/focus_monthly_cost.template.json',
+                      definition: {
+                        name: 'focus_monthly_cost',
+                        params: {
+                          source_model: { type: 'model' },
+                        },
+                        model: { type: 'mart_select_model' },
+                      },
+                      usedBy: [],
+                    }),
+                  );
                 }
                 case 'framework-get-model-settings': {
                   // Mock model settings for web development

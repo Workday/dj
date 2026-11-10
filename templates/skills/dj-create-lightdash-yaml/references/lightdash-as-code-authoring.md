@@ -42,7 +42,7 @@ labels:
   explore `baseTable`), NOT the slugified `lightdash.table.label`. The label is
   display-only.
 
-Fastest lookup: `scripts/get_explore_fields.py --project <uuid> --explore <name>`
+Fastest lookup: `scripts/get_explore_fields.py --project <slug-or-uuid> --explore <name>`
 or `GET /api/v1/projects/{projectUuid}/explores/{exploreName}` (read
 `results.baseTable` and `results.tables[baseTable].dimensions|metrics`).
 
@@ -217,8 +217,8 @@ rectangles non-overlapping.
 ## 8. Uploading
 
 Don't tell the user to run the upload CLI directly. Either point them to the
-`DJ: Lightdash - Dashboards as Code` webview (paste the project UUID in the
-required Project UUID field), or offer to run the command yourself after
+`DJ: Lightdash - Dashboards as Code` webview (paste the project slug or UUID in the
+required project field), or offer to run the command yourself after
 confirming the target project. The equivalent command:
 
 ```

@@ -3,7 +3,12 @@
     "group": "sales",
     "topic": "orders",
     "name": "enriched",
-    "materialization": "incremental",
+    "materialization": {
+        "type": "incremental",
+        "strategy": {
+            "type": "delete+insert"
+        }
+    },
     "from": {
         "model": "stg__sales__orders__standardized",
         "join": [

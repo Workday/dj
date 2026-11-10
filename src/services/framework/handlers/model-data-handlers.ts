@@ -109,14 +109,18 @@ export class ModelDataHandlers {
               vscode.Uri.file(modelJsonPath),
             );
             if (modelJson) {
-              const enrichedModelData = {
-                ...modelJson,
+              const raw = modelJson as FrameworkModel;
+              const resolved =
+                this.ctx.compositionStore.resolve<FrameworkModel>(
+                  project,
+                  raw,
+                ).resolved;
+              return apiResponse<typeof payload.type>({
+                raw,
+                resolved,
                 projectName: project.name,
                 originalModelPath: modelJsonPath,
-              };
-              return apiResponse<typeof payload.type>(
-                enrichedModelData as unknown as FrameworkModel,
-              );
+              });
             }
           } catch (err: unknown) {
             this.ctx.log.warn(

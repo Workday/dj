@@ -138,7 +138,7 @@ export function UploadView() {
     const project = uploadOptions.project.trim();
     const nextErrors: typeof errors = {};
     if (!project) {
-      nextErrors.project = 'Project UUID is required.';
+      nextErrors.project = 'Project slug or UUID is required.';
     }
     if (totalFiles === 0) {
       nextErrors.files = 'No local YAML files to upload. Run a download first.';
@@ -199,15 +199,14 @@ export function UploadView() {
           />
         </header>
 
-        {/* Project UUID is required so download/upload always targets an
+        {/* The project is required so download/upload always targets an
             explicit project, never the Lightdash CLI's ambient
-            active-project default. Production and preview UUIDs are
-            both valid - copy from the project URL after `/projects/`
-            or from the project's settings page. */}
+            active-project default. Either a project slug or a UUID is
+            accepted, for production or preview projects. */}
         <div className="bg-card rounded-lg p-4 shrink-0">
           <InputText
-            label="Project UUID (required)"
-            tooltipText="Required. Lightdash project UUID — production or preview. Find it in the project URL after `/projects/`, or in the project's settings page."
+            label="Project slug or UUID (required)"
+            tooltipText="Required. Lightdash project slug or UUID, for production or preview. The UUID is in the project URL after `/projects/`, or on the project's settings page."
             value={uploadOptions.project}
             onChange={(e) => {
               setUploadOption('project', e.target.value);
@@ -215,7 +214,7 @@ export function UploadView() {
                 setErrors((prev) => ({ ...prev, project: undefined }));
               }
             }}
-            placeholder="production or preview UUID"
+            placeholder="project slug or UUID"
             error={errors.project}
           />
         </div>

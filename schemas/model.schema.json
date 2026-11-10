@@ -14,6 +14,7 @@
     { "$ref": "model.type.int_rollup_model.schema.json" },
     { "$ref": "model.type.int_union_models.schema.json" },
     { "$ref": "model.type.mart_select_model.schema.json" },
-    { "$ref": "model.type.mart_join_models.schema.json" }
+    { "$ref": "model.type.mart_join_models.schema.json" },
+    { "$ref": "model.extends.schema.json" }
   ]
 }

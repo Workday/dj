@@ -17,6 +17,8 @@ const SUPPORTED_EXTENSIONS = [
   'json',
   'model.json',
   'source.json',
+  'fragment.json',
+  'template.json',
   'sql',
   'yml',
 ] as const;

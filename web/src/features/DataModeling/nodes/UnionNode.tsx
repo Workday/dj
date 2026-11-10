@@ -22,6 +22,7 @@ import {
   getAllUsedModelsAndSources,
 } from '../../../utils/dataModeling';
 import ErrorMessage from '../components/ErrorMessage';
+import { pickModelProject } from '../utils/projectSelection';
 
 export interface AvailableModel {
   label: string;
@@ -142,7 +143,14 @@ export const UnionNode: React.FC<NodeProps> = () => {
         return;
       }
 
-      const project = projects[0];
+      const project = pickModelProject(
+        projects,
+        useModelStore.getState().basicFields.projectName,
+      );
+      if (!project) {
+        setModels([]);
+        return;
+      }
 
       if (!project.manifest?.nodes) {
         setModels([]);

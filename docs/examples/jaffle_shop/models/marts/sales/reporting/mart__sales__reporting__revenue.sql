@@ -1,3 +1,4 @@
+-- DJ composed from fragments: jaffle_lightdash_explore
 {{
   config(
     materialized="view"
@@ -10,7 +11,10 @@ WITH
 			customer_id,
 			customer_name,
 			datetime,
-			day_of_week(order_date) IN (6, 7) AS is_weekend_order,
+			CASE
+				WHEN day_of_week(order_date) IN (6, 7) THEN 'Weekend'
+				ELSE 'Weekday'
+			END AS day_type,
 			order_date,
 			order_id,
 			EXTRACT(

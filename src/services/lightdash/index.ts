@@ -27,6 +27,7 @@ import {
   resolveAbsoluteWorkingDir,
   syncYamlSchemasSetting,
 } from '@services/lightdash/dashboardsAsCode';
+import { resolveLightdashProjectUuid } from '@services/lightdash/projectResolver';
 import { getHtml } from '@services/webview/utils';
 import {
   describeLightdashRestriction,
@@ -308,10 +309,12 @@ export class Lightdash implements ApiEnabledService<'lightdash'> {
             await syncYamlSchemasSetting(this.log);
             // Record which project now owns this folder so a later
             // different-project download can prompt to replace.
-            await this.rememberProjectForPath(
-              result.absolutePath,
-              payload.request.project.trim(),
-            );
+            if (result.project) {
+              await this.rememberProjectForPath(
+                result.absolutePath,
+                result.project,
+              );
+            }
             // Re-scan the reverse-lineage index so the Lightdash Lineage
             // panel reflects the newly downloaded content on its next read.
             await this.refreshReverseLineageIndex();
@@ -357,9 +360,21 @@ export class Lightdash implements ApiEnabledService<'lightdash'> {
         }
       }
       case 'lightdash-yaml-check-upload-policy': {
-        const project = payload.request.project.trim();
+        const resolution = await resolveLightdashProjectUuid(
+          payload.request.project,
+        );
+        if (!resolution.ok) {
+          // Unresolvable projects are reported as blocked so the upload never
+          // spawns against a project the policy could not be checked for.
+          return apiResponse<typeof payload.type>({
+            status: 'block',
+            mode: 'block',
+            uuid: payload.request.project.trim(),
+            message: resolution.error,
+          });
+        }
         const status = resolveLightdashUploadRestriction(
-          project,
+          resolution.uuid,
           getDjConfig().lightdashRestrictedProjects ?? [],
         );
         if (status.status === 'allow') {
@@ -393,6 +408,16 @@ export class Lightdash implements ApiEnabledService<'lightdash'> {
         return apiResponse<typeof payload.type>({
           project: this.getProjectForPath(absolutePath),
         });
+      }
+      case 'lightdash-yaml-resolve-project': {
+        const resolution = await resolveLightdashProjectUuid(
+          payload.request.project,
+        );
+        return apiResponse<typeof payload.type>(
+          resolution.ok
+            ? { uuid: resolution.uuid }
+            : { error: resolution.error },
+        );
       }
       case 'lightdash-yaml-get-download-defaults': {
         return apiResponse<typeof payload.type>({
@@ -851,15 +876,19 @@ export class Lightdash implements ApiEnabledService<'lightdash'> {
   }> {
     const config = getDjConfig();
 
+    const resolveProfilesDir = (projectDir: string): string => {
+      if (config.lightdashProfilesPath) {
+        return `${WORKSPACE_ROOT}/${config.lightdashProfilesPath}`;
+      }
+      return fs.existsSync(path.join(projectDir, 'profiles.yml'))
+        ? projectDir
+        : WORKSPACE_ROOT;
+    };
+
     // Check for custom configuration override for project path
     if (config.lightdashProjectPath) {
       const projectDir = `${WORKSPACE_ROOT}/${config.lightdashProjectPath}`;
-      // Use configured profiles path, otherwise fallback to workspace root
-      const profilesDir = config.lightdashProfilesPath
-        ? `${WORKSPACE_ROOT}/${config.lightdashProfilesPath}`
-        : WORKSPACE_ROOT;
-
-      return { projectDir, profilesDir };
+      return { projectDir, profilesDir: resolveProfilesDir(projectDir) };
     }
 
     // Auto-detect from available dbt projects
@@ -872,9 +901,10 @@ export class Lightdash implements ApiEnabledService<'lightdash'> {
     }
 
     if (dbtProjects.length === 1) {
+      const projectDir = dbtProjects[0].pathSystem;
       return {
-        projectDir: dbtProjects[0].pathSystem,
-        profilesDir: WORKSPACE_ROOT,
+        projectDir,
+        profilesDir: resolveProfilesDir(projectDir),
       };
     }
 
@@ -895,9 +925,10 @@ export class Lightdash implements ApiEnabledService<'lightdash'> {
     }
 
     this.log.info(`Selected dbt project: ${selected.project.name}`);
+    const projectDir = selected.project.pathSystem;
     return {
-      projectDir: selected.project.pathSystem,
-      profilesDir: WORKSPACE_ROOT,
+      projectDir,
+      profilesDir: resolveProfilesDir(projectDir),
     };
   }
 

@@ -17,6 +17,7 @@
  * - Status bar integration for user-facing progress
  */
 
+import { sharedFileKindForPath } from '@shared/framework/composition';
 import type { FrameworkSyncOp } from '@shared/framework/types';
 
 import type { DetectedRename, SyncLogger, SyncResult, SyncRoot } from './types';
@@ -147,6 +148,7 @@ export class SyncQueue {
   ): 'suppress' | 'debounce' | 'pass' {
     const isFrameworkJson =
       fsPath.endsWith('.model.json') || fsPath.endsWith('.source.json');
+    const isSharedJson = sharedFileKindForPath(fsPath) !== undefined;
 
     const opTimestamp = this.managedOps.get(fsPath);
     const now = Date.now();
@@ -162,6 +164,11 @@ export class SyncQueue {
     // Outside suppression window (or path was never managed).
     // Framework JSON files go to debounce; everything else passes through.
     if (isFrameworkJson && (type === 'change' || type === 'create')) {
+      return 'debounce';
+    }
+    // Deleting a fragment or template changes its dependents' output, so
+    // deletes are routed too.
+    if (isSharedJson) {
       return 'debounce';
     }
 
