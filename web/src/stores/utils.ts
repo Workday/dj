@@ -350,6 +350,36 @@ export const buildSelectConfig = (
         return selectItem;
       }
 
+      // Fragment column includes (all_from_fragment, dims_from_fragment, …)
+      if ('fragment' in selectItem && 'type' in selectItem) {
+        const processed: Record<string, unknown> = {
+          type: selectItem.type,
+          fragment: selectItem.fragment,
+        };
+        if (
+          'include' in selectItem &&
+          Array.isArray(selectItem.include) &&
+          selectItem.include.length > 0
+        ) {
+          processed.include = selectItem.include;
+        }
+        if (
+          'exclude' in selectItem &&
+          Array.isArray(selectItem.exclude) &&
+          selectItem.exclude.length > 0
+        ) {
+          processed.exclude = selectItem.exclude;
+        }
+        if (
+          'overrides' in selectItem &&
+          selectItem.overrides &&
+          typeof selectItem.overrides === 'object'
+        ) {
+          processed.overrides = selectItem.overrides;
+        }
+        return processed;
+      }
+
       // Handle model/source selection items (all_from_model, dims_from_model, fcts_from_model, all_from_source, etc.)
       if ('model' in selectItem || 'source' in selectItem) {
         const processed: Record<string, unknown> = {};

@@ -33,3 +33,7 @@ dbt_packages/
 logs/
 */**/.user.yml
 .eslintcache
+
+# dj
+/lightdash/
+# /dj

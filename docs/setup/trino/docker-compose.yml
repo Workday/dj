@@ -1,0 +1,55 @@
+name: dj-trino
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: iceberg
+      POSTGRES_USER: iceberg
+      POSTGRES_PASSWORD: iceberg
+    volumes:
+      - trino-pg-data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U iceberg -d iceberg']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # One-shot: gives the trino user (uid 1000) write access to the warehouse volume.
+  warehouse-init:
+    image: busybox:1.36
+    command:
+      [
+        'sh',
+        '-c',
+        'mkdir -p /data/warehouse && chown -R 1000:1000 /data/warehouse',
+      ]
+    volumes:
+      - trino-warehouse:/data/warehouse
+
+  trino:
+    image: trinodb/trino:484
+    container_name: trino_default
+    depends_on:
+      postgres:
+        condition: service_healthy
+      warehouse-init:
+        condition: service_completed_successfully
+    ports:
+      - '8080:8080'
+    volumes:
+      - ./catalog:/etc/trino/catalog:ro
+      - trino-warehouse:/data/warehouse
+    networks:
+      - default
+      - lightdash
+
+volumes:
+  trino-pg-data:
+  trino-warehouse:
+
+networks:
+  lightdash:
+    name: lightdash_default
+    external: true

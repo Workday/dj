@@ -1,3 +1,4 @@
+# DJ composed from templates: jaffle_store_reporting_base; fragments: jaffle_lightdash_explore
 version: "2"
 models:
   - name: mart__sales__reporting__profitability

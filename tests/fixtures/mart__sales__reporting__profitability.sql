@@ -1,3 +1,4 @@
+-- DJ composed from templates: jaffle_store_reporting_base; fragments: jaffle_lightdash_explore
 {{
   config(
     materialized="view"

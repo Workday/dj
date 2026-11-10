@@ -2,7 +2,7 @@ import type { SchemaSelect } from '@web/stores/useModelStore';
 
 import type {
   Column,
-  SelectionSourceKind,
+  FragmentSelectionSourceKind,
   SelectionTypeValues,
 } from '../types';
 import { SelectionType, supportsColumnName, supportsExprOnly } from '../types';
@@ -31,7 +31,7 @@ export interface UpdateSelectionsConfig {
    * which bulk variant (`_from_model` / `_from_source` / `_from_cte`) gets
    * emitted in the fallback path.
    */
-  sourceKind?: SelectionSourceKind;
+  sourceKind?: FragmentSelectionSourceKind;
   /** Column metadata for type determination fallback */
   columns?: Column[];
 }
@@ -41,9 +41,9 @@ export interface UpdateSelectionsConfig {
  * falls back to the legacy `isTypeSource` boolean.
  */
 function resolveSourceKind(
-  sourceKind: SelectionSourceKind | undefined,
+  sourceKind: FragmentSelectionSourceKind | undefined,
   isTypeSource: boolean,
-): SelectionSourceKind {
+): FragmentSelectionSourceKind {
   if (sourceKind) return sourceKind;
   return isTypeSource ? 'source' : 'model';
 }
@@ -53,12 +53,13 @@ function resolveSourceKind(
  * the appropriate key (`model` / `source` / `cte`) for the upstream value.
  */
 function buildBaseSelection(
-  kind: SelectionSourceKind,
+  kind: FragmentSelectionSourceKind,
   value: string,
   type: SelectionTypeValues,
 ): Record<string, unknown> {
   if (kind === 'source') return { source: value, type };
   if (kind === 'cte') return { cte: value, type };
+  if (kind === 'fragment') return { fragment: value, type };
   return { model: value, type };
 }
 
@@ -180,7 +181,8 @@ export function buildUpdatedSelections(
     if (
       'model' in existingSelection ||
       'source' in existingSelection ||
-      'cte' in existingSelection
+      'cte' in existingSelection ||
+      'fragment' in existingSelection
     ) {
       const existingValue =
         'model' in existingSelection
@@ -189,7 +191,9 @@ export function buildUpdatedSelections(
             ? existingSelection.source
             : 'cte' in existingSelection
               ? (existingSelection as { cte: string }).cte
-              : undefined;
+              : 'fragment' in existingSelection
+                ? (existingSelection as { fragment: string }).fragment
+                : undefined;
       if (existingValue === selectedModelValue) {
         markOwned();
         continue;
@@ -284,7 +288,7 @@ function addTypeDeterminedSelection(
   columnsToAdd: string[],
   columns: Column[],
   selectedModelValue: string,
-  sourceKind: SelectionSourceKind,
+  sourceKind: FragmentSelectionSourceKind,
 ): void {
   const withTypes = columnsToAdd.map((colName) => {
     const info = columns.find((c) => c.name === colName);

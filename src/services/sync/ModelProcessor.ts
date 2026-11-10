@@ -33,13 +33,18 @@ import {
 } from '@services/modelValidation';
 import { jsonParse } from '@shared';
 import type { DbtProject } from '@shared/dbt/types';
+import {
+  compositionHeader,
+  mapDetailsToModelFile,
+} from '@shared/framework/composition';
 import type { FrameworkModel, FrameworkSyncOp } from '@shared/framework/types';
 import * as fs from 'fs';
 import * as vscode from 'vscode';
 
-import type { CacheManager } from './cacheManager';
+import { type CacheManager, modelCacheKey } from './cacheManager';
 import { ERROR_MESSAGES } from './constants';
 import type {
+  ModelComposition,
   ModelProcessingResult,
   SyncCallbacks,
   SyncConfig,
@@ -84,20 +89,31 @@ export class ModelProcessor {
    *
    * @param params - Processing parameters
    * @param params.resource - The model resource to process
-   * @param params.jsonContent - Raw JSON file content
+   * @param params.jsonContent - Raw JSON file content; the only text ever
+   *   written back to the `.model.json` file
    * @param params.project - Current dbt project state
+   * @param params.modelJson - Resolved model to generate from; parsed from
+   *   `jsonContent` when omitted
+   * @param params.composition - Fragment/template resolution details for
+   *   models that use them
    * @returns Processing result with operations and updated project
    */
   async process(params: {
     resource: SyncResource;
     jsonContent: string;
     project: DbtProject;
+    modelJson?: FrameworkModel;
+    composition?: ModelComposition;
   }): Promise<ModelProcessingResult> {
-    const { resource, jsonContent, project } = params;
+    const { resource, jsonContent, project, composition } = params;
     const { pathJson } = resource;
+    const provenance = composition?.provenance ?? [];
+    const cacheKey = (text: string) =>
+      modelCacheKey(text, composition?.fingerprint);
 
     // 1. Parse the model JSON
-    const modelJson = jsonParse(jsonContent) as FrameworkModel;
+    const modelJson =
+      params.modelJson ?? (jsonParse(jsonContent) as FrameworkModel);
     const modelName = frameworkGetModelName(modelJson);
 
     // 2. Calculate paths
@@ -189,6 +205,10 @@ export class ModelProcessor {
       updatedProject = generated.project;
       newSql = generated.sql;
       newYml = generated.yml;
+      if (composition && newSql && newYml) {
+        newSql = compositionHeader(composition.dependencies, '--') + newSql;
+        newYml = compositionHeader(composition.dependencies, '#') + newYml;
+      }
 
       // Validate exclude/include column references against the CTE registry
       if (cteColumnRegistry) {
@@ -304,19 +324,23 @@ export class ModelProcessor {
         }
         this.callbacks.onModelValidationLintWarnings?.(
           newJsonUri,
-          metaLintWarnings,
+          mapDetailsToModelFile(metaLintWarnings, provenance),
           jsonContent,
         );
       }
 
-      if (validationWarnings.length > 0) {
-        const summary = `Model validation warnings:\n${validationWarnings
+      const positionedWarnings = [
+        ...(composition?.warnings ?? []),
+        ...mapDetailsToModelFile(validationWarnings, provenance),
+      ];
+      if (positionedWarnings.length > 0) {
+        const summary = `Model validation warnings:\n${positionedWarnings
           .map((w) => w.message)
           .join('\n')}`;
         this.callbacks.onModelValidationWarning?.(
           newJsonUri,
           summary,
-          validationWarnings,
+          positionedWarnings,
           jsonContent,
         );
       } else if (!hasMetaLintWarnings) {
@@ -393,7 +417,7 @@ export class ModelProcessor {
         skipped: true, // Mark as skipped for stats, but we provide updatedProject
         cacheInfo: {
           pathJson,
-          jsonContent,
+          jsonContent: cacheKey(jsonContent),
           sql: newSql,
           yml: newYml,
           isSource: false,
@@ -448,7 +472,7 @@ export class ModelProcessor {
       skipped: false,
       cacheInfo: {
         pathJson: pathJson !== newJsonPath ? newJsonPath : pathJson,
-        jsonContent: pathJson !== newJsonPath ? newJson : jsonContent,
+        jsonContent: cacheKey(jsonContent),
         sql: newSql,
         yml: newYml,
         isSource: false,

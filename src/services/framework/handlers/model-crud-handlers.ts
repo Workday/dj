@@ -1,4 +1,5 @@
 import { getDjConfig } from '@services/config';
+import { modelExistsFor } from '@services/framework/composition-store';
 import {
   frameworkBuildColumns,
   frameworkBuildCteColumnRegistry,
@@ -21,6 +22,11 @@ import { jsonParse, removeEmpty } from '@shared';
 import type { ApiPayload, ApiResponse } from '@shared/api/types';
 import { apiResponse } from '@shared/api/utils';
 import type { DbtProject } from '@shared/dbt/types';
+import {
+  diffAgainstTemplate,
+  usesComposition,
+} from '@shared/framework/composition';
+import type { JsonObject } from '@shared/framework/composition/json';
 import { materializationInsertionIndex } from '@shared/framework/materialization';
 import type {
   FrameworkColumn,
@@ -56,10 +62,59 @@ const JSONC_FORMAT_OPTIONS = {
 export class ModelCrudHandlers {
   constructor(private readonly ctx: FrameworkContext) {}
 
+  /**
+   * Resolve a draft (wizard output or raw file content) for authoring-time
+   * checks and previews. The raw draft is what gets written to disk; only
+   * the returned model is validated and generated from.
+   */
+  private resolveDraftForAuthoring(
+    modelJson: FrameworkModel,
+    project: DbtProject,
+  ): FrameworkModel {
+    return this.ctx.compositionStore.resolve<FrameworkModel>(project, modelJson)
+      .resolved;
+  }
+
+  /**
+   * Shrinks a template child edited in merged form to the smallest on-disk
+   * shape (`extends`, `with`, deltas). No-op when `extends` is absent.
+   */
+  private async compressTemplateChildForDisk(
+    project: DbtProject,
+    model: FrameworkModel,
+  ): Promise<FrameworkModel> {
+    if (
+      typeof (model as unknown as Record<string, unknown>).extends !== 'string'
+    ) {
+      return model;
+    }
+    await this.ctx.framework.compositionHandlers.ensureLoaded(project);
+    const { child, warnings } = diffAgainstTemplate(
+      model as unknown as JsonObject,
+      this.ctx.compositionStore.registryFor(project),
+      { modelExists: modelExistsFor(project) },
+    );
+    for (const warning of warnings) {
+      this.ctx.log.warn(`Template child diff: ${warning}`);
+    }
+    return removeEmpty(child) as unknown as FrameworkModel;
+  }
+
+  private modelJsonForSchemaValidation(
+    modelJson: FrameworkModel,
+    project: DbtProject,
+  ): FrameworkModel {
+    if (usesComposition(modelJson)) {
+      return this.resolveDraftForAuthoring(modelJson, project);
+    }
+    return modelJson;
+  }
+
   private assertValidModelJsonForAuthoring(
     modelJson: FrameworkModel,
     project: DbtProject,
   ): void {
+    modelJson = this.resolveDraftForAuthoring(modelJson, project);
     const validator = getValidatorForType(this.ctx.ajv, modelJson.type);
     if (!validator) {
       throw new Error('Model JSON Validation Not Active');
@@ -160,16 +215,17 @@ export class ModelCrudHandlers {
       'model-create',
     );
 
-    const modelJson = this.prepareModelJsonFromRequest(
+    let modelJson = this.prepareModelJsonFromRequest(
       payload.request,
       autoGenerateTestsConfig,
     );
+    modelJson = await this.compressTemplateChildForDisk(project, modelJson);
     this.assertValidModelJsonForAuthoring(modelJson, project);
 
     if (payload.request.validateOnly) {
       const preview = this.buildModelPreviewPayload(
         project,
-        modelJson,
+        this.resolveDraftForAuthoring(modelJson, project),
         autoGenerateTestsConfig,
       );
       return apiResponse<typeof payload.type>({
@@ -434,6 +490,11 @@ export class ModelCrudHandlers {
       updatedModelJson = mergedBase as unknown as typeof modelJson;
     }
 
+    updatedModelJson = await this.compressTemplateChildForDisk(
+      project,
+      updatedModelJson,
+    );
+
     // Remove properties that should not be in the model JSON schema before validation
     const {
       projectName: _,
@@ -441,26 +502,31 @@ export class ModelCrudHandlers {
       ...modelJsonForValidation
     } = updatedModelJson as any;
 
+    const schemaValidationBody = this.modelJsonForSchemaValidation(
+      modelJsonForValidation as FrameworkModel,
+      project,
+    );
+
     this.ctx.log.info(
       '[Model Update] Validating model JSON',
-      modelJsonForValidation,
+      schemaValidationBody,
     );
 
     // Get type-specific validator - required!
     const validator = getValidatorForType(
       this.ctx.ajv,
-      modelJsonForValidation.type,
+      schemaValidationBody.type,
     );
 
     if (!validator) {
       throw new Error('Model JSON Validation Not Active');
     }
 
-    validator(modelJsonForValidation); // Will return false if invalid
+    validator(schemaValidationBody); // Will return false if invalid
     const errors = validator.errors;
     if (errors) {
       // Clean up temp file on validation error
-      const modelName = frameworkGetModelName(modelJsonForValidation);
+      const modelName = frameworkGetModelName(schemaValidationBody);
       try {
         await this.ctx.stateManager.clearModelEditDraft(modelName);
       } catch (cleanupError: unknown) {
@@ -473,7 +539,7 @@ export class ModelCrudHandlers {
       const errorMessages = formatValidationErrors(
         errors,
         'model',
-        modelJsonForValidation.type,
+        schemaValidationBody.type,
       );
       const message = errorMessages.join('\n');
       // Set diagnostics on the original model file
@@ -489,7 +555,7 @@ export class ModelCrudHandlers {
 
     // CTE constraints (unique names, no forward refs) can't be expressed
     // in JSON Schema alone, so we validate them as a secondary pass.
-    const cteErrors = validateCtes(modelJsonForValidation);
+    const cteErrors = validateCtes(schemaValidationBody);
     if (cteErrors.length > 0) {
       const modelName = frameworkGetModelName(modelJsonForValidation);
       try {
@@ -511,17 +577,14 @@ export class ModelCrudHandlers {
     }
 
     // Validate exclude/include column references if CTEs are present
-    if (
-      'ctes' in modelJsonForValidation &&
-      modelJsonForValidation.ctes?.length
-    ) {
+    if ('ctes' in schemaValidationBody && schemaValidationBody.ctes?.length) {
       const cteColumnRegistry = frameworkBuildCteColumnRegistry({
-        ctes: modelJsonForValidation.ctes,
-        modelJson: modelJsonForValidation,
+        ctes: schemaValidationBody.ctes,
+        modelJson: schemaValidationBody,
         project,
       });
       const colRefErrors = validateCteColumnReferences(
-        modelJsonForValidation,
+        schemaValidationBody,
         cteColumnRegistry,
       );
       if (colRefErrors.length > 0) {
@@ -793,9 +856,9 @@ export class ModelCrudHandlers {
 
     const autoGenerateTestsConfig = getDjConfig().autoGenerateTests;
     const sourceRecord = rawModelJson as Record<string, unknown>;
-    const formattedModelJson = this.prepareModelJsonFromRequest(
-      sourceRecord,
-      autoGenerateTestsConfig,
+    const formattedModelJson = this.resolveDraftForAuthoring(
+      this.prepareModelJsonFromRequest(sourceRecord, autoGenerateTestsConfig),
+      project,
     );
 
     this.assertValidModelJsonForAuthoring(formattedModelJson, project);

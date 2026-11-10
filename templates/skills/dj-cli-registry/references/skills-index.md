@@ -15,6 +15,7 @@ All DJ agent skills deployed to `.agents/skills/` when `dj.codingAgent` is enabl
 | `dj-convert-sql-to-model` | formalize existing SQL query as model | `model.preview`, `model.create` | Yes |
 | `dj-create-source` | register raw Trino table as `.source.json` | `source.create`, `trino.columns`, `trino.tables` | Yes |
 | `dj-review-and-refactor-model` | review, audit, modernize, refactor `.model.json` | `model.preview`, `model.update`, `model.cte-analysis` | Yes |
+| `dj-extract-shared-fragments` | dedupe shared columns/config into `*.fragment.json` | `model.get`, `fragment.list`, `model.sync` | Partial |
 | `dj-migrate-ephemerals-to-ctes` | inline ephemeral models as CTEs | `model.preview`, `model.update` | Partial |
 | `dj-govern-model` | governance audit — ownership, PII, compliance | `dbt.models`, `dbt.sources` (discovery) | Partial |
 | `dj-update-ai-hints` | add/update Lightdash AI hints in model/source JSON | — | No |
