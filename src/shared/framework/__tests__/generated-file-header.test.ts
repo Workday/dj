@@ -121,6 +121,51 @@ describe('decideGeneratedFileAction', () => {
     });
   });
 
+  test('keeps an identical file stamped by a newer version without a warning', () => {
+    expect(decide(withGeneratedHeader(BODY, '2.6.0'))).toEqual({
+      action: 'keep',
+      reason: 'up-to-date',
+    });
+  });
+
+  describe('with a content stamp version older than the running DJ', () => {
+    const decideStamped = (existing: string) =>
+      decideGeneratedFileAction({
+        existing,
+        desiredBody: BODY,
+        version: '2.6.0',
+        stampVersion: '2.5.1',
+      });
+
+    test('keeps an identical file whatever version its header names', () => {
+      for (const header of ['2.5.1', '2.6.0', '2.7.0']) {
+        expect(decideStamped(withGeneratedHeader(BODY, header))).toEqual({
+          action: 'keep',
+          reason: 'up-to-date',
+        });
+      }
+    });
+
+    test('rewrites a file older than the content version as outdated', () => {
+      expect(decideStamped(withGeneratedHeader('OLD = 1\n', '2.4.0'))).toEqual({
+        action: 'write',
+        reason: 'outdated',
+      });
+    });
+
+    test('rewrites a hand-edited file stamped by the running DJ as changed', () => {
+      expect(
+        decideStamped(withGeneratedHeader('EDITED = 1\n', '2.6.0')),
+      ).toEqual({ action: 'write', reason: 'changed' });
+    });
+
+    test('keeps a differing file stamped by a DJ newer than the running one', () => {
+      expect(
+        decideStamped(withGeneratedHeader('NEWER = 1\n', '2.7.0')),
+      ).toEqual({ action: 'keep', reason: 'newer', fileVersion: '2.7.0' });
+    });
+  });
+
   test('rewrites a hand-edited file when body differs from desired', () => {
     const edited = withGeneratedHeader(BODY, '2.5.0') + 'HACK = True\n';
     expect(decide(edited)).toEqual({ action: 'write', reason: 'changed' });

@@ -7,6 +7,7 @@ import {
   test,
 } from '@jest/globals';
 import { withGeneratedHeader } from '@shared/framework/generated-file-header';
+import { GENERATED_FILE_CONTENT_VERSIONS } from '@shared/framework/generated-file-versions';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -150,6 +151,54 @@ describe('writeGeneratedFileIfOutdated', () => {
       version: '2.5.0',
     });
     expect(writes).toEqual([]);
+  });
+
+  describe('content version stamping', () => {
+    const trinoIoPath = () =>
+      path.join(tmpRoot, 'dags', 'python_models', '_trino_io.py');
+    const contentVersion =
+      GENERATED_FILE_CONTENT_VERSIONS['_trino_io.py'].version;
+
+    test('stamps the content version from the map, not the running version', async () => {
+      await writeGeneratedFileIfOutdated({
+        filePath: trinoIoPath(),
+        body: BODY,
+        log,
+        version: '9.9.9',
+      });
+      expect(disk.get(trinoIoPath())).toBe(
+        withGeneratedHeader(BODY, contentVersion),
+      );
+    });
+
+    test('different DJ versions refreshing the same stale copy write identical output', async () => {
+      const outputs: string[] = [];
+      for (const version of ['2.6.0', '2.7.0']) {
+        disk.set(trinoIoPath(), BODY);
+        await writeGeneratedFileIfOutdated({
+          filePath: trinoIoPath(),
+          body: BODY,
+          log,
+          version,
+        });
+        outputs.push(disk.get(trinoIoPath()) ?? '');
+      }
+      expect(outputs[0]).toBe(withGeneratedHeader(BODY, contentVersion));
+      expect(outputs[1]).toBe(outputs[0]);
+    });
+
+    test('keeps the header of an identical file stamped by an earlier DJ', async () => {
+      const stampedByOlderDj = withGeneratedHeader(BODY, '2.6.0');
+      disk.set(trinoIoPath(), stampedByOlderDj);
+      await writeGeneratedFileIfOutdated({
+        filePath: trinoIoPath(),
+        body: BODY,
+        log,
+        version: '2.7.0',
+      });
+      expect(writes).toEqual([]);
+      expect(disk.get(trinoIoPath())).toBe(stampedByOlderDj);
+    });
   });
 
   test('leaves every file alone while a merge is in progress', async () => {
