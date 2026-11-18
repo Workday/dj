@@ -1,8 +1,10 @@
 /**
  * Version header stamped on the first line of every DJ-generated runtime
  * file (`_trino_io.py`, `_config.py`, `_model_tasks.py`, the etl helper bundle).
- * The header lets DJ tell an outdated file from a newer one written by a
- * teammate's DJ, so regeneration never downgrades content pulled from git.
+ * The header names the DJ version in which the file's content last changed
+ * (see `GENERATED_FILE_CONTENT_VERSIONS`), which lets DJ tell an outdated file
+ * from a newer one written by a teammate's DJ, so regeneration never
+ * downgrades content pulled from git.
  */
 export const GENERATED_FILE_HEADER_PREFIX = '# dj-generated:';
 
@@ -103,21 +105,26 @@ export function hasConflictMarkers(text: string): boolean {
 /**
  * Decide whether DJ should (re)write a generated file.
  *
- * - Missing, unversioned, or outdated files are rewritten when body differs.
- * - Files whose body already matches are kept even when the header names an
- *   older version, so a DJ upgrade with unchanged output produces no diff.
+ * - Files whose body already matches are kept whatever version the header
+ *   names, so upgrading DJ or refreshing a stale copy with unchanged output
+ *   produces no diff.
  * - Files whose body matches but whose header carries extra fields (the
  *   earlier `sha256=` form) are rewritten once to the version-only header.
- * - Files stamped by a newer DJ, or containing conflict markers, are kept.
+ * - Files stamped by a DJ newer than the running `version`, or containing
+ *   conflict markers, are kept.
+ * - Missing, unversioned, outdated, or hand-edited files are rewritten.
+ *   `stampVersion` is the content version the rewrite will be stamped with.
  */
 export function decideGeneratedFileAction({
   existing,
   desiredBody,
   version,
+  stampVersion = version,
 }: {
   existing: string | undefined;
   desiredBody: string;
   version: string;
+  stampVersion?: string;
 }): GeneratedFileDecision {
   if (existing === undefined) {
     return { action: 'write', reason: 'missing' };
@@ -131,11 +138,6 @@ export function decideGeneratedFileAction({
     return { action: 'write', reason: 'unversioned' };
   }
 
-  const versionOrder = compareVersions(header.version, version);
-  if (versionOrder > 0) {
-    return { action: 'keep', reason: 'newer', fileVersion: header.version };
-  }
-
   if (body === normalizeLineEndings(desiredBody)) {
     const firstLine = normalizeLineEndings(existing).split('\n', 1)[0];
     if (
@@ -145,5 +147,15 @@ export function decideGeneratedFileAction({
     }
     return { action: 'keep', reason: 'up-to-date' };
   }
-  return { action: 'write', reason: versionOrder < 0 ? 'outdated' : 'changed' };
+
+  if (compareVersions(header.version, version) > 0) {
+    return { action: 'keep', reason: 'newer', fileVersion: header.version };
+  }
+  return {
+    action: 'write',
+    reason:
+      compareVersions(header.version, stampVersion) < 0
+        ? 'outdated'
+        : 'changed',
+  };
 }

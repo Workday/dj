@@ -1,5 +1,11 @@
 # Change Log
 
+## 2.6.1
+
+### Generated runtime files
+
+- **No more header-only diffs on generated files.** The `# dj-generated:` header on `_trino_io.py`, `_config.py`, `_model_tasks.py`, and the `dags/_ext_/` etl helper bundle now records the DJ version that last changed each file's content.
+
 ## 2.6.0
 
 ### Shared fragments and templates

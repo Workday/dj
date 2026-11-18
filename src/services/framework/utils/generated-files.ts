@@ -5,6 +5,7 @@ import {
   normalizeLineEndings,
   withGeneratedHeader,
 } from '@shared/framework/generated-file-header';
+import { getGeneratedFileContentVersion } from '@shared/framework/generated-file-versions';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -44,22 +45,27 @@ async function readTextIfExists(uri: vscode.Uri): Promise<string | undefined> {
 }
 
 /**
- * Write a DJ-generated file only when it is missing, unversioned, or older
- * than the running DJ and the body differs from the desired output. Files
- * stamped by a newer DJ, files with
- * conflict markers, and every file while a git merge/rebase is in progress are
- * left untouched so DJ never fights content git just wrote.
+ * Write a DJ-generated file only when its body differs from the desired
+ * output and it is not stamped by a DJ newer than the running `version`.
+ * Rewrites are stamped with `stampVersion`, the version in which the file's
+ * content last changed, so DJ releases that leave a file unchanged never move
+ * its header. Files with conflict markers, and every file while a git
+ * merge/rebase is in progress, are left untouched so DJ never fights content
+ * git just wrote.
  */
 export async function writeGeneratedFileIfOutdated({
   filePath,
   body,
   log,
   version = getDjExtensionVersion(),
+  stampVersion = getGeneratedFileContentVersion(path.basename(filePath)) ??
+    version,
 }: {
   filePath: string;
   body: string;
   log: GeneratedFileLogger;
   version?: string;
+  stampVersion?: string;
 }): Promise<GeneratedFileDecision> {
   const label = path.basename(filePath);
   if (isGitOperationInProgress(path.dirname(filePath))) {
@@ -73,6 +79,7 @@ export async function writeGeneratedFileIfOutdated({
     existing,
     desiredBody: body,
     version,
+    stampVersion,
   });
 
   if (decision.action === 'write') {
@@ -81,7 +88,7 @@ export async function writeGeneratedFileIfOutdated({
     );
     await vscode.workspace.fs.writeFile(
       uri,
-      Buffer.from(withGeneratedHeader(body, version)),
+      Buffer.from(withGeneratedHeader(body, stampVersion)),
     );
     log.info(`Generated ${label} (${decision.reason}) at: ${filePath}`);
   } else if (decision.reason !== 'up-to-date') {
